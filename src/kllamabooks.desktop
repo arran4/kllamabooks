@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=KLlamaBooks
+Comment=Interact with local Ollama models and save chat history
+Exec=kllamabooks
+Icon=kllamabooks
+Terminal=false
+Type=Application
+Categories=Utility;

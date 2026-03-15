@@ -1,0 +1,9 @@
+[Global]
+IconName=kllamabooks
+Comment=KLlamaBooks
+
+[Event/NewNotification]
+Name=New Notification
+Comment=You have a new message
+Action=Popup
+Urgency=Normal
