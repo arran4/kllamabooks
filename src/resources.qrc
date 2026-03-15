@@ -1,0 +1,12 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+    <qresource prefix="/">
+        <file>assets/icon.png</file>
+        <file>assets/icon-dotted.png</file>
+        <file>kgithub-notifyui.rc</file>
+        <file>kgithub-notify.desktop</file>
+    </qresource>
+    <qresource prefix="/knotifications6">
+        <file alias="kgithub-notify.notifyrc">kgithub-notify.notifyrc</file>
+    </qresource>
+</RCC>
