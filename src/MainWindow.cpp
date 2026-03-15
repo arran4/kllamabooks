@@ -47,8 +47,23 @@ void MainWindow::setupUi() {
     splitter = new QSplitter(this);
     setCentralWidget(splitter);
 
+    leftSplitter = new QSplitter(Qt::Vertical, this);
+
+    openBooksTree = new QTreeView(this);
+    openBooksModel = new QStandardItemModel(this);
+    openBooksTree->setModel(openBooksModel);
+    openBooksTree->setHeaderHidden(true);
+
     bookList = new QListWidget(this);
-    splitter->addWidget(bookList);
+
+    leftSplitter->addWidget(openBooksTree);
+    leftSplitter->addWidget(bookList);
+
+    // Initial size of left splitter
+    leftSplitter->setStretchFactor(0, 3); // 60% approx
+    leftSplitter->setStretchFactor(1, 2); // 40% approx
+
+    splitter->addWidget(leftSplitter);
 
     QWidget* rightWidget = new QWidget(this);
     QVBoxLayout* rightLayout = new QVBoxLayout(rightWidget);
@@ -69,17 +84,35 @@ void MainWindow::setupUi() {
 
     splitter->addWidget(rightWidget);
 
+    // Initial sizes
+    int totalWidth = width();
+    int leftWidth = qMax(totalWidth * 20 / 100, 100);
+    int rightWidth = totalWidth - leftWidth;
+    splitter->setSizes(QList<int>() << leftWidth << rightWidth);
+    splitter->setStretchFactor(0, 0);
+    splitter->setStretchFactor(1, 1);
+
     QToolBar* toolbar = addToolBar("Main");
-    QAction* newBookAction = toolbar->addAction("New Book");
+    QAction* newBookAction = new QAction(QIcon::fromTheme("document-new"), tr("New Book"), this);
+    actionCollection()->addAction(QStringLiteral("new_book"), newBookAction);
+    toolbar->addAction(newBookAction);
 
     connect(newBookAction, &QAction::triggered, this, &MainWindow::onCreateBook);
-    connect(bookList, &QListWidget::clicked, this, &MainWindow::onBookSelected);
+    connect(bookList, &QListWidget::doubleClicked, this, &MainWindow::onBookSelected); // Open book from list via double click
     connect(sendButton, &QPushButton::clicked, this, &MainWindow::onSendMessage);
     connect(inputField, &QLineEdit::returnPressed, this, &MainWindow::onSendMessage);
+    connect(chatModel, &QStandardItemModel::itemChanged, this, &MainWindow::onItemChanged);
+    connect(chatTree->selectionModel(), &QItemSelectionModel::currentChanged, this, &MainWindow::onChatNodeSelected);
 
     connect(&ollamaClient, &OllamaClient::modelListUpdated, this, [](const QStringList& models){
         qDebug() << "Available models:" << models;
     });
+
+    QAction *quitAction = KStandardAction::quit(qApp, &QCoreApplication::quit, actionCollection());
+    actionCollection()->addAction("quit", quitAction);
+
+    setupGUI(Default, ":/kllamabooksui.rc");
+
     ollamaClient.fetchModels();
     loadBooks();
 }
@@ -126,18 +159,35 @@ void MainWindow::onBookSelected(const QModelIndex& index) {
 
     QString password = WalletManager::loadPassword(fileName);
 
-    currentDb = std::make_unique<BookDatabase>(filePath);
-    if (!currentDb->open(password)) {
+    auto db = std::make_unique<BookDatabase>(filePath);
+    if (!db->open(password)) {
         bool ok;
         password = QInputDialog::getText(this, "Unlock Book", "Enter password for " + fileName + ":", QLineEdit::Password, "", &ok);
-        if (ok && currentDb->open(password)) {
+        if (ok && db->open(password)) {
             WalletManager::savePassword(fileName, password);
         } else {
             QMessageBox::warning(this, "Error", "Could not open book.");
-            currentDb.reset();
             return;
         }
     }
+
+    currentDb = std::move(db);
+
+    // Add to open books tree
+    QStandardItem* bookItem = new QStandardItem(QIcon::fromTheme("application-x-sqlite3"), fileName);
+    QStandardItem* chatsItem = new QStandardItem(QIcon::fromTheme("folder-open"), "Chats");
+    QStandardItem* docsItem = new QStandardItem(QIcon::fromTheme("folder-open"), "Documents");
+    QStandardItem* notesItem = new QStandardItem(QIcon::fromTheme("folder-open"), "Notes");
+
+    bookItem->appendRow(chatsItem);
+    bookItem->appendRow(docsItem);
+    bookItem->appendRow(notesItem);
+
+    openBooksModel->appendRow(bookItem);
+    openBooksTree->expandAll();
+
+    // Remove from closed books list
+    delete bookList->takeItem(index.row());
 
     loadSession(0); // For now, load all as one session
 }

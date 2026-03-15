@@ -54,7 +54,10 @@ class MainWindow : public KXmlGuiWindow {
     QStandardItem* findItem(QStandardItem* parent, int id);
 
     QSplitter *splitter;
-    QListWidget *bookList;
+    QSplitter *leftSplitter;
+    QTreeView *openBooksTree;
+    QStandardItemModel *openBooksModel;
+    QListWidget *bookList; // Closed books
     QTreeView *chatTree;
     QStandardItemModel *chatModel;
     QLineEdit *inputField;

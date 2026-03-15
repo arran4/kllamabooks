@@ -55,6 +55,7 @@
   - Add, edit, and remove different LLM providers/endpoints (e.g., local Ollama, remote servers).
   - Test connection to the configured endpoints.
 - [ ] Manage API keys or authentication if required for remote endpoints.
+- [ ] Implement a model explorer and downloader to browse available models and fetch them locally.
 
 ## Extra / Deduced Requirements
 - [ ] **Database Schema Updates:** The `BookDatabase` schema will need significant updates to support Documents, Notes, hierarchical folders, and the complex branching logic for chats (storing paths or explicit parent-child relationships).
