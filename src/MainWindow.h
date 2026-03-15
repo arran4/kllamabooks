@@ -28,6 +28,7 @@
 
 #include "OllamaClient.h"
 #include "BookDatabase.h"
+#include "ModelExplorer.h"
 
 class MainWindow : public KXmlGuiWindow {
     Q_OBJECT
@@ -37,6 +38,7 @@ class MainWindow : public KXmlGuiWindow {
 
    private slots:
     void onCreateBook();
+    void showModelExplorer();
     void onBookSelected(const QModelIndex& index);
     void onSendMessage();
     void onOllamaChunk(const QString& chunk);
@@ -44,6 +46,8 @@ class MainWindow : public KXmlGuiWindow {
     void onOllamaError(const QString& error);
     void onItemChanged(QStandardItem* item);
     void onChatNodeSelected(const QModelIndex& current, const QModelIndex& previous);
+    void showBookContextMenu(const QPoint& pos);
+    void showOpenBookContextMenu(const QPoint& pos);
 
    private:
     void setupUi();
@@ -59,6 +63,11 @@ class MainWindow : public KXmlGuiWindow {
     QStandardItemModel *openBooksModel;
     QListWidget *bookList; // Closed books
     QTreeView *chatTree;
+
+    // Drag & Drop helpers
+    bool eventFilter(QObject* obj, QEvent* event) override;
+    void handleBookDrop(const QString& fileName);
+    void closeBook(const QString& fileName);
     QStandardItemModel *chatModel;
     QLineEdit *inputField;
     QPushButton *sendButton;
@@ -67,6 +76,10 @@ class MainWindow : public KXmlGuiWindow {
     OllamaClient ollamaClient;
 
     int currentLastNodeId; // ID of the last node in the current chat path
+
+    QStatusBar *statusBar;
+    QLabel *statusLabel;
+    QLabel *modelLabel;
 };
 
 #endif  // MAINWINDOW_H

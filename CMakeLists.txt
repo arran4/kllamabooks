@@ -19,6 +19,8 @@ add_executable(kllamabooks
     src/main.cpp
     src/OllamaClient.cpp
     src/OllamaClient.h
+    src/ModelExplorer.cpp
+    src/ModelExplorer.h
     src/BookDatabase.cpp
     src/BookDatabase.h
     src/WalletManager.cpp

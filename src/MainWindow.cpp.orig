@@ -160,26 +160,11 @@ void MainWindow::loadBooks() {
     QDir dir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation));
     if(!dir.exists()) dir.mkpath(".");
 
-    QSettings settings;
-    QStringList favorites = settings.value("favorites").toStringList();
-
     QStringList filters;
     filters << "*.db";
     QFileInfoList fileList = dir.entryInfoList(filters, QDir::Files);
-
-    // Add favorites first
     for(const QFileInfo& file : fileList) {
-        if (favorites.contains(file.fileName())) {
-            QListWidgetItem* item = new QListWidgetItem(QIcon::fromTheme("emblem-favorite"), file.fileName());
-            bookList->addItem(item);
-        }
-    }
-
-    // Then add non-favorites
-    for(const QFileInfo& file : fileList) {
-        if (!favorites.contains(file.fileName())) {
-            bookList->addItem(file.fileName());
-        }
+        bookList->addItem(file.fileName());
     }
 }
 
@@ -457,19 +442,6 @@ void MainWindow::showBookContextMenu(const QPoint& pos) {
     QAction* openAction = menu.addAction("Open");
     QAction* deleteAction = menu.addAction("Delete");
 
-    // Favorite support
-    QSettings settings;
-    QStringList favorites = settings.value("favorites").toStringList();
-    QString fileName = item->text();
-    bool isFavorite = favorites.contains(fileName);
-
-    QAction* favoriteAction = menu.addAction(isFavorite ? "Unfavorite" : "Favorite");
-    if (isFavorite) {
-        favoriteAction->setIcon(QIcon::fromTheme("emblem-favorite"));
-    } else {
-        favoriteAction->setIcon(QIcon::fromTheme("emblem-favorite-symbolic"));
-    }
-
     QAction* selectedAction = menu.exec(bookList->viewport()->mapToGlobal(pos));
     if (selectedAction == openAction) {
         onBookSelected(bookList->indexFromItem(item));
@@ -478,17 +450,6 @@ void MainWindow::showBookContextMenu(const QPoint& pos) {
         QString filePath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + "/" + fileName;
         QFile::remove(filePath);
         delete bookList->takeItem(bookList->row(item));
-    } else if (selectedAction == favoriteAction) {
-        if (isFavorite) {
-            favorites.removeAll(fileName);
-            item->setIcon(QIcon()); // remove icon
-        } else {
-            favorites.append(fileName);
-            item->setIcon(QIcon::fromTheme("emblem-favorite"));
-        }
-        settings.setValue("favorites", favorites);
-        // Re-sort or reload list to show favorites at top
-        loadBooks();
     }
 }
 

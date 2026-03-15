@@ -1,23 +1,23 @@
 # KLlamaBooks TODO List
 
 ## Core Architecture & Framework
-- [ ] Ensure main window uses `KXmlGuiWindow` (currently done, but needs verification of standard menus/toolbars setup).
-- [ ] Rename all remaining instances of `kgithub-notify` to `kllamabooks` across the entire project (e.g., `CMakeLists.txt`, `README.md`, source code).
+- [x] Ensure main window uses `KXmlGuiWindow` (currently done, but needs verification of standard menus/toolbars setup).
+- [x] Rename all remaining instances of `kgithub-notify` to `kllamabooks` across the entire project (e.g., `CMakeLists.txt`, `README.md`, source code).
 
 ## UI Layout & Navigation
-- [ ] Fix the `QSplitter` between the book list (left) and content area (right) to be resizable.
-- [ ] Set initial splitter sizes to `max(20%, 100px)` for the left pane and the remainder for the right pane.
-- [ ] Split the left pane into two sections (top ~60%, bottom ~40%):
-  - [ ] Top: "Open Books" (tree view showing opened books, chats, and documents).
+- [x] Fix the `QSplitter` between the book list (left) and content area (right) to be resizable.
+- [x] Set initial splitter sizes to `max(20%, 100px)` for the left pane and the remainder for the right pane.
+- [x] Split the left pane into two sections (top ~60%, bottom ~40%):
+  - [x] Top: "Open Books" (tree view showing opened books, chats, and documents).
   - [ ] Bottom: "Closed Books" (list of available databases, sortable by last opened, etc., with favorites support).
-- [ ] Add main application menus (File, Edit, View, Settings, Help) using KXMLGUI.
-- [ ] Add a status bar with relevant information (current model, connection status, etc.).
+- [x] Add main application menus (File, Edit, View, Settings, Help) using KXMLGUI.
+- [x] Add a status bar with relevant information (current model, connection status, etc.).
 
 ## Book Management (Databases)
 - [ ] Allow opening/closing books (moving them between the top and bottom lists).
-- [ ] Implement Drag & Drop for opening/closing books.
-- [ ] Add context menus for books (Open, Close, Delete, Properties).
-- [ ] Encryption Options: When creating/opening a book, provide a choice to save the password in KWallet or prompt for it every time.
+- [x] Implement Drag & Drop for opening/closing books.
+- [x] Add context menus for books (Open, Close, Delete, Properties).
+- [x] Encryption Options: When creating/opening a book, provide a choice to save the password in KWallet or prompt for it every time.
 - [ ] Support marking books as favorites.
 
 ## Content Organization (Inside a Book)
@@ -62,3 +62,4 @@
 - [ ] **State Persistence:** Save the state of open books, splitter sizes, and recent selections between application restarts.
 - [ ] **Markdown Rendering:** Ensure the chat and document views can render Markdown properly (using `QTextBrowser` or a WebEngine view if needed).
 - [ ] **Error Handling:** Robust error handling for database corruption, network failures with the LLM, and missing files.
+- [ ] Implement Drag & Drop for opening/closing books.
