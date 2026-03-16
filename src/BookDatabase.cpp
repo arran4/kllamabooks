@@ -5,6 +5,10 @@
 #include <QVariant>
 #include <QDateTime>
 
+namespace {
+constexpr int CURRENT_SCHEMA_VERSION = 1;
+}
+
 BookDatabase::BookDatabase(const QString& filepath) : m_filepath(filepath), m_db(nullptr), m_isOpen(false) {
 }
 
@@ -63,40 +67,63 @@ bool BookDatabase::isOpen() const {
 bool BookDatabase::initSchema() {
     if (!m_isOpen) return false;
 
-    const char* sql = "CREATE TABLE IF NOT EXISTS messages ("
-                      "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-                      "parent_id INTEGER, "
-                      "role TEXT, "
-                      "content TEXT, "
-                      "timestamp DATETIME DEFAULT CURRENT_TIMESTAMP"
-                      ");"
-                      "CREATE TABLE IF NOT EXISTS documents ("
-                      "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-                      "parent_id INTEGER, "
-                      "title TEXT, "
-                      "content TEXT, "
-                      "timestamp DATETIME DEFAULT CURRENT_TIMESTAMP"
-                      ");"
-                      "CREATE TABLE IF NOT EXISTS notes ("
-                      "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-                      "title TEXT, "
-                      "content TEXT, "
-                      "timestamp DATETIME DEFAULT CURRENT_TIMESTAMP"
-                      ");"
-                      "CREATE TABLE IF NOT EXISTS items ("
-                      "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-                      "type TEXT, "
-                      "name TEXT, "
-                      "root_id INTEGER"
-                      ");";
-
-    char* errMsg = nullptr;
-    int rc = sqlite3_exec((sqlite3*)m_db, sql, nullptr, nullptr, &errMsg);
-    if (rc != SQLITE_OK) {
-        qWarning() << "SQL error during schema init: " << errMsg;
-        sqlite3_free(errMsg);
-        return false;
+    int userVersion = 0;
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2((sqlite3*)m_db, "PRAGMA user_version;", -1, &stmt, nullptr) == SQLITE_OK) {
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            userVersion = sqlite3_column_int(stmt, 0);
+        }
+        sqlite3_finalize(stmt);
     }
+
+    if (userVersion == 0) {
+        const char* sql = "CREATE TABLE IF NOT EXISTS messages ("
+                          "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                          "parent_id INTEGER, "
+                          "role TEXT, "
+                          "content TEXT, "
+                          "timestamp DATETIME DEFAULT CURRENT_TIMESTAMP"
+                          ");"
+                          "CREATE TABLE IF NOT EXISTS documents ("
+                          "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                          "parent_id INTEGER, "
+                          "title TEXT, "
+                          "content TEXT, "
+                          "timestamp DATETIME DEFAULT CURRENT_TIMESTAMP"
+                          ");"
+                          "CREATE TABLE IF NOT EXISTS notes ("
+                          "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                          "title TEXT, "
+                          "content TEXT, "
+                          "timestamp DATETIME DEFAULT CURRENT_TIMESTAMP"
+                          ");"
+                          "CREATE TABLE IF NOT EXISTS items ("
+                          "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                          "type TEXT, "
+                          "name TEXT, "
+                          "root_id INTEGER"
+                          ");";
+
+        char* errMsg = nullptr;
+        int rc = sqlite3_exec((sqlite3*)m_db, sql, nullptr, nullptr, &errMsg);
+        if (rc != SQLITE_OK) {
+            qWarning() << "SQL error during schema init: " << errMsg;
+            sqlite3_free(errMsg);
+            return false;
+        }
+
+        QString versionSql = QString("PRAGMA user_version = %1;").arg(CURRENT_SCHEMA_VERSION);
+        sqlite3_exec((sqlite3*)m_db, versionSql.toUtf8().constData(), nullptr, nullptr, nullptr);
+        userVersion = CURRENT_SCHEMA_VERSION;
+    }
+
+    // Future migrations would go here
+    // if (userVersion < 2) {
+    //     // upgrade to version 2
+    //     // sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 2;", nullptr, nullptr, nullptr);
+    //     // userVersion = 2;
+    // }
+
     return true;
 }
 
