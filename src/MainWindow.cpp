@@ -143,6 +143,10 @@ void MainWindow::setupUi() {
 
     QToolBar* toolbar = addToolBar("Main");
     QAction* newBookAction = new QAction(QIcon::fromTheme("document-new"), tr("New Book"), this);
+    QAction* exportChatAction = new QAction(QIcon::fromTheme("document-export"), tr("Export Chat Session"), this);
+    actionCollection()->addAction(QStringLiteral("export_chat_session"), exportChatAction);
+    connect(exportChatAction, &QAction::triggered, this, &MainWindow::exportChatSession);
+
     QAction* toggleViewAction = new QAction(QIcon::fromTheme("view-split-left-right"), tr("Toggle Chat View"), this);
     actionCollection()->addAction(QStringLiteral("toggle_view"), toggleViewAction);
     toolbar->addAction(toggleViewAction);
@@ -425,6 +429,8 @@ void MainWindow::showLinearChatContextMenu(const QPoint& pos) {
     QAction* pasteAction = menu.addAction(QIcon::fromTheme("edit-paste"), "Paste to Input");
     menu.addSeparator();
     QAction* forkAction = menu.addAction(QIcon::fromTheme("call-start"), "Fork from Here");
+    menu.addSeparator();
+    QAction* exportAction = menu.addAction(QIcon::fromTheme("document-export"), "Export Chat Session");
 
     QAction* selectedAction = menu.exec(linearChatList->viewport()->mapToGlobal(pos));
     if (selectedAction == copyAction) {
@@ -450,6 +456,8 @@ void MainWindow::showLinearChatContextMenu(const QPoint& pos) {
         if (currentDb) {
             updateLinearChatView(currentLastNodeId, currentDb->getMessages());
         }
+    } else if (selectedAction == exportAction) {
+        exportChatSession();
     }
 }
 
@@ -465,6 +473,8 @@ void MainWindow::showChatTreeContextMenu(const QPoint& pos) {
     QAction* pasteAction = menu.addAction(QIcon::fromTheme("edit-paste"), "Paste to Input");
     menu.addSeparator();
     QAction* forkAction = menu.addAction(QIcon::fromTheme("call-start"), "Fork from Here");
+    menu.addSeparator();
+    QAction* exportAction = menu.addAction(QIcon::fromTheme("document-export"), "Export Chat Session");
 
     QAction* selectedAction = menu.exec(chatTree->viewport()->mapToGlobal(pos));
     if (selectedAction == copyAction) {
