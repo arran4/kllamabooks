@@ -11,7 +11,11 @@
 #include <QDate>
 #include <QDebug>
 #include <QDesktopServices>
+#include <QDir>
+#include <QDragEnterEvent>
+#include <QDropEvent>
 #include <QGuiApplication>
+#include <QInputDialog>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -19,35 +23,29 @@
 #include <QLocale>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QMimeData>
 #include <QPointer>
 #include <QProcess>
 #include <QScreen>
 #include <QSettings>
 #include <QSpinBox>
+#include <QStandardPaths>
 #include <QStyle>
 #include <QUrl>
 #include <QVBoxLayout>
 #include <QtGui/QAction>
 #include <limits>
-#include <QStandardPaths>
-#include <QDir>
-#include <QInputDialog>
+
 #include "WalletManager.h"
-#include <QMimeData>
-#include <QDragEnterEvent>
-#include <QDropEvent>
 
-MainWindow::MainWindow(QWidget *parent)
-    : KXmlGuiWindow(parent),
-      currentLastNodeId(0) {
-
+MainWindow::MainWindow(QWidget* parent) : KXmlGuiWindow(parent), currentLastNodeId(0) {
     setupUi();
     setupWindow();
 }
 
 MainWindow::~MainWindow() {}
 
-void MainWindow::closeEvent(QCloseEvent *event) {
+void MainWindow::closeEvent(QCloseEvent* event) {
     QSettings settings;
     settings.setValue("geometry", saveGeometry());
     settings.setValue("splitterState", splitter->saveState());
@@ -93,8 +91,8 @@ void MainWindow::setupUi() {
     leftSplitter->addWidget(bookList);
 
     // Initial size of left splitter
-    leftSplitter->setStretchFactor(0, 3); // 60% approx
-    leftSplitter->setStretchFactor(1, 2); // 40% approx
+    leftSplitter->setStretchFactor(0, 3);  // 60% approx
+    leftSplitter->setStretchFactor(1, 2);  // 40% approx
 
     splitter->addWidget(leftSplitter);
 
@@ -172,19 +170,21 @@ void MainWindow::setupUi() {
     connectionStatusLabel = new QLabel(this);
     connectionStatusLabel->setMargin(4);
     toolbar->addWidget(connectionStatusLabel);
-    onConnectionStatusChanged(false); // Initially disconnected
+    onConnectionStatusChanged(false);  // Initially disconnected
 
-    connect(endpointComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onActiveEndpointChanged);
+    connect(endpointComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+            &MainWindow::onActiveEndpointChanged);
     connect(&ollamaClient, &OllamaClient::connectionStatusChanged, this, &MainWindow::onConnectionStatusChanged);
 
     connect(newBookAction, &QAction::triggered, this, &MainWindow::onCreateBook);
-    connect(bookList, &QListWidget::doubleClicked, this, &MainWindow::onBookSelected); // Open book from list via double click
+    connect(bookList, &QListWidget::doubleClicked, this,
+            &MainWindow::onBookSelected);  // Open book from list via double click
     connect(sendButton, &QPushButton::clicked, this, &MainWindow::onSendMessage);
     connect(inputField, &QLineEdit::returnPressed, this, &MainWindow::onSendMessage);
     connect(chatModel, &QStandardItemModel::itemChanged, this, &MainWindow::onItemChanged);
     connect(chatTree->selectionModel(), &QItemSelectionModel::currentChanged, this, &MainWindow::onChatNodeSelected);
 
-    connect(&ollamaClient, &OllamaClient::modelListUpdated, this, [this](const QStringList& models){
+    connect(&ollamaClient, &OllamaClient::modelListUpdated, this, [this](const QStringList& models) {
         modelComboBox->clear();
 
         QSettings settings;
@@ -202,7 +202,7 @@ void MainWindow::setupUi() {
         }
 
         if (models.isEmpty()) {
-            modelComboBox->addItem("llama2", "llama2"); // fallback
+            modelComboBox->addItem("llama2", "llama2");  // fallback
         }
     });
 
@@ -217,10 +217,10 @@ void MainWindow::setupUi() {
     actionCollection()->addAction(QStringLiteral("preferences"), settingsAction);
     connect(settingsAction, &QAction::triggered, this, &MainWindow::showSettingsDialog);
 
-    QAction *quitAction = KStandardAction::quit(qApp, &QCoreApplication::quit, actionCollection());
+    QAction* quitAction = KStandardAction::quit(qApp, &QCoreApplication::quit, actionCollection());
     actionCollection()->addAction("quit", quitAction);
 
-    QAction *aboutQtAction = new QAction(tr("About &Qt"), this);
+    QAction* aboutQtAction = new QAction(tr("About &Qt"), this);
     connect(aboutQtAction, &QAction::triggered, qApp, &QApplication::aboutQt);
     actionCollection()->addAction(QStringLiteral("about_qt"), aboutQtAction);
 
@@ -236,7 +236,7 @@ void MainWindow::setupUi() {
     modelLabel = new QLabel(tr("Model: Not Selected"), this);
     statusBar->addPermanentWidget(modelLabel);
 
-    connect(modelComboBox, &QComboBox::currentTextChanged, this, [this](const QString &text) {
+    connect(modelComboBox, &QComboBox::currentTextChanged, this, [this](const QString& text) {
         if (text.isEmpty()) {
             modelLabel->setText(tr("Model: Not Selected"));
         } else {
@@ -258,7 +258,7 @@ void MainWindow::updateEndpointsList() {
     if (connections.isEmpty() && settings.contains("ollamaUrl")) {
         // Fallback for old setting
         endpointComboBox->addItem("Default Ollama", settings.value("ollamaUrl", "http://localhost:11434").toString());
-        endpointComboBox->setItemData(0, "", Qt::UserRole + 1); // Auth Key
+        endpointComboBox->setItemData(0, "", Qt::UserRole + 1);  // Auth Key
     } else {
         for (int i = 0; i < connections.size(); ++i) {
             QVariantMap map = connections[i].toMap();
@@ -287,7 +287,7 @@ void MainWindow::onActiveEndpointChanged(int index) {
 
     ollamaClient.setBaseUrl(url);
     ollamaClient.setAuthKey(authKey);
-    ollamaClient.fetchModels(); // Test connection and fetch
+    ollamaClient.fetchModels();  // Test connection and fetch
 
     QSettings settings;
     settings.setValue("lastEndpointIndex", index);
@@ -305,9 +305,7 @@ void MainWindow::onConnectionStatusChanged(bool isOk) {
 
 void MainWindow::showSettingsDialog() {
     SettingsDialog* dlg = new SettingsDialog(this);
-    connect(dlg, &SettingsDialog::settingsApplied, this, [this]() {
-        updateEndpointsList();
-    });
+    connect(dlg, &SettingsDialog::settingsApplied, this, [this]() { updateEndpointsList(); });
     dlg->setAttribute(Qt::WA_DeleteOnClose);
     dlg->show();
 }
@@ -337,7 +335,7 @@ void MainWindow::setupWindow() {
 void MainWindow::loadBooks() {
     bookList->clear();
     QDir dir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation));
-    if(!dir.exists()) dir.mkpath(".");
+    if (!dir.exists()) dir.mkpath(".");
 
     QSettings settings;
     QStringList favorites = settings.value("favorites").toStringList();
@@ -345,13 +343,14 @@ void MainWindow::loadBooks() {
     QStringList filters;
     filters << "*.db";
     // Sort by last modified (accessed/changed)
-    QFileInfoList fileList = dir.entryInfoList(filters, QDir::Files | QDir::NoDotAndDotDot, QDir::Time | QDir::Reversed);
+    QFileInfoList fileList =
+        dir.entryInfoList(filters, QDir::Files | QDir::NoDotAndDotDot, QDir::Time | QDir::Reversed);
 
     // Separate into favorites and others
     QList<QFileInfo> favList;
     QList<QFileInfo> otherList;
 
-    for(const QFileInfo& file : fileList) {
+    for (const QFileInfo& file : fileList) {
         if (favorites.contains(file.fileName())) {
             favList.append(file);
         } else {
@@ -360,22 +359,20 @@ void MainWindow::loadBooks() {
     }
 
     // Sort within lists
-    auto sortByTimeDesc = [](const QFileInfo& a, const QFileInfo& b) {
-        return a.lastModified() > b.lastModified();
-    };
+    auto sortByTimeDesc = [](const QFileInfo& a, const QFileInfo& b) { return a.lastModified() > b.lastModified(); };
 
     std::sort(favList.begin(), favList.end(), sortByTimeDesc);
     std::sort(otherList.begin(), otherList.end(), sortByTimeDesc);
 
     // Add favorites first
-    for(const QFileInfo& file : favList) {
+    for (const QFileInfo& file : favList) {
         QListWidgetItem* item = new QListWidgetItem(QIcon::fromTheme("emblem-favorite"), file.fileName());
         item->setToolTip(tr("Last modified: %1").arg(QLocale().toString(file.lastModified(), QLocale::ShortFormat)));
         bookList->addItem(item);
     }
 
     // Then add non-favorites
-    for(const QFileInfo& file : otherList) {
+    for (const QFileInfo& file : otherList) {
         QListWidgetItem* item = new QListWidgetItem(file.fileName());
         item->setToolTip(tr("Last modified: %1").arg(QLocale().toString(file.lastModified(), QLocale::ShortFormat)));
         bookList->addItem(item);
@@ -392,11 +389,14 @@ void MainWindow::onCreateBook() {
     bool ok;
     QString bookName = QInputDialog::getText(this, "New Book", "Enter book name:", QLineEdit::Normal, "", &ok);
     if (ok && !bookName.isEmpty()) {
-        QString password = QInputDialog::getText(this, "Password", "Enter password (optional):", QLineEdit::Password, "", &ok);
+        QString password =
+            QInputDialog::getText(this, "Password", "Enter password (optional):", QLineEdit::Password, "", &ok);
         if (ok) {
             bool savePassword = false;
             if (!password.isEmpty()) {
-                QMessageBox::StandardButton reply = QMessageBox::question(this, "Save Password", "Do you want to save this password to KWallet?", QMessageBox::Yes | QMessageBox::No);
+                QMessageBox::StandardButton reply =
+                    QMessageBox::question(this, "Save Password", "Do you want to save this password to KWallet?",
+                                          QMessageBox::Yes | QMessageBox::No);
                 if (reply == QMessageBox::Yes) {
                     savePassword = true;
                 }
@@ -408,7 +408,7 @@ void MainWindow::onCreateBook() {
 
             QString filePath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + "/" + fileName;
             BookDatabase newDb(filePath);
-            newDb.open(password); // Creates the schema
+            newDb.open(password);  // Creates the schema
 
             loadBooks();
         }
@@ -494,10 +494,13 @@ void MainWindow::onBookSelected(const QModelIndex& index) {
     auto db = std::make_unique<BookDatabase>(filePath);
     if (!db->open(password)) {
         bool ok;
-        password = QInputDialog::getText(this, "Unlock Book", "Enter password for " + fileName + ":", QLineEdit::Password, "", &ok);
+        password = QInputDialog::getText(this, "Unlock Book", "Enter password for " + fileName + ":",
+                                         QLineEdit::Password, "", &ok);
         if (ok && db->open(password)) {
             if (!password.isEmpty()) {
-                QMessageBox::StandardButton reply = QMessageBox::question(this, "Save Password", "Do you want to save this password to KWallet?", QMessageBox::Yes | QMessageBox::No);
+                QMessageBox::StandardButton reply =
+                    QMessageBox::question(this, "Save Password", "Do you want to save this password to KWallet?",
+                                          QMessageBox::Yes | QMessageBox::No);
                 if (reply == QMessageBox::Yes) {
                     WalletManager::savePassword(fileName, password);
                 }
@@ -512,7 +515,7 @@ void MainWindow::onBookSelected(const QModelIndex& index) {
 
     // Add to open books tree
     QStandardItem* bookItem = new QStandardItem(QIcon::fromTheme("application-x-sqlite3"), fileName);
-    bookItem->setData("book", Qt::UserRole + 1); // Type
+    bookItem->setData("book", Qt::UserRole + 1);  // Type
     QStandardItem* chatsItem = new QStandardItem(QIcon::fromTheme("folder-open"), "Chats");
     chatsItem->setData("chats_folder", Qt::UserRole + 1);
     QStandardItem* docsItem = new QStandardItem(QIcon::fromTheme("folder-open"), "Documents");
@@ -530,7 +533,7 @@ void MainWindow::onBookSelected(const QModelIndex& index) {
     // Remove from closed books list
     delete bookList->takeItem(index.row());
 
-    loadSession(0); // For now, load all as one session
+    loadSession(0);  // For now, load all as one session
 }
 
 void MainWindow::loadSession(int rootId) {
@@ -555,7 +558,7 @@ void MainWindow::loadSession(int rootId) {
 void MainWindow::getPathToRoot(int nodeId, const QList<MessageNode>& allMessages, QList<MessageNode>& path) {
     for (const auto& msg : allMessages) {
         if (msg.id == nodeId) {
-            path.prepend(msg); // Prepend to build path from root downwards
+            path.prepend(msg);  // Prepend to build path from root downwards
             if (msg.parentId != 0) {
                 getPathToRoot(msg.parentId, allMessages, path);
             }
@@ -591,7 +594,7 @@ void MainWindow::populateTree(QStandardItem* parentItem, int parentId, const QLi
 }
 
 QStandardItem* MainWindow::findItem(QStandardItem* parent, int id) {
-    for (int i=0; i<parent->rowCount(); ++i) {
+    for (int i = 0; i < parent->rowCount(); ++i) {
         QStandardItem* child = parent->child(i);
         if (child->data(Qt::UserRole).toInt() == id) {
             return child;
@@ -637,7 +640,8 @@ void MainWindow::onSendMessage() {
     }
     if (selectedModel.isEmpty()) selectedModel = "llama2";
 
-    ollamaClient.generate(selectedModel, text,
+    ollamaClient.generate(
+        selectedModel, text,
         [this, aiId, aiItem](const QString& chunk) {
             QString currentText = aiItem->text() + chunk;
             aiItem->setText(currentText);
@@ -651,13 +655,10 @@ void MainWindow::onSendMessage() {
             }
         },
         [this, aiId, aiItem](const QString& /*full*/) {
-            QString content = aiItem->text().mid(12); // remove "[assistant] "
+            QString content = aiItem->text().mid(12);  // remove "[assistant] "
             currentDb->updateMessage(aiId, content);
         },
-        [this, aiItem](const QString& err) {
-            aiItem->setText(aiItem->text() + " [ERROR: " + err + "]");
-        }
-    );
+        [this, aiItem](const QString& err) { aiItem->setText(aiItem->text() + " [ERROR: " + err + "]"); });
 }
 
 void MainWindow::onOllamaChunk(const QString& chunk) {}
@@ -740,7 +741,7 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
             QModelIndex index = openBooksTree->currentIndex();
             if (index.isValid()) {
                 QStandardItem* item = openBooksModel->itemFromIndex(index);
-                if (item && !item->parent()) { // Ensure it's a root item (book)
+                if (item && !item->parent()) {  // Ensure it's a root item (book)
                     QString fileName = item->text();
                     closeBook(fileName);
                     dropEvent->acceptProposedAction();
@@ -816,7 +817,7 @@ void MainWindow::showBookContextMenu(const QPoint& pos) {
     } else if (selectedAction == favoriteAction) {
         if (isFavorite) {
             favorites.removeAll(fileName);
-            item->setIcon(QIcon()); // remove icon
+            item->setIcon(QIcon());  // remove icon
         } else {
             favorites.append(fileName);
             item->setIcon(QIcon::fromTheme("emblem-favorite"));

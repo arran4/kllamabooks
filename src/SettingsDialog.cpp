@@ -1,11 +1,11 @@
 #include "SettingsDialog.h"
-#include <QNetworkAccessManager>
-#include <QNetworkRequest>
-#include <QNetworkReply>
-#include <QInputDialog>
 
-SettingsDialog::SettingsDialog(QWidget *parent)
-    : QDialog(parent) {
+#include <QInputDialog>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
+
+SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
     setWindowTitle(tr("Settings"));
     resize(500, 300);
 
@@ -96,13 +96,16 @@ void SettingsDialog::saveConnections() {
 
 void SettingsDialog::onAddConnection() {
     bool ok;
-    QString name = QInputDialog::getText(this, tr("Add Connection"), tr("Connection Name:"), QLineEdit::Normal, "New Connection", &ok);
+    QString name = QInputDialog::getText(this, tr("Add Connection"), tr("Connection Name:"), QLineEdit::Normal,
+                                         "New Connection", &ok);
     if (!ok || name.isEmpty()) return;
 
-    QString url = QInputDialog::getText(this, tr("Add Connection"), tr("URL:"), QLineEdit::Normal, "http://localhost:11434", &ok);
+    QString url =
+        QInputDialog::getText(this, tr("Add Connection"), tr("URL:"), QLineEdit::Normal, "http://localhost:11434", &ok);
     if (!ok || url.isEmpty()) return;
 
-    QString authKey = QInputDialog::getText(this, tr("Add Connection"), tr("Auth Key (optional):"), QLineEdit::Normal, "", &ok);
+    QString authKey =
+        QInputDialog::getText(this, tr("Add Connection"), tr("Auth Key (optional):"), QLineEdit::Normal, "", &ok);
     if (!ok) return;
 
     int row = m_connectionsTable->rowCount();
@@ -117,13 +120,16 @@ void SettingsDialog::onEditConnection() {
     if (row < 0) return;
 
     bool ok;
-    QString name = QInputDialog::getText(this, tr("Edit Connection"), tr("Connection Name:"), QLineEdit::Normal, m_connectionsTable->item(row, 0)->text(), &ok);
+    QString name = QInputDialog::getText(this, tr("Edit Connection"), tr("Connection Name:"), QLineEdit::Normal,
+                                         m_connectionsTable->item(row, 0)->text(), &ok);
     if (!ok || name.isEmpty()) return;
 
-    QString url = QInputDialog::getText(this, tr("Edit Connection"), tr("URL:"), QLineEdit::Normal, m_connectionsTable->item(row, 1)->text(), &ok);
+    QString url = QInputDialog::getText(this, tr("Edit Connection"), tr("URL:"), QLineEdit::Normal,
+                                        m_connectionsTable->item(row, 1)->text(), &ok);
     if (!ok || url.isEmpty()) return;
 
-    QString authKey = QInputDialog::getText(this, tr("Edit Connection"), tr("Auth Key (optional):"), QLineEdit::Normal, m_connectionsTable->item(row, 2)->text(), &ok);
+    QString authKey = QInputDialog::getText(this, tr("Edit Connection"), tr("Auth Key (optional):"), QLineEdit::Normal,
+                                            m_connectionsTable->item(row, 2)->text(), &ok);
     if (!ok) return;
 
     m_connectionsTable->item(row, 0)->setText(name);

@@ -1,21 +1,21 @@
 #ifndef BOOKDATABASE_H
 #define BOOKDATABASE_H
 
-#include <QString>
-#include <QList>
 #include <QDateTime>
+#include <QList>
+#include <QString>
 
 struct MessageNode {
     int id;
-    int parentId; // 0 if root
+    int parentId;  // 0 if root
     QString content;
-    QString role; // "user" or "assistant"
+    QString role;  // "user" or "assistant"
     QDateTime timestamp;
     QList<MessageNode*> children;
 };
 
 class BookDatabase {
-public:
+   public:
     BookDatabase(const QString& filepath);
     ~BookDatabase();
 
@@ -30,10 +30,10 @@ public:
     bool deleteMessage(int id);
     QList<MessageNode> getMessages() const;
 
-private:
+   private:
     QString m_filepath;
-    void* m_db; // sqlite3* handle
+    void* m_db;  // sqlite3* handle
     bool m_isOpen;
 };
 
-#endif // BOOKDATABASE_H
+#endif  // BOOKDATABASE_H

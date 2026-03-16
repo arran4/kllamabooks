@@ -7,7 +7,7 @@ const QString FOLDER_NAME = "kllamabooks";
 }
 
 QString WalletManager::loadPassword(const QString& bookName) {
-    KWallet::Wallet *wallet =
+    KWallet::Wallet* wallet =
         KWallet::Wallet::openWallet(KWallet::Wallet::LocalWallet(), 0, KWallet::Wallet::Synchronous);
     if (wallet) {
         if (!wallet->hasFolder(FOLDER_NAME)) {
@@ -23,7 +23,7 @@ QString WalletManager::loadPassword(const QString& bookName) {
 }
 
 void WalletManager::savePassword(const QString& bookName, const QString& password) {
-    KWallet::Wallet *wallet =
+    KWallet::Wallet* wallet =
         KWallet::Wallet::openWallet(KWallet::Wallet::LocalWallet(), 0, KWallet::Wallet::Synchronous);
     if (wallet) {
         if (!wallet->hasFolder(FOLDER_NAME)) {
