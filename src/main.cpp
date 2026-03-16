@@ -24,7 +24,7 @@ int main(int argc, char *argv[]) {
     QCoreApplication::setOrganizationDomain("arran4.com");
     QCoreApplication::setApplicationName("kllamabooks");
     QCoreApplication::setApplicationVersion(QStringLiteral(KGHN_APP_VERSION));
-    QGuiApplication::setDesktopFileName("com.arran4.kllamabooks");
+    QGuiApplication::setDesktopFileName("com.arran4.kllamabooks.desktop");
 
     QApplication app(argc, argv);
     QApplication::setWindowIcon(QIcon::fromTheme("kllamabooks", QIcon(":/assets/icon.png")));
@@ -33,7 +33,7 @@ int main(int argc, char *argv[]) {
 
     KAboutData aboutData(QStringLiteral("kllamabooks"), QStringLiteral("KLlamaBooks"),
                          QStringLiteral(KGHN_APP_VERSION));
-    aboutData.setDesktopFileName("com.arran4.kllamabooks");
+    aboutData.setDesktopFileName("com.arran4.kllamabooks.desktop");
     KAboutData::setApplicationData(aboutData);
 
     MainWindow window;
