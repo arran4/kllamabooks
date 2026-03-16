@@ -74,6 +74,7 @@ void MainWindow::setupUi() {
     openBooksTree->setHeaderHidden(true);
     openBooksTree->setAcceptDrops(true);
     openBooksTree->setDragEnabled(true);
+    openBooksTree->setEditTriggers(QAbstractItemView::NoEditTriggers);
     openBooksTree->setDropIndicatorShown(true);
     openBooksTree->installEventFilter(this);
     openBooksTree->setContextMenuPolicy(Qt::CustomContextMenu);
@@ -82,6 +83,7 @@ void MainWindow::setupUi() {
     bookList = new QListWidget(this);
     bookList->setAcceptDrops(true);
     bookList->setDragEnabled(true);
+    bookList->setEditTriggers(QAbstractItemView::NoEditTriggers);
     bookList->setDragDropMode(QAbstractItemView::DragDrop);
     bookList->installEventFilter(this);
     bookList->setContextMenuPolicy(Qt::CustomContextMenu);
@@ -104,6 +106,7 @@ void MainWindow::setupUi() {
     // Linear View
     linearChatList = new QListWidget(this);
     linearChatList->setContextMenuPolicy(Qt::CustomContextMenu);
+    linearChatList->setEditTriggers(QAbstractItemView::NoEditTriggers);
     connect(linearChatList, &QWidget::customContextMenuRequested, this, &MainWindow::showLinearChatContextMenu);
     chatStackWidget->addWidget(linearChatList);
 
