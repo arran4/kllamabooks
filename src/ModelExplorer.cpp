@@ -1,14 +1,13 @@
 #include "ModelExplorer.h"
-#include <QMessageBox>
-#include <QMenu>
+
 #include <QAction>
-#include <QSettings>
 #include <QHeaderView>
 #include <QIcon>
+#include <QMenu>
+#include <QMessageBox>
+#include <QSettings>
 
-ModelExplorer::ModelExplorer(OllamaClient* client, QWidget *parent)
-    : QDialog(parent), m_client(client) {
-
+ModelExplorer::ModelExplorer(OllamaClient* client, QWidget* parent) : QDialog(parent), m_client(client) {
     setWindowTitle("Model Explorer");
     resize(800, 600);
 
@@ -53,10 +52,6 @@ void ModelExplorer::setupInstalledTab() {
     connect(m_installedSearchField, &QLineEdit::returnPressed, this, &ModelExplorer::onSearchInstalledClicked);
 
     m_tabWidget->addTab(tab, "Installed Models");
-
-    m_modelList = new QListWidget(this);
-    m_modelList->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    mainLayout->addWidget(m_modelList);
 }
 
 void ModelExplorer::setupDownloadTab() {
@@ -144,7 +139,7 @@ void ModelExplorer::onDownloadModelClicked() {
     }
 
     m_downloadNameField->clear();
-    m_tabWidget->setCurrentIndex(2); // Switch to downloading tab
+    m_tabWidget->setCurrentIndex(2);  // Switch to downloading tab
 }
 
 void ModelExplorer::updateModelList(const QStringList& models) {
@@ -189,7 +184,7 @@ void ModelExplorer::onPullFinished(const QString& modelName) {
             break;
         }
     }
-    m_client->fetchModels(); // Refresh installed list
+    m_client->fetchModels();  // Refresh installed list
 }
 
 void ModelExplorer::showInstalledContextMenu(const QPoint& pos) {
@@ -210,6 +205,6 @@ void ModelExplorer::showInstalledContextMenu(const QPoint& pos) {
             m_favorites.append(modelName);
         }
         saveFavorites();
-        m_client->fetchModels(); // Trigger a list refresh to sort properly
+        m_client->fetchModels();  // Trigger a list refresh to sort properly
     }
 }

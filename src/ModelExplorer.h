@@ -2,24 +2,25 @@
 #define MODELEXPLORER_H
 
 #include <QDialog>
-#include <QListWidget>
-#include <QPushButton>
-#include <QVBoxLayout>
 #include <QHBoxLayout>
-#include <QLineEdit>
 #include <QLabel>
+#include <QLineEdit>
+#include <QListWidget>
 #include <QProgressBar>
+#include <QPushButton>
 #include <QTabWidget>
 #include <QTableWidget>
+#include <QVBoxLayout>
+
 #include "OllamaClient.h"
 
 class ModelExplorer : public QDialog {
     Q_OBJECT
-public:
-    explicit ModelExplorer(OllamaClient* client, QWidget *parent = nullptr);
+   public:
+    explicit ModelExplorer(OllamaClient* client, QWidget* parent = nullptr);
     ~ModelExplorer();
 
-private slots:
+   private slots:
     void onSearchInstalledClicked();
     void onDownloadModelClicked();
     void updateModelList(const QStringList& models);
@@ -27,7 +28,7 @@ private slots:
     void onPullFinished(const QString& modelName);
     void showInstalledContextMenu(const QPoint& pos);
 
-private:
+   private:
     OllamaClient* m_client;
 
     QTabWidget* m_tabWidget;
@@ -52,4 +53,4 @@ private:
     QStringList m_favorites;
 };
 
-#endif // MODELEXPLORER_H
+#endif  // MODELEXPLORER_H

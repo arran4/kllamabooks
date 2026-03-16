@@ -1,20 +1,19 @@
 #include "BookDatabase.h"
+
 #include <sqlcipher/sqlite3.h>
+
+#include <QDateTime>
 #include <QDebug>
 #include <QFile>
 #include <QVariant>
-#include <QDateTime>
 
 namespace {
 constexpr int CURRENT_SCHEMA_VERSION = 1;
 }
 
-BookDatabase::BookDatabase(const QString& filepath) : m_filepath(filepath), m_db(nullptr), m_isOpen(false) {
-}
+BookDatabase::BookDatabase(const QString& filepath) : m_filepath(filepath), m_db(nullptr), m_isOpen(false) {}
 
-BookDatabase::~BookDatabase() {
-    close();
-}
+BookDatabase::~BookDatabase() { close(); }
 
 bool BookDatabase::open(const QString& password) {
     if (m_isOpen) return true;
@@ -60,9 +59,7 @@ void BookDatabase::close() {
     }
 }
 
-bool BookDatabase::isOpen() const {
-    return m_isOpen;
-}
+bool BookDatabase::isOpen() const { return m_isOpen; }
 
 bool BookDatabase::initSchema() {
     if (!m_isOpen) return false;
@@ -77,32 +74,33 @@ bool BookDatabase::initSchema() {
     }
 
     if (userVersion == 0) {
-        const char* sql = "CREATE TABLE IF NOT EXISTS messages ("
-                          "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-                          "parent_id INTEGER, "
-                          "role TEXT, "
-                          "content TEXT, "
-                          "timestamp DATETIME DEFAULT CURRENT_TIMESTAMP"
-                          ");"
-                          "CREATE TABLE IF NOT EXISTS documents ("
-                          "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-                          "parent_id INTEGER, "
-                          "title TEXT, "
-                          "content TEXT, "
-                          "timestamp DATETIME DEFAULT CURRENT_TIMESTAMP"
-                          ");"
-                          "CREATE TABLE IF NOT EXISTS notes ("
-                          "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-                          "title TEXT, "
-                          "content TEXT, "
-                          "timestamp DATETIME DEFAULT CURRENT_TIMESTAMP"
-                          ");"
-                          "CREATE TABLE IF NOT EXISTS items ("
-                          "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-                          "type TEXT, "
-                          "name TEXT, "
-                          "root_id INTEGER"
-                          ");";
+        const char* sql =
+            "CREATE TABLE IF NOT EXISTS messages ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "parent_id INTEGER, "
+            "role TEXT, "
+            "content TEXT, "
+            "timestamp DATETIME DEFAULT CURRENT_TIMESTAMP"
+            ");"
+            "CREATE TABLE IF NOT EXISTS documents ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "parent_id INTEGER, "
+            "title TEXT, "
+            "content TEXT, "
+            "timestamp DATETIME DEFAULT CURRENT_TIMESTAMP"
+            ");"
+            "CREATE TABLE IF NOT EXISTS notes ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "title TEXT, "
+            "content TEXT, "
+            "timestamp DATETIME DEFAULT CURRENT_TIMESTAMP"
+            ");"
+            "CREATE TABLE IF NOT EXISTS items ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "type TEXT, "
+            "name TEXT, "
+            "root_id INTEGER"
+            ");";
 
         char* errMsg = nullptr;
         int rc = sqlite3_exec((sqlite3*)m_db, sql, nullptr, nullptr, &errMsg);

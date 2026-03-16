@@ -1,31 +1,25 @@
 #include "OllamaClient.h"
-#include <QNetworkRequest>
-#include <QTimer>
+
 #include <QEventLoop>
 #include <QMap>
+#include <QNetworkRequest>
+#include <QTimer>
 
-OllamaClient::OllamaClient(QObject *parent)
-    : QObject(parent), m_networkManager(new QNetworkAccessManager(this)), m_baseUrl("http://localhost:11434"), m_authKey("") {
-}
+OllamaClient::OllamaClient(QObject* parent)
+    : QObject(parent),
+      m_networkManager(new QNetworkAccessManager(this)),
+      m_baseUrl("http://localhost:11434"),
+      m_authKey("") {}
 
-OllamaClient::~OllamaClient() {
-}
+OllamaClient::~OllamaClient() {}
 
-void OllamaClient::setBaseUrl(const QString& url) {
-    m_baseUrl = url;
-}
+void OllamaClient::setBaseUrl(const QString& url) { m_baseUrl = url; }
 
-void OllamaClient::setAuthKey(const QString& key) {
-    m_authKey = key;
-}
+void OllamaClient::setAuthKey(const QString& key) { m_authKey = key; }
 
-QString OllamaClient::getAuthKey() const {
-    return m_authKey;
-}
+QString OllamaClient::getAuthKey() const { return m_authKey; }
 
-QString OllamaClient::getBaseUrl() const {
-    return m_baseUrl;
-}
+QString OllamaClient::getBaseUrl() const { return m_baseUrl; }
 
 void OllamaClient::fetchModels() {
     QUrl url(m_baseUrl + "/api/tags");
@@ -33,7 +27,7 @@ void OllamaClient::fetchModels() {
     if (!m_authKey.isEmpty()) {
         request.setRawHeader("Authorization", ("Bearer " + m_authKey).toUtf8());
     }
-    QNetworkReply *reply = m_networkManager->get(request);
+    QNetworkReply* reply = m_networkManager->get(request);
 
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         if (reply->error() == QNetworkReply::NoError) {
@@ -52,7 +46,7 @@ void OllamaClient::fetchModels() {
             }
         } else {
             emit connectionStatusChanged(false);
-            emit modelListUpdated(QStringList()); // Clear on error
+            emit modelListUpdated(QStringList());  // Clear on error
         }
         reply->deleteLater();
     });
@@ -73,7 +67,7 @@ void OllamaClient::pullModel(const QString& modelName) {
     QJsonDocument doc(json);
     QByteArray data = doc.toJson();
 
-    QNetworkReply *reply = m_networkManager->post(request, data);
+    QNetworkReply* reply = m_networkManager->post(request, data);
     m_activePulls[reply] = modelName;
     m_pullBuffers[reply] = QByteArray();
 
@@ -117,8 +111,7 @@ void OllamaClient::pullModel(const QString& modelName) {
     });
 }
 
-void OllamaClient::generate(const QString& model, const QString& prompt,
-                            std::function<void(const QString&)> onChunk,
+void OllamaClient::generate(const QString& model, const QString& prompt, std::function<void(const QString&)> onChunk,
                             std::function<void(const QString&)> onComplete,
                             std::function<void(const QString&)> onError) {
     QUrl url(m_baseUrl + "/api/generate");
@@ -136,7 +129,7 @@ void OllamaClient::generate(const QString& model, const QString& prompt,
     QJsonDocument doc(json);
     QByteArray data = doc.toJson();
 
-    QNetworkReply *reply = m_networkManager->post(request, data);
+    QNetworkReply* reply = m_networkManager->post(request, data);
 
     connect(reply, &QNetworkReply::readyRead, this, [reply, onChunk]() {
         QByteArray chunk = reply->readAll();
@@ -159,7 +152,7 @@ void OllamaClient::generate(const QString& model, const QString& prompt,
         if (reply->error() != QNetworkReply::NoError) {
             onError(reply->errorString());
         } else {
-            onComplete(""); // Pass empty string or full content if needed later
+            onComplete("");  // Pass empty string or full content if needed later
         }
         reply->deleteLater();
     });

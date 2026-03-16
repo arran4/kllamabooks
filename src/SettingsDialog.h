@@ -2,28 +2,28 @@
 #define SETTINGSDIALOG_H
 
 #include <QDialog>
-#include <QLineEdit>
-#include <QTableWidget>
-#include <QHeaderView>
-#include <QVariantMap>
-#include <QVariantList>
-#include <QPushButton>
-#include <QVBoxLayout>
 #include <QHBoxLayout>
+#include <QHeaderView>
 #include <QLabel>
-#include <QSettings>
+#include <QLineEdit>
 #include <QMessageBox>
+#include <QPushButton>
+#include <QSettings>
+#include <QTableWidget>
+#include <QVBoxLayout>
+#include <QVariantList>
+#include <QVariantMap>
 
 class SettingsDialog : public QDialog {
     Q_OBJECT
-public:
-    explicit SettingsDialog(QWidget *parent = nullptr);
+   public:
+    explicit SettingsDialog(QWidget* parent = nullptr);
     ~SettingsDialog();
 
-signals:
+   signals:
     void settingsApplied();
 
-private slots:
+   private slots:
     void onApply();
     void onAddConnection();
     void onRemoveConnection();
@@ -32,7 +32,7 @@ private slots:
     void saveConnections();
     void onTestConnection();
 
-private:
+   private:
     QTableWidget* m_connectionsTable;
     QPushButton* m_addButton;
     QPushButton* m_removeButton;
@@ -43,4 +43,4 @@ private:
     QSettings m_settings;
 };
 
-#endif // SETTINGSDIALOG_H
+#endif  // SETTINGSDIALOG_H
