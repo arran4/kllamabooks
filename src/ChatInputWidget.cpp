@@ -8,7 +8,7 @@ ChatInputWidget::ChatInputWidget(QWidget* parent) : QTextEdit(parent), m_sendBeh
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
 
     // Connect text change signal to dynamically adjust size
-    connect(this, &QTextEdit::textChanged, this, &ChatInputWidget::adjustHeightToContent);
+    connect(document(), &QTextDocument::documentLayoutChanged, this, &ChatInputWidget::adjustHeightToContent);
 
     // Initial size adjustment
     adjustHeightToContent();
@@ -17,7 +17,9 @@ ChatInputWidget::ChatInputWidget(QWidget* parent) : QTextEdit(parent), m_sendBeh
 void ChatInputWidget::adjustHeightToContent() {
     int margins = contentsMargins().top() + contentsMargins().bottom() +
                   document()->documentMargin() * 2;
-    int contentHeight = document()->size().height() + margins;
+
+    // Add a small buffer (e.g. 2px) to prevent scrollbars from flickering when exactly at size boundary
+    int contentHeight = document()->size().height() + margins + 2;
 
     // Set a sensible minimum and maximum height
     // Minimum: 1 line roughly, Maximum: half of parent or a sensible max
