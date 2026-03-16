@@ -14,6 +14,7 @@
 #include <QDir>
 #include <QDragEnterEvent>
 #include <QDropEvent>
+#include <QActionGroup>
 #include <QGuiApplication>
 #include <QInputDialog>
 #include <QJsonArray>
