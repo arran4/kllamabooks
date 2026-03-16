@@ -180,18 +180,6 @@ void MainWindow::setupUi() {
     connect(inputField, &QLineEdit::returnPressed, this, &MainWindow::onSendMessage);
     connect(chatModel, &QStandardItemModel::itemChanged, this, &MainWindow::onItemChanged);
     connect(chatTree->selectionModel(), &QItemSelectionModel::currentChanged, this, &MainWindow::onChatNodeSelected);
-    connect(linearChatList, &QListWidget::itemClicked, this, [this](QListWidgetItem* item) {
-        if (item) {
-            currentLastNodeId = item->data(Qt::UserRole).toInt();
-            qDebug() << "Selected point for fork: " << currentLastNodeId;
-
-            // Highlight it in the tree if we switch views
-            QStandardItem* foundItem = findItem(chatModel->invisibleRootItem(), currentLastNodeId);
-            if (foundItem) {
-                chatTree->setCurrentIndex(foundItem->index());
-            }
-        }
-    });
 
     connect(&ollamaClient, &OllamaClient::modelListUpdated, this, [this](const QStringList& models){
         modelComboBox->clear();
@@ -406,6 +394,8 @@ void MainWindow::showLinearChatContextMenu(const QPoint& pos) {
     QMenu menu(this);
     QAction* copyAction = menu.addAction(QIcon::fromTheme("edit-copy"), "Copy Message");
     QAction* pasteAction = menu.addAction(QIcon::fromTheme("edit-paste"), "Paste to Input");
+    menu.addSeparator();
+    QAction* forkAction = menu.addAction(QIcon::fromTheme("call-start"), "Fork from Here");
 
     QAction* selectedAction = menu.exec(linearChatList->viewport()->mapToGlobal(pos));
     if (selectedAction == copyAction) {
@@ -418,6 +408,19 @@ void MainWindow::showLinearChatContextMenu(const QPoint& pos) {
         QGuiApplication::clipboard()->setText(fullText);
     } else if (selectedAction == pasteAction) {
         inputField->setText(inputField->text() + QGuiApplication::clipboard()->text());
+    } else if (selectedAction == forkAction) {
+        currentLastNodeId = item->data(Qt::UserRole).toInt();
+        qDebug() << "Selected point for fork from linear view: " << currentLastNodeId;
+
+        // Highlight it in the tree if we switch views
+        QStandardItem* foundItem = findItem(chatModel->invisibleRootItem(), currentLastNodeId);
+        if (foundItem) {
+            chatTree->setCurrentIndex(foundItem->index());
+        }
+
+        if (currentDb) {
+            updateLinearChatView(currentLastNodeId, currentDb->getMessages());
+        }
     }
 }
 
@@ -431,6 +434,8 @@ void MainWindow::showChatTreeContextMenu(const QPoint& pos) {
     QMenu menu(this);
     QAction* copyAction = menu.addAction(QIcon::fromTheme("edit-copy"), "Copy Message");
     QAction* pasteAction = menu.addAction(QIcon::fromTheme("edit-paste"), "Paste to Input");
+    menu.addSeparator();
+    QAction* forkAction = menu.addAction(QIcon::fromTheme("call-start"), "Fork from Here");
 
     QAction* selectedAction = menu.exec(chatTree->viewport()->mapToGlobal(pos));
     if (selectedAction == copyAction) {
@@ -442,6 +447,13 @@ void MainWindow::showChatTreeContextMenu(const QPoint& pos) {
         QGuiApplication::clipboard()->setText(fullText);
     } else if (selectedAction == pasteAction) {
         inputField->setText(inputField->text() + QGuiApplication::clipboard()->text());
+    } else if (selectedAction == forkAction) {
+        currentLastNodeId = item->data(Qt::UserRole).toInt();
+        qDebug() << "Selected point for fork from tree view: " << currentLastNodeId;
+
+        if (currentDb) {
+            updateLinearChatView(currentLastNodeId, currentDb->getMessages());
+        }
     }
 }
 
@@ -636,9 +648,9 @@ void MainWindow::onChatNodeSelected(const QModelIndex& current, const QModelInde
     if (!current.isValid()) return;
     QStandardItem* item = chatModel->itemFromIndex(current);
     if (item) {
-        currentLastNodeId = item->data(Qt::UserRole).toInt();
+        int previewNodeId = item->data(Qt::UserRole).toInt();
         if (currentDb) {
-            updateLinearChatView(currentLastNodeId, currentDb->getMessages());
+            updateLinearChatView(previewNodeId, currentDb->getMessages());
         }
     }
 }
