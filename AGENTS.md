@@ -25,3 +25,10 @@ Break down large functions into smaller, single-purpose helper functions. This i
 ## Building and Compiling (Qt6 / KF6 Migration)
 This project is currently migrating to Qt6 and KDE Frameworks 6 (KF6).
 If your environment does not have the required Qt6 or KF6 development headers, there is a Dockerfile located in `.jules/Dockerfile` that can be used to set up an isolated build container (e.g. `debian:testing`) with all required `libkf6*` dependencies.
+
+## Application Architecture Learnings
+- **Books & Databases:** The main application manages "Books" which represent individual encrypted SQLite databases (`BookDatabase`). These store chats, documents, and notes. The connection is handled using SQLCipher.
+- **UI Components:** The main view utilizes `QSplitter`s. The left pane shows "Open Books" (tree view of databases and their contents) and "Closed Books" (list of inactive database files). The right pane is a `QStackedWidget` switching between a linear chat view (`QListWidget`) and a full branching chat tree (`QTreeView`).
+- **Drag and Drop:** Handled in `MainWindow::eventFilter`. Dragging `.db` files from external sources or between "Open" and "Closed" lists is supported.
+- **AI Interaction:** Chat messages support a forking feature (branching) starting from any node in the history. Individual messages track which LLM model generated them. All LLM interaction goes through `OllamaClient` using QtNetwork.
+- **State Management:** Essential UI state (window geometry, splitter sizes, list of open books) is saved using `QSettings` in `MainWindow::closeEvent` and restored in `MainWindow::setupWindow`.

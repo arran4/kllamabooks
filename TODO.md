@@ -9,7 +9,7 @@
 - [x] Set initial splitter sizes to `max(20%, 100px)` for the left pane and the remainder for the right pane.
 - [x] Split the left pane into two sections (top ~60%, bottom ~40%):
   - [x] Top: "Open Books" (tree view showing opened books, chats, and documents).
-  - [ ] Bottom: "Closed Books" (list of available databases, sortable by last opened, etc., with favorites support).
+  - [x] Bottom: "Closed Books" (list of available databases, sortable by last opened, etc., with favorites support).
 - [x] Add main application menus (File, Edit, View, Settings, Help) using KXMLGUI.
 - [x] Add a status bar with relevant information (current model, connection status, etc.).
 
@@ -34,15 +34,21 @@
   - The UI should clearly show which branch is currently active and allow switching between them.
 - [x] Allow selecting the LLM/Model for *each* individual response/message.
 - [ ] Implement Import/Export functionality for chat sessions.
-- [ ] Add copy/paste support for messages.
+- [x] Add copy/paste support for messages.
 
 ## Document Management & AI Interaction (Non-Chat Modes)
 - [ ] Implement a document viewer/editor for Markdown files (`.md`).
+  - [ ] Evaluate and select Markdown rendering approach (Qt built-in Markdown, WebEngine, or third-party).
+  - [ ] Implement read-only rendering view.
+  - [ ] Implement edit mode with simple text editor.
 - [ ] Add Drag & Drop support for `.md` files into and out of the application.
+  - [ ] Support importing `.md` files as Document nodes.
+  - [ ] Support exporting Document nodes to `.md` files.
 - [ ] Implement "Complete this text" / "Append" mode for documents.
 - [ ] Implement "Replace entirely" mode for documents (with access to history).
 - [ ] Implement "Replace in place" (modifying the current document directly, e.g., for censoring or minor edits).
 - [ ] For replacement operations, default to creating a new sub-document (version history) rather than destructive edits.
+  - [ ] Update `BookDatabase` schema to support document versioning if needed.
 - [ ] Design these interactions as fast, wizard-like dialogs rather than a conversational chat interface.
 - [ ] Consider future RAG (Retrieval-Augmented Generation) capabilities (e.g., using documents as context for chats).
 
@@ -56,11 +62,10 @@
   - Test connection to the configured endpoints.
 - [x] Manage API keys or authentication if required for remote endpoints.
 - [x] Show connection status and current endpoint in main toolbar.
-- [ ] Implement a model explorer and downloader to browse available models and fetch them locally.
+- [x] Implement a model explorer and downloader to browse available models and fetch them locally.
 
 ## Extra / Deduced Requirements
 - [x] **Database Schema Updates:** The `BookDatabase` schema will need significant updates to support Documents, Notes, hierarchical folders, and the complex branching logic for chats (storing paths or explicit parent-child relationships).
-- [ ] **State Persistence:** Save the state of open books, splitter sizes, and recent selections between application restarts.
+- [x] **State Persistence:** Save the state of open books, splitter sizes, and recent selections between application restarts.
 - [ ] **Markdown Rendering:** Ensure the chat and document views can render Markdown properly (using `QTextBrowser` or a WebEngine view if needed).
 - [ ] **Error Handling:** Robust error handling for database corruption, network failures with the LLM, and missing files.
-- [ ] Implement Drag & Drop for opening/closing books.
