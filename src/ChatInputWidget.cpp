@@ -28,6 +28,11 @@ void ChatInputWidget::adjustHeightToContent() {
         maxHeight = parentWidget()->height() / 2;
     }
 
+    // Ensure maxHeight is not less than minHeight to avoid qBound assertion failure
+    if (maxHeight < minHeight) {
+        maxHeight = minHeight;
+    }
+
     int newHeight = qBound(minHeight, contentHeight, maxHeight);
     setFixedHeight(newHeight);
 }
