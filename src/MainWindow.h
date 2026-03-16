@@ -58,6 +58,8 @@ class MainWindow : public KXmlGuiWindow {
     void showOpenBookContextMenu(const QPoint& pos);
     void showLinearChatContextMenu(const QPoint& pos);
     void showChatTreeContextMenu(const QPoint& pos);
+    void exportChatSession();
+    void importChatSession();
 
    protected:
     void closeEvent(QCloseEvent* event) override;
