@@ -228,6 +228,14 @@ void MainWindow::setupUi() {
     modelLabel = new QLabel(tr("Model: Not Selected"), this);
     statusBar->addPermanentWidget(modelLabel);
 
+    connect(modelComboBox, &QComboBox::currentTextChanged, this, [this](const QString &text) {
+        if (text.isEmpty()) {
+            modelLabel->setText(tr("Model: Not Selected"));
+        } else {
+            modelLabel->setText(tr("Model: %1").arg(text));
+        }
+    });
+
     updateEndpointsList();
     loadBooks();
 }
