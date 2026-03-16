@@ -96,8 +96,13 @@ void MainWindow::setupUi() {
 
     splitter->addWidget(leftSplitter);
 
-    QWidget* rightWidget = new QWidget(this);
-    QVBoxLayout* rightLayout = new QVBoxLayout(rightWidget);
+    mainRightStack = new QStackedWidget(this);
+
+    modelExplorerWidget = new ModelExplorer(&ollamaClient, this);
+    mainRightStack->addWidget(modelExplorerWidget);
+
+    chatContainerWidget = new QWidget(this);
+    QVBoxLayout* chatContainerLayout = new QVBoxLayout(chatContainerWidget);
 
     chatStackWidget = new QStackedWidget(this);
 
@@ -118,7 +123,7 @@ void MainWindow::setupUi() {
     chatTree->setEditTriggers(QAbstractItemView::DoubleClicked);
     chatStackWidget->addWidget(chatTree);
 
-    rightLayout->addWidget(chatStackWidget);
+    chatContainerLayout->addWidget(chatStackWidget);
 
     inputField = new QLineEdit(this);
     sendButton = new QPushButton("Send", this);
@@ -128,9 +133,11 @@ void MainWindow::setupUi() {
     inputLayout->addWidget(modelComboBox);
     inputLayout->addWidget(inputField);
     inputLayout->addWidget(sendButton);
-    rightLayout->addLayout(inputLayout);
+    chatContainerLayout->addLayout(inputLayout);
 
-    splitter->addWidget(rightWidget);
+    mainRightStack->addWidget(chatContainerWidget);
+
+    splitter->addWidget(mainRightStack);
 
     // Initial sizes
     int totalWidth = width();
@@ -379,11 +386,7 @@ void MainWindow::loadBooks() {
     }
 }
 
-void MainWindow::showModelExplorer() {
-    ModelExplorer* explorer = new ModelExplorer(&ollamaClient, this);
-    explorer->setAttribute(Qt::WA_DeleteOnClose);
-    explorer->show();
-}
+void MainWindow::showModelExplorer() { mainRightStack->setCurrentWidget(modelExplorerWidget); }
 
 void MainWindow::onCreateBook() {
     bool ok;
@@ -534,6 +537,7 @@ void MainWindow::onBookSelected(const QModelIndex& index) {
     delete bookList->takeItem(index.row());
 
     loadSession(0);  // For now, load all as one session
+    mainRightStack->setCurrentWidget(chatContainerWidget);
 }
 
 void MainWindow::loadSession(int rootId) {
@@ -782,6 +786,7 @@ void MainWindow::closeBook(const QString& fileName) {
         currentDb.reset();
         chatModel->clear();
         statusLabel->setText(tr("Ready"));
+        mainRightStack->setCurrentWidget(modelExplorerWidget);
     }
 }
 
