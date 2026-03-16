@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(kgithub-notify VERSION 0.1.2)
+project(kllamabooks VERSION 0.1.2)
 
 include(GNUInstallDirs)
 
@@ -59,20 +59,20 @@ install(TARGETS kllamabooks
     BUNDLE DESTINATION .
 )
 
-install(FILES src/kgithub-notify.desktop
+install(FILES src/kllamabooks.desktop
     DESTINATION ${CMAKE_INSTALL_DATADIR}/applications
-    RENAME com.arran4.kgithub_notify.desktop
+    RENAME com.arran4.kllamabooks.desktop
 )
 
 install(FILES src/assets/icon.svg
     DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps
-    RENAME kgithub-notify.svg
+    RENAME kllamabooks.svg
 )
 
-install(FILES src/kgithub-notify.notifyrc
+install(FILES src/kllamabooks.notifyrc
     DESTINATION ${CMAKE_INSTALL_DATADIR}/knotifications6
 )
 
-install(FILES src/kgithub-notifyui.rc
-    DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/kxmlgui6/kgithub-notify
+install(FILES src/kllamabooksui.rc
+    DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/kxmlgui6/kllamabooks
 )

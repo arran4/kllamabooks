@@ -96,7 +96,7 @@ jobs:
       run: |
         apt-get update
         apt-get install -y git sudo curl jq
-        git config --global --add safe.directory /__w/kgithub-notify/kgithub-notify
+        git config --global --add safe.directory /__w/kllamabooks/kllamabooks
 
     - uses: actions/checkout@v4
       with:
@@ -106,7 +106,7 @@ jobs:
       id: bump
       if: ${{ github.event_name == 'workflow_dispatch' && startsWith(github.event.inputs.action, 'release-') }}
       run: |
-        CURRENT_VERSION=$(grep -Po 'project\(kgithub-notify VERSION \K[0-9]+\.[0-9]+\.[0-9]+' CMakeLists.txt)
+        CURRENT_VERSION=$(grep -Po 'project\(kllamabooks VERSION \K[0-9]+\.[0-9]+\.[0-9]+' CMakeLists.txt)
         IFS='.' read -r major minor patch <<< "$CURRENT_VERSION"
         if [ "${{ github.event.inputs.action }}" == "release-major" ]; then
           major=$((major + 1))
@@ -119,7 +119,7 @@ jobs:
           patch=$((patch + 1))
         fi
         NEW_VERSION="${major}.${minor}.${patch}"
-        sed -i "s/project(kgithub-notify VERSION $CURRENT_VERSION)/project(kgithub-notify VERSION $NEW_VERSION)/" CMakeLists.txt
+        sed -i "s/project(kllamabooks VERSION $CURRENT_VERSION)/project(kllamabooks VERSION $NEW_VERSION)/" CMakeLists.txt
         git config --global user.email "actions@github.com"
         git config --global user.name "GitHub Actions"
         git add CMakeLists.txt
@@ -234,9 +234,9 @@ jobs:
           VERSION="${GITHUB_REF#refs/tags/v}"
 
           # Find the latest ebuild
-          EBUILD_DIR="dev-vcs/kgithub-notify"
+          EBUILD_DIR="dev-vcs/kllamabooks"
           LATEST_EBUILD=$(ls -1 $EBUILD_DIR/*.ebuild | sort -V | tail -n 1)
-          NEW_EBUILD="$EBUILD_DIR/kgithub-notify-${VERSION}.ebuild"
+          NEW_EBUILD="$EBUILD_DIR/kllamabooks-${VERSION}.ebuild"
 
           if [ -f "$NEW_EBUILD" ]; then
             echo "Ebuild for version ${VERSION} already exists. Skipping."
@@ -245,7 +245,7 @@ jobs:
             cp "$LATEST_EBUILD" "$NEW_EBUILD"
 
             # Generate Manifest
-            g2 manifest upsert-from-url "https://github.com/arran4/kgithub-notify/archive/refs/tags/v${VERSION}.tar.gz" "kgithub-notify-${VERSION}.tar.gz" "$EBUILD_DIR/Manifest"
+            g2 manifest upsert-from-url "https://github.com/arran4/kllamabooks/archive/refs/tags/v${VERSION}.tar.gz" "kllamabooks-${VERSION}.tar.gz" "$EBUILD_DIR/Manifest"
           fi
 
       - name: Create Pull Request
@@ -254,20 +254,20 @@ jobs:
         run: |
           cd arrans_overlay
           VERSION="${GITHUB_REF#refs/tags/v}"
-          BRANCH_NAME="update-kgithub-notify-${VERSION}"
+          BRANCH_NAME="update-kllamabooks-${VERSION}"
 
           git checkout -b $BRANCH_NAME
-          git add dev-vcs/kgithub-notify/
+          git add dev-vcs/kllamabooks/
 
           if git diff --staged --quiet; then
             echo "No changes to commit."
           else
-            git commit -m "feat: update kgithub-notify to ${VERSION}"
+            git commit -m "feat: update kllamabooks to ${VERSION}"
             git push origin $BRANCH_NAME
 
             gh pr create \
-              --title "feat: update kgithub-notify to ${VERSION}" \
-              --body "Automated update of kgithub-notify ebuild for version ${VERSION}." \
+              --title "feat: update kllamabooks to ${VERSION}" \
+              --body "Automated update of kllamabooks ebuild for version ${VERSION}." \
               --base main \
               --head $BRANCH_NAME
           fi
