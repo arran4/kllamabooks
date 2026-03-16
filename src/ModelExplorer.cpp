@@ -18,6 +18,7 @@ ModelExplorer::ModelExplorer(OllamaClient* client, QWidget *parent)
     mainLayout->addLayout(searchLayout);
 
     m_modelList = new QListWidget(this);
+    m_modelList->setEditTriggers(QAbstractItemView::NoEditTriggers);
     mainLayout->addWidget(m_modelList);
 
     QHBoxLayout* actionLayout = new QHBoxLayout();
