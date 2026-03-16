@@ -51,10 +51,11 @@
 
 ## Settings & LLM Management
 - [x] Create a comprehensive Settings dialog.
-- [ ] Add an "LLM Management" section:
+- [x] Add an "LLM Management" section:
   - Add, edit, and remove different LLM providers/endpoints (e.g., local Ollama, remote servers).
   - Test connection to the configured endpoints.
-- [ ] Manage API keys or authentication if required for remote endpoints.
+- [x] Manage API keys or authentication if required for remote endpoints.
+- [x] Show connection status and current endpoint in main toolbar.
 - [ ] Implement a model explorer and downloader to browse available models and fetch them locally.
 
 ## Extra / Deduced Requirements

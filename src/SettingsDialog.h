@@ -3,6 +3,10 @@
 
 #include <QDialog>
 #include <QLineEdit>
+#include <QTableWidget>
+#include <QHeaderView>
+#include <QVariantMap>
+#include <QVariantList>
 #include <QPushButton>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -21,10 +25,18 @@ signals:
 
 private slots:
     void onApply();
+    void onAddConnection();
+    void onRemoveConnection();
+    void onEditConnection();
+    void loadConnections();
+    void saveConnections();
     void onTestConnection();
 
 private:
-    QLineEdit* m_urlEdit;
+    QTableWidget* m_connectionsTable;
+    QPushButton* m_addButton;
+    QPushButton* m_removeButton;
+    QPushButton* m_editButton;
     QPushButton* m_testButton;
     QPushButton* m_applyButton;
     QPushButton* m_cancelButton;

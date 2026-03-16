@@ -49,6 +49,9 @@ class MainWindow : public KXmlGuiWindow {
     void onOllamaError(const QString& error);
     void onItemChanged(QStandardItem* item);
     void onChatNodeSelected(const QModelIndex& current, const QModelIndex& previous);
+    void onActiveEndpointChanged(int index);
+    void onConnectionStatusChanged(bool isOk);
+    void updateEndpointsList();
     void showBookContextMenu(const QPoint& pos);
     void showOpenBookContextMenu(const QPoint& pos);
     void showLinearChatContextMenu(const QPoint& pos);
@@ -93,6 +96,8 @@ class MainWindow : public KXmlGuiWindow {
     QStatusBar *statusBar;
     QLabel *statusLabel;
     QLabel *modelLabel;
+    QComboBox *endpointComboBox;
+    QLabel *connectionStatusLabel;
 };
 
 #endif  // MAINWINDOW_H

@@ -4,7 +4,7 @@
 #include <QEventLoop>
 
 OllamaClient::OllamaClient(QObject *parent)
-    : QObject(parent), m_networkManager(new QNetworkAccessManager(this)), m_baseUrl("http://localhost:11434") {
+    : QObject(parent), m_networkManager(new QNetworkAccessManager(this)), m_baseUrl("http://localhost:11434"), m_authKey("") {
 }
 
 OllamaClient::~OllamaClient() {
@@ -14,6 +14,14 @@ void OllamaClient::setBaseUrl(const QString& url) {
     m_baseUrl = url;
 }
 
+void OllamaClient::setAuthKey(const QString& key) {
+    m_authKey = key;
+}
+
+QString OllamaClient::getAuthKey() const {
+    return m_authKey;
+}
+
 QString OllamaClient::getBaseUrl() const {
     return m_baseUrl;
 }
@@ -21,10 +29,14 @@ QString OllamaClient::getBaseUrl() const {
 void OllamaClient::fetchModels() {
     QUrl url(m_baseUrl + "/api/tags");
     QNetworkRequest request(url);
+    if (!m_authKey.isEmpty()) {
+        request.setRawHeader("Authorization", ("Bearer " + m_authKey).toUtf8());
+    }
     QNetworkReply *reply = m_networkManager->get(request);
 
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         if (reply->error() == QNetworkReply::NoError) {
+            emit connectionStatusChanged(true);
             QByteArray response = reply->readAll();
             QJsonDocument doc = QJsonDocument::fromJson(response);
             if (doc.isObject() && doc.object().contains("models") && doc.object()["models"].isArray()) {
@@ -37,6 +49,9 @@ void OllamaClient::fetchModels() {
                 }
                 emit modelListUpdated(modelNames);
             }
+        } else {
+            emit connectionStatusChanged(false);
+            emit modelListUpdated(QStringList()); // Clear on error
         }
         reply->deleteLater();
     });
@@ -49,6 +64,9 @@ void OllamaClient::generate(const QString& model, const QString& prompt,
     QUrl url(m_baseUrl + "/api/generate");
     QNetworkRequest request(url);
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    if (!m_authKey.isEmpty()) {
+        request.setRawHeader("Authorization", ("Bearer " + m_authKey).toUtf8());
+    }
 
     QJsonObject json;
     json["model"] = model;

@@ -154,6 +154,26 @@ void MainWindow::setupUi() {
     actionCollection()->addAction(QStringLiteral("new_book"), newBookAction);
     toolbar->addAction(newBookAction);
 
+    // Endpoints in toolbar
+    QWidget* spacer = new QWidget(this);
+    spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    toolbar->addWidget(spacer);
+
+    QLabel* endpointLabel = new QLabel(tr("Endpoint: "), this);
+    toolbar->addWidget(endpointLabel);
+
+    endpointComboBox = new QComboBox(this);
+    endpointComboBox->setMinimumWidth(150);
+    toolbar->addWidget(endpointComboBox);
+
+    connectionStatusLabel = new QLabel(this);
+    connectionStatusLabel->setMargin(4);
+    toolbar->addWidget(connectionStatusLabel);
+    onConnectionStatusChanged(false); // Initially disconnected
+
+    connect(endpointComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onActiveEndpointChanged);
+    connect(&ollamaClient, &OllamaClient::connectionStatusChanged, this, &MainWindow::onConnectionStatusChanged);
+
     connect(newBookAction, &QAction::triggered, this, &MainWindow::onCreateBook);
     connect(bookList, &QListWidget::doubleClicked, this, &MainWindow::onBookSelected); // Open book from list via double click
     connect(sendButton, &QPushButton::clicked, this, &MainWindow::onSendMessage);
@@ -208,21 +228,69 @@ void MainWindow::setupUi() {
     modelLabel = new QLabel(tr("Model: Not Selected"), this);
     statusBar->addPermanentWidget(modelLabel);
 
+    updateEndpointsList();
+    loadBooks();
+}
+
+void MainWindow::updateEndpointsList() {
+    endpointComboBox->blockSignals(true);
+    endpointComboBox->clear();
+
     QSettings settings;
-    if (settings.contains("ollamaUrl")) {
-        ollamaClient.setBaseUrl(settings.value("ollamaUrl").toString());
+    QVariantList connections = settings.value("llmConnections").toList();
+
+    if (connections.isEmpty() && settings.contains("ollamaUrl")) {
+        // Fallback for old setting
+        endpointComboBox->addItem("Default Ollama", settings.value("ollamaUrl", "http://localhost:11434").toString());
+        endpointComboBox->setItemData(0, "", Qt::UserRole + 1); // Auth Key
+    } else {
+        for (int i = 0; i < connections.size(); ++i) {
+            QVariantMap map = connections[i].toMap();
+            endpointComboBox->addItem(map["name"].toString(), map["url"].toString());
+            endpointComboBox->setItemData(i, map["authKey"].toString(), Qt::UserRole + 1);
+        }
     }
 
-    ollamaClient.fetchModels();
-    loadBooks();
+    int lastIdx = settings.value("lastEndpointIndex", 0).toInt();
+    if (lastIdx >= 0 && lastIdx < endpointComboBox->count()) {
+        endpointComboBox->setCurrentIndex(lastIdx);
+    }
+
+    endpointComboBox->blockSignals(false);
+
+    if (endpointComboBox->count() > 0) {
+        onActiveEndpointChanged(endpointComboBox->currentIndex());
+    }
+}
+
+void MainWindow::onActiveEndpointChanged(int index) {
+    if (index < 0) return;
+
+    QString url = endpointComboBox->itemData(index, Qt::UserRole).toString();
+    QString authKey = endpointComboBox->itemData(index, Qt::UserRole + 1).toString();
+
+    ollamaClient.setBaseUrl(url);
+    ollamaClient.setAuthKey(authKey);
+    ollamaClient.fetchModels(); // Test connection and fetch
+
+    QSettings settings;
+    settings.setValue("lastEndpointIndex", index);
+}
+
+void MainWindow::onConnectionStatusChanged(bool isOk) {
+    if (isOk) {
+        connectionStatusLabel->setText("🟢");
+        connectionStatusLabel->setToolTip(tr("Connected"));
+    } else {
+        connectionStatusLabel->setText("🔴");
+        connectionStatusLabel->setToolTip(tr("Disconnected / Error"));
+    }
 }
 
 void MainWindow::showSettingsDialog() {
     SettingsDialog* dlg = new SettingsDialog(this);
     connect(dlg, &SettingsDialog::settingsApplied, this, [this]() {
-        QSettings settings;
-        ollamaClient.setBaseUrl(settings.value("ollamaUrl").toString());
-        ollamaClient.fetchModels(); // Refresh models list with new URL
+        updateEndpointsList();
     });
     dlg->setAttribute(Qt::WA_DeleteOnClose);
     dlg->show();
