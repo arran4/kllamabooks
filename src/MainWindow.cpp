@@ -121,8 +121,12 @@ void MainWindow::setupUi() {
 
     rightLayout->addWidget(chatStackWidget);
 
-    inputField = new ChatInputWidget(this);
-    sendButton = new QPushButton("Send", this);
+    // Create an explicit widget to contain the input controls to limit their vertical expansion
+    QWidget* bottomContainer = new QWidget(this);
+    bottomContainer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Maximum);
+
+    inputField = new ChatInputWidget(bottomContainer);
+    sendButton = new QPushButton("Send", bottomContainer);
     modelComboBox = new QComboBox(this);
 
     inputSettingsButton = new QToolButton(this);
@@ -140,7 +144,8 @@ void MainWindow::setupUi() {
     btnLayout->addStretch();
     inputLayout->addLayout(btnLayout);
 
-    rightLayout->addLayout(inputLayout);
+    bottomContainer->setLayout(inputLayout);
+    rightLayout->addWidget(bottomContainer);
 
     splitter->addWidget(rightWidget);
 

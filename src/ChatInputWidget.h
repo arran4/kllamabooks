@@ -19,6 +19,10 @@ class ChatInputWidget : public QTextEdit {
 
    protected:
     void keyPressEvent(QKeyEvent* event) override;
+    void resizeEvent(QResizeEvent* event) override;
+
+   private slots:
+    void adjustHeightToContent();
 
    private:
     SendBehavior m_sendBehavior;
