@@ -37,6 +37,7 @@
 #include <QtGui/QAction>
 #include <limits>
 
+#include "ModelSelectionDialog.h"
 #include "WalletManager.h"
 
 MainWindow::MainWindow(QWidget* parent) : KXmlGuiWindow(parent), currentLastNodeId(0) {
@@ -79,6 +80,18 @@ void MainWindow::setupUi() {
     openBooksTree->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(openBooksTree, &QWidget::customContextMenuRequested, this, &MainWindow::showOpenBookContextMenu);
 
+    connect(openBooksTree, &QTreeView::doubleClicked, this, [this](const QModelIndex& index) {
+        QStandardItem* item = openBooksModel->itemFromIndex(index);
+        if (item) {
+            QString type = item->data(Qt::UserRole + 1).toString();
+            if (type == "chats_folder") {
+                mainRightStack->setCurrentWidget(chatContainerWidget);
+            } else if (type == "book") {
+                mainRightStack->setCurrentWidget(exploreListWidget);
+            }
+        }
+    });
+
     bookList = new QListWidget(this);
     bookList->setAcceptDrops(true);
     bookList->setDragEnabled(true);
@@ -97,8 +110,30 @@ void MainWindow::setupUi() {
 
     splitter->addWidget(leftSplitter);
 
-    QWidget* rightWidget = new QWidget(this);
-    QVBoxLayout* rightLayout = new QVBoxLayout(rightWidget);
+    mainRightStack = new QStackedWidget(this);
+
+    exploreListWidget = new QListWidget(this);
+    exploreListWidget->setViewMode(QListView::IconMode);
+    exploreListWidget->setIconSize(QSize(64, 64));
+    exploreListWidget->setSpacing(20);
+    exploreListWidget->setMovement(QListView::Static);
+    exploreListWidget->setResizeMode(QListView::Adjust);
+
+    QListWidgetItem* chatsItem = new QListWidgetItem(QIcon::fromTheme("folder-open"), "Chats");
+    chatsItem->setData(Qt::UserRole, "chats");
+    QListWidgetItem* docsItem = new QListWidgetItem(QIcon::fromTheme("folder-open"), "Documents");
+    docsItem->setData(Qt::UserRole, "docs");
+    QListWidgetItem* notesItem = new QListWidgetItem(QIcon::fromTheme("folder-open"), "Notes");
+    notesItem->setData(Qt::UserRole, "notes");
+
+    exploreListWidget->addItem(chatsItem);
+    exploreListWidget->addItem(docsItem);
+    exploreListWidget->addItem(notesItem);
+
+    mainRightStack->addWidget(exploreListWidget);
+
+    chatContainerWidget = new QWidget(this);
+    QVBoxLayout* chatContainerLayout = new QVBoxLayout(chatContainerWidget);
 
     chatStackWidget = new QStackedWidget(this);
 
@@ -119,19 +154,21 @@ void MainWindow::setupUi() {
     chatTree->setEditTriggers(QAbstractItemView::DoubleClicked);
     chatStackWidget->addWidget(chatTree);
 
-    rightLayout->addWidget(chatStackWidget);
+    chatContainerLayout->addWidget(chatStackWidget);
 
     inputField = new QLineEdit(this);
     sendButton = new QPushButton("Send", this);
-    modelComboBox = new QComboBox(this);
+    modelSelectButton = new QPushButton(QIcon::fromTheme("system-search"), "Select Model", this);
 
     QHBoxLayout* inputLayout = new QHBoxLayout();
-    inputLayout->addWidget(modelComboBox);
+    inputLayout->addWidget(modelSelectButton);
     inputLayout->addWidget(inputField);
     inputLayout->addWidget(sendButton);
-    rightLayout->addLayout(inputLayout);
+    chatContainerLayout->addLayout(inputLayout);
 
-    splitter->addWidget(rightWidget);
+    mainRightStack->addWidget(chatContainerWidget);
+
+    splitter->addWidget(mainRightStack);
 
     // Initial sizes
     int totalWidth = width();
@@ -159,6 +196,18 @@ void MainWindow::setupUi() {
     });
     actionCollection()->addAction(QStringLiteral("new_book"), newBookAction);
     toolbar->addAction(newBookAction);
+
+    QAction* openBookAction = new QAction(QIcon::fromTheme("document-open"), tr("Open Book"), this);
+    actionCollection()->addAction(QStringLiteral("open_book"), openBookAction);
+    connect(openBookAction, &QAction::triggered, this, &MainWindow::onOpenBook);
+
+    QAction* closeBookAction = new QAction(QIcon::fromTheme("document-close"), tr("Close Current Book"), this);
+    actionCollection()->addAction(QStringLiteral("close_book"), closeBookAction);
+    connect(closeBookAction, &QAction::triggered, this, &MainWindow::onCloseBook);
+
+    QAction* openBookLocationAction = new QAction(QIcon::fromTheme("folder-open"), tr("Open Book Location"), this);
+    actionCollection()->addAction(QStringLiteral("open_book_location"), openBookLocationAction);
+    connect(openBookLocationAction, &QAction::triggered, this, &MainWindow::onOpenBookLocation);
 
     // Endpoints in toolbar
     QWidget* spacer = new QWidget(this);
@@ -189,25 +238,33 @@ void MainWindow::setupUi() {
     connect(chatModel, &QStandardItemModel::itemChanged, this, &MainWindow::onItemChanged);
     connect(chatTree->selectionModel(), &QItemSelectionModel::currentChanged, this, &MainWindow::onChatNodeSelected);
 
+    connect(exploreListWidget, &QListWidget::itemDoubleClicked, this, [this](QListWidgetItem* item) {
+        if (item->data(Qt::UserRole).toString() == "chats") {
+            mainRightStack->setCurrentWidget(chatContainerWidget);
+        }
+    });
+
     connect(&ollamaClient, &OllamaClient::modelListUpdated, this, [this](const QStringList& models) {
-        modelComboBox->clear();
-
-        QSettings settings;
-        QStringList favorites = settings.value("favoriteModels").toStringList();
-
-        for (const QString& model : models) {
-            if (favorites.contains(model)) {
-                modelComboBox->addItem("⭐ " + model, model);
-            }
+        m_availableModels = models;
+        if (m_availableModels.isEmpty()) {
+            m_availableModels.append("llama2");  // fallback
         }
-        for (const QString& model : models) {
-            if (!favorites.contains(model)) {
-                modelComboBox->addItem(model, model);
-            }
+        if (m_selectedModel.isEmpty() && !m_availableModels.isEmpty()) {
+            m_selectedModel = m_availableModels.first();
+            modelSelectButton->setText(m_selectedModel);
+            modelLabel->setText(tr("Model: %1").arg(m_selectedModel));
         }
+    });
 
-        if (models.isEmpty()) {
-            modelComboBox->addItem("llama2", "llama2");  // fallback
+    connect(modelSelectButton, &QPushButton::clicked, this, [this]() {
+        ModelSelectionDialog dlg(m_availableModels, this);
+        if (dlg.exec() == QDialog::Accepted) {
+            QString selected = dlg.selectedModel();
+            if (!selected.isEmpty()) {
+                m_selectedModel = selected;
+                modelSelectButton->setText(m_selectedModel);
+                modelLabel->setText(tr("Model: %1").arg(m_selectedModel));
+            }
         }
     });
 
@@ -240,14 +297,6 @@ void MainWindow::setupUi() {
 
     modelLabel = new QLabel(tr("Model: Not Selected"), this);
     statusBar->addPermanentWidget(modelLabel);
-
-    connect(modelComboBox, &QComboBox::currentTextChanged, this, [this](const QString& text) {
-        if (text.isEmpty()) {
-            modelLabel->setText(tr("Model: Not Selected"));
-        } else {
-            modelLabel->setText(tr("Model: %1").arg(text));
-        }
-    });
 
     updateEndpointsList();
     loadBooks();
@@ -388,6 +437,27 @@ void MainWindow::showModelExplorer() {
     ModelExplorer* explorer = new ModelExplorer(&ollamaClient, this);
     explorer->setAttribute(Qt::WA_DeleteOnClose);
     explorer->show();
+}
+
+void MainWindow::onOpenBook() {
+    QString startPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    QString filePath = QFileDialog::getOpenFileName(this, tr("Open Book"), startPath, tr("Books (*.db)"));
+    if (!filePath.isEmpty()) {
+        QFileInfo fileInfo(filePath);
+        handleBookDrop(fileInfo.fileName());
+    }
+}
+
+void MainWindow::onCloseBook() {
+    if (currentDb && currentDb->isOpen()) {
+        QFileInfo fileInfo(currentDb->filepath());
+        closeBook(fileInfo.fileName());
+    }
+}
+
+void MainWindow::onOpenBookLocation() {
+    QString path = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    QDesktopServices::openUrl(QUrl::fromLocalFile(path));
 }
 
 void MainWindow::onCreateBook() {
@@ -551,6 +621,8 @@ void MainWindow::onBookSelected(const QModelIndex& index) {
     delete bookList->takeItem(index.row());
 
     loadSession(0);  // For now, load all as one session
+
+    mainRightStack->setCurrentWidget(exploreListWidget);
 }
 
 void MainWindow::loadSession(int rootId) {
@@ -651,10 +723,7 @@ void MainWindow::onSendMessage() {
 
     updateLinearChatView(currentLastNodeId, currentDb->getMessages());
 
-    QString selectedModel = modelComboBox->currentData().toString();
-    if (selectedModel.isEmpty()) {
-        selectedModel = modelComboBox->currentText();
-    }
+    QString selectedModel = m_selectedModel;
     if (selectedModel.isEmpty()) selectedModel = "llama2";
 
     ollamaClient.generate(
@@ -799,6 +868,8 @@ void MainWindow::closeBook(const QString& fileName) {
         currentDb.reset();
         chatModel->clear();
         statusLabel->setText(tr("Ready"));
+
+        mainRightStack->setCurrentWidget(exploreListWidget);
     }
 }
 

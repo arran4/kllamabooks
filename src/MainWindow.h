@@ -40,6 +40,9 @@ class MainWindow : public KXmlGuiWindow {
 
    private slots:
     void onCreateBook();
+    void onOpenBook();
+    void onCloseBook();
+    void onOpenBookLocation();
     void showModelExplorer();
     void showSettingsDialog();
     void onBookSelected(const QModelIndex& index);
@@ -78,7 +81,12 @@ class MainWindow : public KXmlGuiWindow {
     QSplitter* leftSplitter;
     QTreeView* openBooksTree;
     QStandardItemModel* openBooksModel;
-    QListWidget* bookList;            // Closed books
+    QListWidget* bookList;  // Closed books
+
+    QStackedWidget* mainRightStack;
+    QListWidget* exploreListWidget;
+    QWidget* chatContainerWidget;
+
     QTreeView* chatTree;              // The full branching tree
     QListWidget* linearChatList;      // The linear view
     QStackedWidget* chatStackWidget;  // To switch between them
@@ -90,7 +98,9 @@ class MainWindow : public KXmlGuiWindow {
     QStandardItemModel* chatModel;
     QLineEdit* inputField;
     QPushButton* sendButton;
-    QComboBox* modelComboBox;
+    QPushButton* modelSelectButton;
+    QStringList m_availableModels;
+    QString m_selectedModel;
 
     std::unique_ptr<BookDatabase> currentDb;
     OllamaClient ollamaClient;
