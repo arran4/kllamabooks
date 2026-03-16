@@ -50,7 +50,7 @@
 - [ ] Add a dedicated area/feature for user notes that are *explicitly excluded* from the LLM's context.
 
 ## Settings & LLM Management
-- [ ] Create a comprehensive Settings dialog.
+- [x] Create a comprehensive Settings dialog.
 - [ ] Add an "LLM Management" section:
   - Add, edit, and remove different LLM providers/endpoints (e.g., local Ollama, remote servers).
   - Test connection to the configured endpoints.
