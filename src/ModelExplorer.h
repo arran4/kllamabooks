@@ -1,6 +1,7 @@
 #ifndef MODELEXPLORER_H
 #define MODELEXPLORER_H
 
+#include <QDialog>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
@@ -10,11 +11,10 @@
 #include <QTabWidget>
 #include <QTableWidget>
 #include <QVBoxLayout>
-#include <QWidget>
 
 #include "OllamaClient.h"
 
-class ModelExplorer : public QWidget {
+class ModelExplorer : public QDialog {
     Q_OBJECT
    public:
     explicit ModelExplorer(OllamaClient* client, QWidget* parent = nullptr);

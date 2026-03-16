@@ -78,9 +78,9 @@ class MainWindow : public KXmlGuiWindow {
     QStandardItemModel* openBooksModel;
     QListWidget* bookList;  // Closed books
 
-    QStackedWidget* mainRightStack;  // Switches between ModelExplorer and chatContainerWidget
-    QWidget* chatContainerWidget;    // Holds the chat views and inputs
-    ModelExplorer* modelExplorerWidget;
+    QStackedWidget* mainRightStack;
+    QListWidget* exploreListWidget;
+    QWidget* chatContainerWidget;
 
     QTreeView* chatTree;              // The full branching tree
     QListWidget* linearChatList;      // The linear view

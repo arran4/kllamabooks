@@ -7,8 +7,9 @@
 #include <QMessageBox>
 #include <QSettings>
 
-ModelExplorer::ModelExplorer(OllamaClient* client, QWidget* parent) : QWidget(parent), m_client(client) {
+ModelExplorer::ModelExplorer(OllamaClient* client, QWidget* parent) : QDialog(parent), m_client(client) {
     setWindowTitle("Model Explorer");
+    resize(800, 600);
 
     loadFavorites();
 
