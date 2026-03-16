@@ -2,6 +2,7 @@
 #include <QNetworkRequest>
 #include <QTimer>
 #include <QEventLoop>
+#include <QMap>
 
 OllamaClient::OllamaClient(QObject *parent)
     : QObject(parent), m_networkManager(new QNetworkAccessManager(this)), m_baseUrl("http://localhost:11434"), m_authKey("") {
@@ -53,6 +54,65 @@ void OllamaClient::fetchModels() {
             emit connectionStatusChanged(false);
             emit modelListUpdated(QStringList()); // Clear on error
         }
+        reply->deleteLater();
+    });
+}
+
+void OllamaClient::pullModel(const QString& modelName) {
+    QUrl url(m_baseUrl + "/api/pull");
+    QNetworkRequest request(url);
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    if (!m_authKey.isEmpty()) {
+        request.setRawHeader("Authorization", ("Bearer " + m_authKey).toUtf8());
+    }
+
+    QJsonObject json;
+    json["name"] = modelName;
+    json["stream"] = true;
+
+    QJsonDocument doc(json);
+    QByteArray data = doc.toJson();
+
+    QNetworkReply *reply = m_networkManager->post(request, data);
+    m_activePulls[reply] = modelName;
+    m_pullBuffers[reply] = QByteArray();
+
+    connect(reply, &QNetworkReply::readyRead, this, [this, reply, modelName]() {
+        m_pullBuffers[reply].append(reply->readAll());
+        QByteArray& buffer = m_pullBuffers[reply];
+
+        while (true) {
+            int newlineIndex = buffer.indexOf('\n');
+            if (newlineIndex == -1) break;
+
+            QByteArray line = buffer.left(newlineIndex);
+            buffer.remove(0, newlineIndex + 1);
+
+            if (line.trimmed().isEmpty()) continue;
+
+            QJsonParseError error;
+            QJsonDocument doc = QJsonDocument::fromJson(line, &error);
+            if (error.error == QJsonParseError::NoError && doc.isObject()) {
+                QJsonObject obj = doc.object();
+                QString status = obj.value("status").toString();
+                qint64 total = obj.value("total").toDouble();
+                qint64 completed = obj.value("completed").toDouble();
+                int percent = 0;
+                if (total > 0) {
+                    percent = static_cast<int>((completed * 100.0) / total);
+                } else if (status == "success") {
+                    percent = 100;
+                }
+                emit pullProgressUpdated(modelName, percent, status);
+            }
+        }
+    });
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply, modelName]() {
+        m_activePulls.remove(reply);
+        m_pullBuffers.remove(reply);
+        emit pullFinished(modelName);
+        fetchModels();
         reply->deleteLater();
     });
 }

@@ -29,14 +29,19 @@ public:
 signals:
     void connectionStatusChanged(bool isOk);
     void modelListUpdated(const QStringList& models);
+    void pullProgressUpdated(const QString& modelName, int percent, const QString& status);
+    void pullFinished(const QString& modelName);
 
 public slots:
+    void pullModel(const QString& modelName);
     void fetchModels();
 
 private:
     QNetworkAccessManager* m_networkManager;
     QString m_baseUrl;
     QString m_authKey;
+    QMap<QNetworkReply*, QString> m_activePulls;
+    QMap<QNetworkReply*, QByteArray> m_pullBuffers;
 };
 
 #endif // OLLAMACLIENT_H

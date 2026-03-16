@@ -9,6 +9,8 @@
 #include <QLineEdit>
 #include <QLabel>
 #include <QProgressBar>
+#include <QTabWidget>
+#include <QTableWidget>
 #include "OllamaClient.h"
 
 class ModelExplorer : public QDialog {
@@ -18,19 +20,36 @@ public:
     ~ModelExplorer();
 
 private slots:
-    void onSearchClicked();
-    void onDownloadClicked();
+    void onSearchInstalledClicked();
+    void onDownloadModelClicked();
     void updateModelList(const QStringList& models);
-    void onDownloadProgress(int percentage);
-    void onDownloadFinished();
+    void onPullProgressUpdated(const QString& modelName, int percent, const QString& status);
+    void onPullFinished(const QString& modelName);
+    void showInstalledContextMenu(const QPoint& pos);
 
 private:
     OllamaClient* m_client;
-    QLineEdit* m_searchField;
-    QListWidget* m_modelList;
+
+    QTabWidget* m_tabWidget;
+
+    // Installed Tab
+    QLineEdit* m_installedSearchField;
+    QListWidget* m_installedList;
+
+    // Download Tab
+    QLineEdit* m_downloadNameField;
     QPushButton* m_downloadButton;
-    QProgressBar* m_progressBar;
-    QLabel* m_statusLabel;
+
+    // Downloading Tab
+    QTableWidget* m_downloadingTable;
+
+    void setupInstalledTab();
+    void setupDownloadTab();
+    void setupDownloadingTab();
+    void loadFavorites();
+    void saveFavorites();
+
+    QStringList m_favorites;
 };
 
 #endif // MODELEXPLORER_H

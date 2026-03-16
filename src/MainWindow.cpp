@@ -186,11 +186,28 @@ void MainWindow::setupUi() {
 
     connect(&ollamaClient, &OllamaClient::modelListUpdated, this, [this](const QStringList& models){
         modelComboBox->clear();
-        modelComboBox->addItems(models);
+
+        QSettings settings;
+        QStringList favorites = settings.value("favoriteModels").toStringList();
+
+        for (const QString& model : models) {
+            if (favorites.contains(model)) {
+                modelComboBox->addItem("⭐ " + model, model);
+            }
+        }
+        for (const QString& model : models) {
+            if (!favorites.contains(model)) {
+                modelComboBox->addItem(model, model);
+            }
+        }
+
         if (models.isEmpty()) {
-            modelComboBox->addItem("llama2"); // fallback
+            modelComboBox->addItem("llama2", "llama2"); // fallback
         }
     });
+
+    connect(&ollamaClient, &OllamaClient::pullProgressUpdated, this, &MainWindow::onPullProgressUpdated);
+    connect(&ollamaClient, &OllamaClient::pullFinished, this, &MainWindow::onPullFinished);
 
     QAction* modelExplorerAction = new QAction(QIcon::fromTheme("server-database"), tr("Model Explorer"), this);
     actionCollection()->addAction(QStringLiteral("model_explorer"), modelExplorerAction);
@@ -614,7 +631,10 @@ void MainWindow::onSendMessage() {
 
     updateLinearChatView(currentLastNodeId, currentDb->getMessages());
 
-    QString selectedModel = modelComboBox->currentText();
+    QString selectedModel = modelComboBox->currentData().toString();
+    if (selectedModel.isEmpty()) {
+        selectedModel = modelComboBox->currentText();
+    }
     if (selectedModel.isEmpty()) selectedModel = "llama2";
 
     ollamaClient.generate(selectedModel, text,
@@ -643,6 +663,19 @@ void MainWindow::onSendMessage() {
 void MainWindow::onOllamaChunk(const QString& chunk) {}
 void MainWindow::onOllamaComplete(const QString& fullResponse) {}
 void MainWindow::onOllamaError(const QString& error) {}
+
+void MainWindow::onPullProgressUpdated(const QString& modelName, int percent, const QString& status) {
+    statusLabel->setText(QString("Downloading %1: %2% (%3)").arg(modelName).arg(percent).arg(status));
+}
+
+void MainWindow::onPullFinished(const QString& modelName) {
+    statusLabel->setText(QString("Download complete: %1").arg(modelName));
+    QTimer::singleShot(3000, this, [this]() {
+        if (statusLabel->text().startsWith("Download complete:")) {
+            statusLabel->setText(tr("Ready"));
+        }
+    });
+}
 
 void MainWindow::onItemChanged(QStandardItem* item) {
     if (!currentDb) return;
@@ -774,7 +807,7 @@ void MainWindow::showBookContextMenu(const QPoint& pos) {
 
     QAction* selectedAction = menu.exec(bookList->viewport()->mapToGlobal(pos));
     if (selectedAction == openAction) {
-        onBookSelected(bookList->indexFromItem(item));
+        onBookSelected(bookList->model()->index(bookList->row(item), 0));
     } else if (selectedAction == deleteAction) {
         QString fileName = item->text();
         QString filePath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + "/" + fileName;
