@@ -30,6 +30,7 @@
 #include "OllamaClient.h"
 #include "BookDatabase.h"
 #include "ModelExplorer.h"
+#include "SettingsDialog.h"
 
 class MainWindow : public KXmlGuiWindow {
     Q_OBJECT
@@ -40,6 +41,7 @@ class MainWindow : public KXmlGuiWindow {
    private slots:
     void onCreateBook();
     void showModelExplorer();
+    void showSettingsDialog();
     void onBookSelected(const QModelIndex& index);
     void onSendMessage();
     void onOllamaChunk(const QString& chunk);
@@ -49,6 +51,11 @@ class MainWindow : public KXmlGuiWindow {
     void onChatNodeSelected(const QModelIndex& current, const QModelIndex& previous);
     void showBookContextMenu(const QPoint& pos);
     void showOpenBookContextMenu(const QPoint& pos);
+    void showLinearChatContextMenu(const QPoint& pos);
+    void showChatTreeContextMenu(const QPoint& pos);
+
+   protected:
+    void closeEvent(QCloseEvent *event) override;
 
    private:
     void setupUi();

@@ -11,6 +11,7 @@
 #include <QDate>
 #include <QDebug>
 #include <QDesktopServices>
+#include <QGuiApplication>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -45,6 +46,21 @@ MainWindow::MainWindow(QWidget *parent)
 }
 
 MainWindow::~MainWindow() {}
+
+void MainWindow::closeEvent(QCloseEvent *event) {
+    QSettings settings;
+    settings.setValue("geometry", saveGeometry());
+    settings.setValue("splitterState", splitter->saveState());
+    settings.setValue("leftSplitterState", leftSplitter->saveState());
+
+    QStringList openBooks;
+    for (int i = 0; i < openBooksModel->rowCount(); ++i) {
+        openBooks.append(openBooksModel->item(i)->text());
+    }
+    settings.setValue("openBooks", openBooks);
+
+    KXmlGuiWindow::closeEvent(event);
+}
 
 void MainWindow::setupUi() {
     splitter = new QSplitter(this);
@@ -87,10 +103,14 @@ void MainWindow::setupUi() {
 
     // Linear View
     linearChatList = new QListWidget(this);
+    linearChatList->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(linearChatList, &QWidget::customContextMenuRequested, this, &MainWindow::showLinearChatContextMenu);
     chatStackWidget->addWidget(linearChatList);
 
     // Tree View
     chatTree = new QTreeView(this);
+    chatTree->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(chatTree, &QWidget::customContextMenuRequested, this, &MainWindow::showChatTreeContextMenu);
     chatModel = new QStandardItemModel(this);
     chatTree->setModel(chatModel);
     chatTree->setHeaderHidden(true);
@@ -165,6 +185,10 @@ void MainWindow::setupUi() {
     actionCollection()->addAction(QStringLiteral("model_explorer"), modelExplorerAction);
     connect(modelExplorerAction, &QAction::triggered, this, &MainWindow::showModelExplorer);
 
+    QAction* settingsAction = new QAction(QIcon::fromTheme("preferences-system"), tr("Settings..."), this);
+    actionCollection()->addAction(QStringLiteral("preferences"), settingsAction);
+    connect(settingsAction, &QAction::triggered, this, &MainWindow::showSettingsDialog);
+
     QAction *quitAction = KStandardAction::quit(qApp, &QCoreApplication::quit, actionCollection());
     actionCollection()->addAction("quit", quitAction);
 
@@ -184,13 +208,46 @@ void MainWindow::setupUi() {
     modelLabel = new QLabel(tr("Model: Not Selected"), this);
     statusBar->addPermanentWidget(modelLabel);
 
+    QSettings settings;
+    if (settings.contains("ollamaUrl")) {
+        ollamaClient.setBaseUrl(settings.value("ollamaUrl").toString());
+    }
+
     ollamaClient.fetchModels();
     loadBooks();
+}
+
+void MainWindow::showSettingsDialog() {
+    SettingsDialog* dlg = new SettingsDialog(this);
+    connect(dlg, &SettingsDialog::settingsApplied, this, [this]() {
+        QSettings settings;
+        ollamaClient.setBaseUrl(settings.value("ollamaUrl").toString());
+        ollamaClient.fetchModels(); // Refresh models list with new URL
+    });
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    dlg->show();
 }
 
 void MainWindow::setupWindow() {
     setWindowTitle("KLlamaBooks");
     resize(800, 600);
+
+    QSettings settings;
+    if (settings.contains("geometry")) {
+        restoreGeometry(settings.value("geometry").toByteArray());
+    }
+    if (settings.contains("splitterState")) {
+        splitter->restoreState(settings.value("splitterState").toByteArray());
+    }
+    if (settings.contains("leftSplitterState")) {
+        leftSplitter->restoreState(settings.value("leftSplitterState").toByteArray());
+    }
+
+    // Defer loading open books slightly so everything is initialized, or do it directly if safe
+    QStringList openBooks = settings.value("openBooks").toStringList();
+    for (const QString& book : openBooks) {
+        handleBookDrop(book);
+    }
 }
 
 void MainWindow::loadBooks() {
@@ -271,6 +328,52 @@ void MainWindow::onCreateBook() {
 
             loadBooks();
         }
+    }
+}
+
+void MainWindow::showLinearChatContextMenu(const QPoint& pos) {
+    QListWidgetItem* item = linearChatList->itemAt(pos);
+    if (!item) return;
+
+    QMenu menu(this);
+    QAction* copyAction = menu.addAction(QIcon::fromTheme("edit-copy"), "Copy Message");
+    QAction* pasteAction = menu.addAction(QIcon::fromTheme("edit-paste"), "Paste to Input");
+
+    QAction* selectedAction = menu.exec(linearChatList->viewport()->mapToGlobal(pos));
+    if (selectedAction == copyAction) {
+        QString fullText = item->text();
+        // Remove the role tag e.g., "[user] " or "[assistant] "
+        int bracketIndex = fullText.indexOf("] ");
+        if (bracketIndex != -1) {
+            fullText = fullText.mid(bracketIndex + 2);
+        }
+        QGuiApplication::clipboard()->setText(fullText);
+    } else if (selectedAction == pasteAction) {
+        inputField->setText(inputField->text() + QGuiApplication::clipboard()->text());
+    }
+}
+
+void MainWindow::showChatTreeContextMenu(const QPoint& pos) {
+    QModelIndex index = chatTree->indexAt(pos);
+    if (!index.isValid()) return;
+
+    QStandardItem* item = chatModel->itemFromIndex(index);
+    if (!item) return;
+
+    QMenu menu(this);
+    QAction* copyAction = menu.addAction(QIcon::fromTheme("edit-copy"), "Copy Message");
+    QAction* pasteAction = menu.addAction(QIcon::fromTheme("edit-paste"), "Paste to Input");
+
+    QAction* selectedAction = menu.exec(chatTree->viewport()->mapToGlobal(pos));
+    if (selectedAction == copyAction) {
+        QString fullText = item->text();
+        int bracketIndex = fullText.indexOf("] ");
+        if (bracketIndex != -1) {
+            fullText = fullText.mid(bracketIndex + 2);
+        }
+        QGuiApplication::clipboard()->setText(fullText);
+    } else if (selectedAction == pasteAction) {
+        inputField->setText(inputField->text() + QGuiApplication::clipboard()->text());
     }
 }
 
