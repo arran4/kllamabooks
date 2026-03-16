@@ -173,8 +173,6 @@ void MainWindow::setupUi() {
     QHBoxLayout* inputLayout = new QHBoxLayout();
     inputLayout->addWidget(modelSelectButton);
     inputLayout->addWidget(inputField);
-    inputLayout->addWidget(sendButton);
-    chatContainerLayout->addLayout(inputLayout);
 
     QVBoxLayout* btnLayout = new QVBoxLayout();
     QHBoxLayout* topBtnLayout = new QHBoxLayout();
