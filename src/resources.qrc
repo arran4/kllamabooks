@@ -1,0 +1,12 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+    <qresource prefix="/">
+        <file>assets/icon.png</file>
+        <file>assets/icon-dotted.png</file>
+        <file>kllamabooksui.rc</file>
+        <file>kllamabooks.desktop</file>
+    </qresource>
+    <qresource prefix="/knotifications6">
+        <file alias="kllamabooks.notifyrc">kllamabooks.notifyrc</file>
+    </qresource>
+</RCC>

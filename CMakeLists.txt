@@ -1,0 +1,78 @@
+cmake_minimum_required(VERSION 3.10)
+project(kgithub-notify VERSION 0.1.2)
+
+include(GNUInstallDirs)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTORCC ON)
+set(CMAKE_AUTOUIC ON)
+
+find_package(Qt6 COMPONENTS Widgets Network Svg DBus REQUIRED)
+find_package(KF6Wallet REQUIRED)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(SQLCIPHER REQUIRED sqlcipher)
+
+add_executable(kllamabooks
+    src/main.cpp
+    src/OllamaClient.cpp
+    src/OllamaClient.h
+    src/ModelExplorer.cpp
+    src/ModelExplorer.h
+    src/BookDatabase.cpp
+    src/BookDatabase.h
+    src/WalletManager.cpp
+    src/WalletManager.h
+    src/MainWindow.cpp
+    src/MainWindow.h
+    src/resources.qrc
+)
+
+find_package(KF6CoreAddons REQUIRED)
+find_package(KF6XmlGui REQUIRED)
+find_package(KF6ConfigWidgets REQUIRED)
+find_package(KF6I18n REQUIRED)
+
+target_link_libraries(kllamabooks
+    Qt6::Widgets
+    Qt6::Network
+    Qt6::Svg
+    Qt6::DBus
+    KF6::CoreAddons
+    KF6::XmlGui
+    KF6::ConfigWidgets
+    KF6::I18n
+    KF6::Wallet
+    ${SQLCIPHER_LIBRARIES}
+)
+
+target_include_directories(kllamabooks PRIVATE ${SQLCIPHER_INCLUDE_DIRS})
+
+target_compile_definitions(kllamabooks PRIVATE KGHN_APP_VERSION="${PROJECT_VERSION}")
+
+
+# Installation
+install(TARGETS kllamabooks
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    BUNDLE DESTINATION .
+)
+
+install(FILES src/kgithub-notify.desktop
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/applications
+    RENAME com.arran4.kgithub_notify.desktop
+)
+
+install(FILES src/assets/icon.svg
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps
+    RENAME kgithub-notify.svg
+)
+
+install(FILES src/kgithub-notify.notifyrc
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/knotifications6
+)
+
+install(FILES src/kgithub-notifyui.rc
+    DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/kxmlgui6/kgithub-notify
+)

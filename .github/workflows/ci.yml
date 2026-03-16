@@ -1,0 +1,273 @@
+name: Qt C++ CI/CD
+
+on:
+  push:
+    # Disable branch pushes to save minutes
+    branches-ignore:
+      - '**'
+    tags:
+      - 'v*'
+  pull_request:
+    # Disable PR runs to save minutes
+    branches-ignore:
+      - '**'
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action to perform'
+        required: true
+        default: 'lint-fix'
+        type: choice
+        options:
+        - 'lint-fix'
+        - 'build-test'
+        - 'snapshot'
+        - 'release-major'
+        - 'release-minor'
+        - 'release-patch'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  lint-and-fmt:
+    name: Lint & Format Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Lint Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-format cppcheck
+
+      - name: Run clang-format
+        run: |
+          find src -name "*.cpp" -o -name "*.h" | xargs clang-format -i -style=file || true
+
+      - name: Run cppcheck
+        run: |
+          cppcheck --enable=warning,style,performance,portability --suppress=missingIncludeSystem --suppress=missingInclude --suppress=unusedFunction --suppress=constVariablePointer --suppress=unknownMacro --error-exitcode=1 src/
+
+      - name: Check for changes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if ! git diff --exit-code; then
+            echo "clang-format found changes."
+            if [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ "${{ github.event.inputs.action }}" == "lint-fix" ]; then
+              # Create PR if manually triggered for lint-fix
+              git config --global user.email "actions@github.com"
+              git config --global user.name "GitHub Actions"
+              BRANCH_NAME="fix-lint-${{ github.run_id }}-${{ github.run_attempt }}"
+              git checkout -b $BRANCH_NAME
+              git add .
+              git commit -m "fix: clang-format"
+              git push origin $BRANCH_NAME
+              gh pr create --title "fix: auto-linting" --body "Automated lint fixes triggered by workflow_dispatch" --base main --head $BRANCH_NAME
+            else
+              # Fail if not manual fix request
+              exit 1
+            fi
+          fi
+
+  build-and-test:
+    name: Build & Test on ${{ matrix.os }}
+    needs: lint-and-fmt
+    if: ${{ github.event.inputs.action != 'lint-fix' }}
+    runs-on: ${{ matrix.os }}
+    outputs:
+      new_tag: ${{ steps.bump.outputs.new_tag }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+      fail-fast: false
+    container:
+      image: debian:testing
+
+    steps:
+    - name: Pre-install core tools for container
+      run: |
+        apt-get update
+        apt-get install -y git sudo curl jq
+        git config --global --add safe.directory /__w/kgithub-notify/kgithub-notify
+
+    - uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Bump Version
+      id: bump
+      if: ${{ github.event_name == 'workflow_dispatch' && startsWith(github.event.inputs.action, 'release-') }}
+      run: |
+        CURRENT_VERSION=$(grep -Po 'project\(kgithub-notify VERSION \K[0-9]+\.[0-9]+\.[0-9]+' CMakeLists.txt)
+        IFS='.' read -r major minor patch <<< "$CURRENT_VERSION"
+        if [ "${{ github.event.inputs.action }}" == "release-major" ]; then
+          major=$((major + 1))
+          minor=0
+          patch=0
+        elif [ "${{ github.event.inputs.action }}" == "release-minor" ]; then
+          minor=$((minor + 1))
+          patch=0
+        elif [ "${{ github.event.inputs.action }}" == "release-patch" ]; then
+          patch=$((patch + 1))
+        fi
+        NEW_VERSION="${major}.${minor}.${patch}"
+        sed -i "s/project(kgithub-notify VERSION $CURRENT_VERSION)/project(kgithub-notify VERSION $NEW_VERSION)/" CMakeLists.txt
+        git config --global user.email "actions@github.com"
+        git config --global user.name "GitHub Actions"
+        git add CMakeLists.txt
+        git commit -m "chore: bump version to $NEW_VERSION"
+        git tag "v$NEW_VERSION"
+        git push origin HEAD:${{ github.ref_name }}
+        git push origin "v$NEW_VERSION"
+        echo "new_tag=v$NEW_VERSION" >> $GITHUB_OUTPUT
+
+    - name: Install Dependencies (Linux)
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y qt6-base-dev qt6-svg-dev qt6-tools-dev qt6-tools-dev-tools \
+          libkf6wallet-dev libkf6notifications-dev libkf6coreaddons-dev libkf6xmlgui-dev \
+          libkf6configwidgets-dev libkf6i18n-dev build-essential cmake
+
+    - name: Configure CMake
+      run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+    - name: Build
+      run: cmake --build build --config Release -j$(nproc)
+
+    - name: Test
+      run: |
+        cd build
+        QT_QPA_PLATFORM=offscreen ctest --output-on-failure
+
+    - name: Verify Binary
+      run: |
+        if [ -f build/kllamabooks ]; then
+          echo "Binary built successfully"
+        else
+          echo "Binary not found"
+          exit 1
+        fi
+
+    - name: Upload Binaries
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-artifacts-${{ matrix.os }}
+        path: build/kllamabooks
+
+  release:
+    name: Release
+    needs: [build-and-test]
+    if: ${{ startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && (github.event.inputs.action == 'snapshot' || startsWith(github.event.inputs.action, 'release-'))) }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifacts-ubuntu-latest
+          path: build
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        if: ${{ startsWith(github.ref, 'refs/tags/v') || startsWith(github.event.inputs.action, 'release-') }}
+        with:
+          tag_name: ${{ needs.build-and-test.outputs.new_tag || github.ref_name }}
+          name: Release ${{ needs.build-and-test.outputs.new_tag || github.ref_name }}
+          files: build/kllamabooks
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create Snapshot Release (Manual)
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'snapshot' }}
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: snapshot-${{ github.run_id }}
+          name: Snapshot ${{ github.run_id }}
+          draft: false
+          prerelease: true
+          files: build/kllamabooks
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  update-ebuild:
+    name: Update Ebuild in arrans_overlay
+    needs: [release]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout arrans_overlay
+        uses: actions/checkout@v4
+        with:
+          repository: arran4/arrans_overlay
+          path: arrans_overlay
+          token: ${{ secrets.OVERLAY_GITHB_TOKEN }}
+
+      - name: Set up Git
+        run: |
+          cd arrans_overlay
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+
+      - name: Install required tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget jq coreutils
+          url="$(curl -s --header "Accept: application/vnd.github+json" --header "Authorization: Bearer ${{secrets.GITHUB_TOKEN}}" https://api.github.com/repos/arran4/g2/releases/latest | jq -r '.assets[].browser_download_url | select(endswith("_linux_amd64.deb"))')"
+          wget "${url}" -O /tmp/g2.deb
+          sudo dpkg -i /tmp/g2.deb
+          rm /tmp/g2.deb
+
+      - name: Update ebuild and manifest
+        run: |
+          cd arrans_overlay
+          # Extract version from tag
+          VERSION="${GITHUB_REF#refs/tags/v}"
+
+          # Find the latest ebuild
+          EBUILD_DIR="dev-vcs/kgithub-notify"
+          LATEST_EBUILD=$(ls -1 $EBUILD_DIR/*.ebuild | sort -V | tail -n 1)
+          NEW_EBUILD="$EBUILD_DIR/kgithub-notify-${VERSION}.ebuild"
+
+          if [ -f "$NEW_EBUILD" ]; then
+            echo "Ebuild for version ${VERSION} already exists. Skipping."
+          else
+            # Copy to new version
+            cp "$LATEST_EBUILD" "$NEW_EBUILD"
+
+            # Generate Manifest
+            g2 manifest upsert-from-url "https://github.com/arran4/kgithub-notify/archive/refs/tags/v${VERSION}.tar.gz" "kgithub-notify-${VERSION}.tar.gz" "$EBUILD_DIR/Manifest"
+          fi
+
+      - name: Create Pull Request
+        env:
+          GH_TOKEN: ${{ secrets.OVERLAY_GITHB_TOKEN }}
+        run: |
+          cd arrans_overlay
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          BRANCH_NAME="update-kgithub-notify-${VERSION}"
+
+          git checkout -b $BRANCH_NAME
+          git add dev-vcs/kgithub-notify/
+
+          if git diff --staged --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "feat: update kgithub-notify to ${VERSION}"
+            git push origin $BRANCH_NAME
+
+            gh pr create \
+              --title "feat: update kgithub-notify to ${VERSION}" \
+              --body "Automated update of kgithub-notify ebuild for version ${VERSION}." \
+              --base main \
+              --head $BRANCH_NAME
+          fi
