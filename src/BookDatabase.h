@@ -22,6 +22,7 @@ class BookDatabase {
     bool open(const QString& password);
     void close();
     bool isOpen() const;
+    QString filepath() const;
 
     // Database operations
     bool initSchema();
