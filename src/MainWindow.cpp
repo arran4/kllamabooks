@@ -139,9 +139,11 @@ void MainWindow::setupUi() {
     inputLayout->addWidget(inputField);
 
     QVBoxLayout* btnLayout = new QVBoxLayout();
-    btnLayout->addWidget(sendButton);
-    btnLayout->addWidget(inputSettingsButton);
-    btnLayout->addStretch();
+    QHBoxLayout* topBtnLayout = new QHBoxLayout();
+    topBtnLayout->addWidget(sendButton);
+    topBtnLayout->addWidget(inputSettingsButton);
+    btnLayout->addLayout(topBtnLayout);
+    btnLayout->addStretch(); // Push to the top of the container
     inputLayout->addLayout(btnLayout);
 
     bottomContainer->setLayout(inputLayout);
