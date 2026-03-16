@@ -61,6 +61,8 @@ void BookDatabase::close() {
 
 bool BookDatabase::isOpen() const { return m_isOpen; }
 
+QString BookDatabase::filepath() const { return m_filepath; }
+
 bool BookDatabase::initSchema() {
     if (!m_isOpen) return false;
 

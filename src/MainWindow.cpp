@@ -14,6 +14,7 @@
 #include <QDir>
 #include <QDragEnterEvent>
 #include <QDropEvent>
+#include <QFileDialog>
 #include <QGuiApplication>
 #include <QInputDialog>
 #include <QJsonArray>
@@ -155,6 +156,18 @@ void MainWindow::setupUi() {
     });
     actionCollection()->addAction(QStringLiteral("new_book"), newBookAction);
     toolbar->addAction(newBookAction);
+
+    QAction* openBookAction = new QAction(QIcon::fromTheme("document-open"), tr("Open Book"), this);
+    actionCollection()->addAction(QStringLiteral("open_book"), openBookAction);
+    connect(openBookAction, &QAction::triggered, this, &MainWindow::onOpenBook);
+
+    QAction* closeBookAction = new QAction(QIcon::fromTheme("document-close"), tr("Close Current Book"), this);
+    actionCollection()->addAction(QStringLiteral("close_book"), closeBookAction);
+    connect(closeBookAction, &QAction::triggered, this, &MainWindow::onCloseBook);
+
+    QAction* openBookLocationAction = new QAction(QIcon::fromTheme("folder-open"), tr("Open Book Location"), this);
+    actionCollection()->addAction(QStringLiteral("open_book_location"), openBookLocationAction);
+    connect(openBookLocationAction, &QAction::triggered, this, &MainWindow::onOpenBookLocation);
 
     // Endpoints in toolbar
     QWidget* spacer = new QWidget(this);
@@ -378,6 +391,27 @@ void MainWindow::showModelExplorer() {
     ModelExplorer* explorer = new ModelExplorer(&ollamaClient, this);
     explorer->setAttribute(Qt::WA_DeleteOnClose);
     explorer->show();
+}
+
+void MainWindow::onOpenBook() {
+    QString startPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    QString filePath = QFileDialog::getOpenFileName(this, tr("Open Book"), startPath, tr("Books (*.db)"));
+    if (!filePath.isEmpty()) {
+        QFileInfo fileInfo(filePath);
+        handleBookDrop(fileInfo.fileName());
+    }
+}
+
+void MainWindow::onCloseBook() {
+    if (currentDb && currentDb->isOpen()) {
+        QFileInfo fileInfo(currentDb->filepath());
+        closeBook(fileInfo.fileName());
+    }
+}
+
+void MainWindow::onOpenBookLocation() {
+    QString path = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    QDesktopServices::openUrl(QUrl::fromLocalFile(path));
 }
 
 void MainWindow::onCreateBook() {

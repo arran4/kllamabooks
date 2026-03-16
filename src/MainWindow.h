@@ -40,6 +40,9 @@ class MainWindow : public KXmlGuiWindow {
 
    private slots:
     void onCreateBook();
+    void onOpenBook();
+    void onCloseBook();
+    void onOpenBookLocation();
     void showModelExplorer();
     void showSettingsDialog();
     void onBookSelected(const QModelIndex& index);
