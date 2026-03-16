@@ -17,6 +17,8 @@ public:
     ~OllamaClient();
 
     void setBaseUrl(const QString& url);
+    void setAuthKey(const QString& key);
+    QString getAuthKey() const;
     QString getBaseUrl() const;
 
     void generate(const QString& model, const QString& prompt,
@@ -25,6 +27,7 @@ public:
                   std::function<void(const QString&)> onError);
 
 signals:
+    void connectionStatusChanged(bool isOk);
     void modelListUpdated(const QStringList& models);
 
 public slots:
@@ -33,6 +36,7 @@ public slots:
 private:
     QNetworkAccessManager* m_networkManager;
     QString m_baseUrl;
+    QString m_authKey;
 };
 
 #endif // OLLAMACLIENT_H
