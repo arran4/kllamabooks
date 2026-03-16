@@ -11,6 +11,7 @@
 #include <QSettings>
 #include <QTableWidget>
 #include <QVBoxLayout>
+#include <QComboBox>
 #include <QVariantList>
 #include <QVariantMap>
 
@@ -41,6 +42,7 @@ class SettingsDialog : public QDialog {
     QPushButton* m_applyButton;
     QPushButton* m_cancelButton;
     QSettings m_settings;
+    QComboBox* m_sendBehaviorCombo;
 };
 
 #endif  // SETTINGSDIALOG_H

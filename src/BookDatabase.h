@@ -30,6 +30,10 @@ class BookDatabase {
     bool deleteMessage(int id);
     QList<MessageNode> getMessages() const;
 
+    // Settings
+    void setSetting(const QString& scope, int targetId, const QString& key, const QString& value);
+    QString getSetting(const QString& scope, int targetId, const QString& key, const QString& defaultValue = QString()) const;
+
    private:
     QString m_filepath;
     void* m_db;  // sqlite3* handle

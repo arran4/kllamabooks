@@ -11,6 +11,22 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
 
     QVBoxLayout* mainLayout = new QVBoxLayout(this);
 
+    // Chat Settings Section
+    QLabel* chatSettingsLabel = new QLabel(tr("<b>Chat Settings</b>"), this);
+    mainLayout->addWidget(chatSettingsLabel);
+
+    QHBoxLayout* sendBehaviorLayout = new QHBoxLayout();
+    QLabel* sendBehaviorLabel = new QLabel(tr("Global Send Behavior:"), this);
+    m_sendBehaviorCombo = new QComboBox(this);
+    m_sendBehaviorCombo->addItem(tr("Enter to Send, Shift+Enter for Newline"), "EnterToSend");
+    m_sendBehaviorCombo->addItem(tr("Ctrl+Enter to Send, Enter for Newline"), "CtrlEnterToSend");
+    sendBehaviorLayout->addWidget(sendBehaviorLabel);
+    sendBehaviorLayout->addWidget(m_sendBehaviorCombo);
+    sendBehaviorLayout->addStretch();
+    mainLayout->addLayout(sendBehaviorLayout);
+
+    mainLayout->addSpacing(10);
+
     // LLM Section
     QLabel* llmLabel = new QLabel(tr("<b>LLM Connections</b>"), this);
     mainLayout->addWidget(llmLabel);
@@ -56,6 +72,12 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
     connect(m_cancelButton, &QPushButton::clicked, this, &QDialog::reject);
 
     loadConnections();
+
+    QString globalBehavior = m_settings.value("globalSendBehavior", "EnterToSend").toString();
+    int index = m_sendBehaviorCombo->findData(globalBehavior);
+    if (index >= 0) {
+        m_sendBehaviorCombo->setCurrentIndex(index);
+    }
 }
 
 SettingsDialog::~SettingsDialog() {}
@@ -179,6 +201,10 @@ void SettingsDialog::onTestConnection() {
 
 void SettingsDialog::onApply() {
     saveConnections();
+
+    QString selectedBehavior = m_sendBehaviorCombo->currentData().toString();
+    m_settings.setValue("globalSendBehavior", selectedBehavior);
+
     emit settingsApplied();
     accept();
 }

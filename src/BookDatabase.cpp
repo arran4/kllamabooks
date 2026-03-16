@@ -8,7 +8,7 @@
 #include <QVariant>
 
 namespace {
-constexpr int CURRENT_SCHEMA_VERSION = 1;
+constexpr int CURRENT_SCHEMA_VERSION = 2;
 }
 
 BookDatabase::BookDatabase(const QString& filepath) : m_filepath(filepath), m_db(nullptr), m_isOpen(false) {}
@@ -100,6 +100,13 @@ bool BookDatabase::initSchema() {
             "type TEXT, "
             "name TEXT, "
             "root_id INTEGER"
+            ");"
+            "CREATE TABLE IF NOT EXISTS settings ("
+            "scope TEXT, "
+            "target_id INTEGER, "
+            "key TEXT, "
+            "value TEXT, "
+            "PRIMARY KEY(scope, target_id, key)"
             ");";
 
         char* errMsg = nullptr;
@@ -115,14 +122,59 @@ bool BookDatabase::initSchema() {
         userVersion = CURRENT_SCHEMA_VERSION;
     }
 
-    // Future migrations would go here
-    // if (userVersion < 2) {
-    //     // upgrade to version 2
-    //     // sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 2;", nullptr, nullptr, nullptr);
-    //     // userVersion = 2;
-    // }
+    if (userVersion < 2) {
+        // upgrade to version 2
+        const char* sql = "CREATE TABLE IF NOT EXISTS settings ("
+            "scope TEXT, "
+            "target_id INTEGER, "
+            "key TEXT, "
+            "value TEXT, "
+            "PRIMARY KEY(scope, target_id, key)"
+            ");";
+        sqlite3_exec((sqlite3*)m_db, sql, nullptr, nullptr, nullptr);
+        sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 2;", nullptr, nullptr, nullptr);
+        userVersion = 2;
+    }
 
     return true;
+}
+
+void BookDatabase::setSetting(const QString& scope, int targetId, const QString& key, const QString& value) {
+    if (!m_isOpen) return;
+
+    const char* sql = "INSERT OR REPLACE INTO settings (scope, target_id, key, value) VALUES (?, ?, ?, ?);";
+    sqlite3_stmt* stmt;
+    int rc = sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr);
+    if (rc != SQLITE_OK) return;
+
+    sqlite3_bind_text(stmt, 1, scope.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 2, targetId);
+    sqlite3_bind_text(stmt, 3, key.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 4, value.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+}
+
+QString BookDatabase::getSetting(const QString& scope, int targetId, const QString& key, const QString& defaultValue) const {
+    if (!m_isOpen) return defaultValue;
+
+    const char* sql = "SELECT value FROM settings WHERE scope = ? AND target_id = ? AND key = ?;";
+    sqlite3_stmt* stmt;
+    int rc = sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr);
+    if (rc != SQLITE_OK) return defaultValue;
+
+    sqlite3_bind_text(stmt, 1, scope.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 2, targetId);
+    sqlite3_bind_text(stmt, 3, key.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+
+    QString result = defaultValue;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        result = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 0));
+    }
+
+    sqlite3_finalize(stmt);
+    return result;
 }
 
 int BookDatabase::addMessage(int parentId, const QString& content, const QString& role) {

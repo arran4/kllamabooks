@@ -29,6 +29,8 @@ add_executable(kllamabooks
     src/SettingsDialog.h
     src/MainWindow.cpp
     src/MainWindow.h
+    src/ChatInputWidget.cpp
+    src/ChatInputWidget.h
     src/resources.qrc
 )
 

@@ -120,14 +120,25 @@ void MainWindow::setupUi() {
 
     rightLayout->addWidget(chatStackWidget);
 
-    inputField = new QLineEdit(this);
+    inputField = new ChatInputWidget(this);
     sendButton = new QPushButton("Send", this);
     modelComboBox = new QComboBox(this);
+
+    inputSettingsButton = new QToolButton(this);
+    inputSettingsButton->setIcon(QIcon::fromTheme("configure"));
+    inputSettingsButton->setToolTip(tr("Input Settings"));
+    connect(inputSettingsButton, &QToolButton::clicked, this, &MainWindow::showInputSettingsMenu);
 
     QHBoxLayout* inputLayout = new QHBoxLayout();
     inputLayout->addWidget(modelComboBox);
     inputLayout->addWidget(inputField);
-    inputLayout->addWidget(sendButton);
+
+    QVBoxLayout* btnLayout = new QVBoxLayout();
+    btnLayout->addWidget(sendButton);
+    btnLayout->addWidget(inputSettingsButton);
+    btnLayout->addStretch();
+    inputLayout->addLayout(btnLayout);
+
     rightLayout->addLayout(inputLayout);
 
     splitter->addWidget(rightWidget);
@@ -180,7 +191,7 @@ void MainWindow::setupUi() {
     connect(bookList, &QListWidget::doubleClicked, this,
             &MainWindow::onBookSelected);  // Open book from list via double click
     connect(sendButton, &QPushButton::clicked, this, &MainWindow::onSendMessage);
-    connect(inputField, &QLineEdit::returnPressed, this, &MainWindow::onSendMessage);
+    connect(inputField, &ChatInputWidget::returnPressed, this, &MainWindow::onSendMessage);
     connect(chatModel, &QStandardItemModel::itemChanged, this, &MainWindow::onItemChanged);
     connect(chatTree->selectionModel(), &QItemSelectionModel::currentChanged, this, &MainWindow::onChatNodeSelected);
 
@@ -305,9 +316,130 @@ void MainWindow::onConnectionStatusChanged(bool isOk) {
 
 void MainWindow::showSettingsDialog() {
     SettingsDialog* dlg = new SettingsDialog(this);
-    connect(dlg, &SettingsDialog::settingsApplied, this, [this]() { updateEndpointsList(); });
+    connect(dlg, &SettingsDialog::settingsApplied, this, [this]() {
+        updateEndpointsList();
+        updateInputBehavior();
+    });
     dlg->setAttribute(Qt::WA_DeleteOnClose);
     dlg->show();
+}
+
+void MainWindow::showInputSettingsMenu() {
+    QMenu menu(this);
+
+    QMenu* bookMenu = menu.addMenu(tr("Book Behavior"));
+    QActionGroup* bookGroup = new QActionGroup(&menu);
+    QAction* bDef = bookMenu->addAction(tr("Use Global Default"));
+    bDef->setData("default");
+    QAction* bEnter = bookMenu->addAction(tr("Enter to Send"));
+    bEnter->setData("EnterToSend");
+    QAction* bCtrl = bookMenu->addAction(tr("Ctrl+Enter to Send"));
+    bCtrl->setData("CtrlEnterToSend");
+    bDef->setCheckable(true); bEnter->setCheckable(true); bCtrl->setCheckable(true);
+    bookGroup->addAction(bDef); bookGroup->addAction(bEnter); bookGroup->addAction(bCtrl);
+
+    QString currentBookSetting = "default";
+    if (currentDb && currentDb->isOpen()) {
+        currentBookSetting = currentDb->getSetting("book", 0, "sendBehavior", "default");
+    } else {
+        bookMenu->setEnabled(false);
+    }
+    if (currentBookSetting == "EnterToSend") bEnter->setChecked(true);
+    else if (currentBookSetting == "CtrlEnterToSend") bCtrl->setChecked(true);
+    else bDef->setChecked(true);
+
+    connect(bookGroup, &QActionGroup::triggered, this, [this](QAction* action) {
+        if (currentDb && currentDb->isOpen()) {
+            currentDb->setSetting("book", 0, "sendBehavior", action->data().toString());
+            updateInputBehavior();
+        }
+    });
+
+    QMenu* chatMenu = menu.addMenu(tr("Chat Behavior"));
+    QActionGroup* chatGroup = new QActionGroup(&menu);
+    QAction* cDef = chatMenu->addAction(tr("Use Book Default"));
+    cDef->setData("default");
+    QAction* cEnter = chatMenu->addAction(tr("Enter to Send"));
+    cEnter->setData("EnterToSend");
+    QAction* cCtrl = chatMenu->addAction(tr("Ctrl+Enter to Send"));
+    cCtrl->setData("CtrlEnterToSend");
+    cDef->setCheckable(true); cEnter->setCheckable(true); cCtrl->setCheckable(true);
+    chatGroup->addAction(cDef); chatGroup->addAction(cEnter); chatGroup->addAction(cCtrl);
+
+    QString currentChatSetting = "default";
+
+    // Determine the root ID of the current chat path
+    int rootId = 0;
+    if (currentDb && currentDb->isOpen() && currentLastNodeId != 0) {
+        QList<MessageNode> msgs = currentDb->getMessages();
+        QList<MessageNode> path;
+        getPathToRoot(currentLastNodeId, msgs, path);
+        if (!path.isEmpty()) {
+            rootId = path.first().id; // The root node of this chat
+        }
+    }
+
+    if (currentDb && currentDb->isOpen() && rootId != 0) {
+        currentChatSetting = currentDb->getSetting("chat", rootId, "sendBehavior", "default");
+    } else if (!currentDb || !currentDb->isOpen()) {
+        chatMenu->setEnabled(false);
+    }
+    if (currentChatSetting == "EnterToSend") cEnter->setChecked(true);
+    else if (currentChatSetting == "CtrlEnterToSend") cCtrl->setChecked(true);
+    else cDef->setChecked(true);
+
+    connect(chatGroup, &QActionGroup::triggered, this, [this, rootId](QAction* action) {
+        if (currentDb && currentDb->isOpen()) {
+            currentDb->setSetting("chat", rootId, "sendBehavior", action->data().toString());
+            updateInputBehavior();
+        }
+    });
+
+    menu.addSeparator();
+    QAction* globalSettingsAction = menu.addAction(tr("Global Settings..."));
+    connect(globalSettingsAction, &QAction::triggered, this, &MainWindow::showSettingsDialog);
+
+    menu.exec(inputSettingsButton->mapToGlobal(QPoint(0, inputSettingsButton->height())));
+}
+
+void MainWindow::updateInputBehavior() {
+    QString behaviorStr = "EnterToSend"; // Ultimate default
+
+    QSettings settings;
+    QString globalSetting = settings.value("globalSendBehavior", "EnterToSend").toString();
+
+    QString bookSetting = "default";
+    QString chatSetting = "default";
+
+    if (currentDb && currentDb->isOpen()) {
+        bookSetting = currentDb->getSetting("book", 0, "sendBehavior", "default");
+        int rootId = 0;
+        if (currentLastNodeId != 0) {
+            QList<MessageNode> msgs = currentDb->getMessages();
+            QList<MessageNode> path;
+            getPathToRoot(currentLastNodeId, msgs, path);
+            if (!path.isEmpty()) {
+                rootId = path.first().id;
+            }
+        }
+        if (rootId != 0) {
+            chatSetting = currentDb->getSetting("chat", rootId, "sendBehavior", "default");
+        }
+    }
+
+    if (chatSetting != "default") {
+        behaviorStr = chatSetting;
+    } else if (bookSetting != "default") {
+        behaviorStr = bookSetting;
+    } else {
+        behaviorStr = globalSetting;
+    }
+
+    if (behaviorStr == "CtrlEnterToSend") {
+        inputField->setSendBehavior(ChatInputWidget::CtrlEnterToSend);
+    } else {
+        inputField->setSendBehavior(ChatInputWidget::EnterToSend);
+    }
 }
 
 void MainWindow::setupWindow() {
@@ -435,7 +567,7 @@ void MainWindow::showLinearChatContextMenu(const QPoint& pos) {
         }
         QGuiApplication::clipboard()->setText(fullText);
     } else if (selectedAction == pasteAction) {
-        inputField->setText(inputField->text() + QGuiApplication::clipboard()->text());
+        inputField->setPlainText(inputField->toPlainText() + QGuiApplication::clipboard()->text());
     } else if (selectedAction == forkAction) {
         currentLastNodeId = item->data(Qt::UserRole).toInt();
         qDebug() << "Selected point for fork from linear view: " << currentLastNodeId;
@@ -474,7 +606,7 @@ void MainWindow::showChatTreeContextMenu(const QPoint& pos) {
         }
         QGuiApplication::clipboard()->setText(fullText);
     } else if (selectedAction == pasteAction) {
-        inputField->setText(inputField->text() + QGuiApplication::clipboard()->text());
+        inputField->setPlainText(inputField->toPlainText() + QGuiApplication::clipboard()->text());
     } else if (selectedAction == forkAction) {
         currentLastNodeId = item->data(Qt::UserRole).toInt();
         qDebug() << "Selected point for fork from tree view: " << currentLastNodeId;
@@ -553,6 +685,7 @@ void MainWindow::loadSession(int rootId) {
     }
 
     updateLinearChatView(currentLastNodeId, msgs);
+    updateInputBehavior();
 }
 
 void MainWindow::getPathToRoot(int nodeId, const QList<MessageNode>& allMessages, QList<MessageNode>& path) {
@@ -607,7 +740,7 @@ QStandardItem* MainWindow::findItem(QStandardItem* parent, int id) {
 
 void MainWindow::onSendMessage() {
     if (!currentDb) return;
-    QString text = inputField->text();
+    QString text = inputField->toPlainText().trimmed();
     if (text.isEmpty()) return;
 
     inputField->clear();
@@ -696,6 +829,7 @@ void MainWindow::onChatNodeSelected(const QModelIndex& current, const QModelInde
         int previewNodeId = item->data(Qt::UserRole).toInt();
         if (currentDb) {
             updateLinearChatView(previewNodeId, currentDb->getMessages());
+            updateInputBehavior(); // Keep it updated when selecting nodes/chats
         }
     }
 }
