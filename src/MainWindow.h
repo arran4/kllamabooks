@@ -43,6 +43,8 @@ class MainWindow : public KXmlGuiWindow {
     void showModelExplorer();
     void showSettingsDialog();
     void onBookSelected(const QModelIndex& index);
+    void onPullProgressUpdated(const QString& modelName, int percent, const QString& status);
+    void onPullFinished(const QString& modelName);
     void onSendMessage();
     void onOllamaChunk(const QString& chunk);
     void onOllamaComplete(const QString& fullResponse);
