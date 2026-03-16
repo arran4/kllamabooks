@@ -64,6 +64,8 @@ class MainWindow : public KXmlGuiWindow {
     void showChatTreeContextMenu(const QPoint& pos);
     void showInputSettingsMenu();
     void updateInputBehavior();
+    void exportChatSession();
+    void importChatSession();
 
    protected:
     void closeEvent(QCloseEvent* event) override;
