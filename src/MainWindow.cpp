@@ -80,6 +80,18 @@ void MainWindow::setupUi() {
     openBooksTree->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(openBooksTree, &QWidget::customContextMenuRequested, this, &MainWindow::showOpenBookContextMenu);
 
+    connect(openBooksTree, &QTreeView::doubleClicked, this, [this](const QModelIndex& index) {
+        QStandardItem* item = openBooksModel->itemFromIndex(index);
+        if (item) {
+            QString type = item->data(Qt::UserRole + 1).toString();
+            if (type == "chats_folder") {
+                mainRightStack->setCurrentWidget(chatContainerWidget);
+            } else if (type == "book") {
+                mainRightStack->setCurrentWidget(exploreListWidget);
+            }
+        }
+    });
+
     bookList = new QListWidget(this);
     bookList->setAcceptDrops(true);
     bookList->setDragEnabled(true);
@@ -98,8 +110,30 @@ void MainWindow::setupUi() {
 
     splitter->addWidget(leftSplitter);
 
-    QWidget* rightWidget = new QWidget(this);
-    QVBoxLayout* rightLayout = new QVBoxLayout(rightWidget);
+    mainRightStack = new QStackedWidget(this);
+
+    exploreListWidget = new QListWidget(this);
+    exploreListWidget->setViewMode(QListView::IconMode);
+    exploreListWidget->setIconSize(QSize(64, 64));
+    exploreListWidget->setSpacing(20);
+    exploreListWidget->setMovement(QListView::Static);
+    exploreListWidget->setResizeMode(QListView::Adjust);
+
+    QListWidgetItem* chatsItem = new QListWidgetItem(QIcon::fromTheme("folder-open"), "Chats");
+    chatsItem->setData(Qt::UserRole, "chats");
+    QListWidgetItem* docsItem = new QListWidgetItem(QIcon::fromTheme("folder-open"), "Documents");
+    docsItem->setData(Qt::UserRole, "docs");
+    QListWidgetItem* notesItem = new QListWidgetItem(QIcon::fromTheme("folder-open"), "Notes");
+    notesItem->setData(Qt::UserRole, "notes");
+
+    exploreListWidget->addItem(chatsItem);
+    exploreListWidget->addItem(docsItem);
+    exploreListWidget->addItem(notesItem);
+
+    mainRightStack->addWidget(exploreListWidget);
+
+    chatContainerWidget = new QWidget(this);
+    QVBoxLayout* chatContainerLayout = new QVBoxLayout(chatContainerWidget);
 
     chatStackWidget = new QStackedWidget(this);
 
@@ -120,7 +154,7 @@ void MainWindow::setupUi() {
     chatTree->setEditTriggers(QAbstractItemView::DoubleClicked);
     chatStackWidget->addWidget(chatTree);
 
-    rightLayout->addWidget(chatStackWidget);
+    chatContainerLayout->addWidget(chatStackWidget);
 
     inputField = new QLineEdit(this);
     sendButton = new QPushButton("Send", this);
@@ -130,9 +164,11 @@ void MainWindow::setupUi() {
     inputLayout->addWidget(modelSelectButton);
     inputLayout->addWidget(inputField);
     inputLayout->addWidget(sendButton);
-    rightLayout->addLayout(inputLayout);
+    chatContainerLayout->addLayout(inputLayout);
 
-    splitter->addWidget(rightWidget);
+    mainRightStack->addWidget(chatContainerWidget);
+
+    splitter->addWidget(mainRightStack);
 
     // Initial sizes
     int totalWidth = width();
@@ -197,6 +233,12 @@ void MainWindow::setupUi() {
     connect(inputField, &QLineEdit::returnPressed, this, &MainWindow::onSendMessage);
     connect(chatModel, &QStandardItemModel::itemChanged, this, &MainWindow::onItemChanged);
     connect(chatTree->selectionModel(), &QItemSelectionModel::currentChanged, this, &MainWindow::onChatNodeSelected);
+
+    connect(exploreListWidget, &QListWidget::itemDoubleClicked, this, [this](QListWidgetItem* item) {
+        if (item->data(Qt::UserRole).toString() == "chats") {
+            mainRightStack->setCurrentWidget(chatContainerWidget);
+        }
+    });
 
     connect(&ollamaClient, &OllamaClient::modelListUpdated, this, [this](const QStringList& models) {
         m_availableModels = models;
@@ -563,6 +605,8 @@ void MainWindow::onBookSelected(const QModelIndex& index) {
     delete bookList->takeItem(index.row());
 
     loadSession(0);  // For now, load all as one session
+
+    mainRightStack->setCurrentWidget(exploreListWidget);
 }
 
 void MainWindow::loadSession(int rootId) {
@@ -808,6 +852,8 @@ void MainWindow::closeBook(const QString& fileName) {
         currentDb.reset();
         chatModel->clear();
         statusLabel->setText(tr("Ready"));
+
+        mainRightStack->setCurrentWidget(exploreListWidget);
     }
 }
 

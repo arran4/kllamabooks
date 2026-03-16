@@ -79,7 +79,12 @@ class MainWindow : public KXmlGuiWindow {
     QSplitter* leftSplitter;
     QTreeView* openBooksTree;
     QStandardItemModel* openBooksModel;
-    QListWidget* bookList;            // Closed books
+    QListWidget* bookList;  // Closed books
+
+    QStackedWidget* mainRightStack;
+    QListWidget* exploreListWidget;
+    QWidget* chatContainerWidget;
+
     QTreeView* chatTree;              // The full branching tree
     QListWidget* linearChatList;      // The linear view
     QStackedWidget* chatStackWidget;  // To switch between them
