@@ -185,7 +185,7 @@ void MainWindow::setupUi() {
     inputLayout->addLayout(btnLayout);
 
     bottomContainer->setLayout(inputLayout);
-    rightLayout->addWidget(bottomContainer);
+    chatContainerLayout->addWidget(bottomContainer);
 
     mainRightStack->addWidget(chatContainerWidget);
 

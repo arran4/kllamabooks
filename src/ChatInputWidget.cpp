@@ -30,7 +30,9 @@ void ChatInputWidget::adjustHeightToContent() {
     int minHeight = fontMetrics().height() + margins + 10;
     int maxHeight = 300; // Sensible default max before scrolling
 
-    if (parentWidget()) {
+    if (parentWidget() && parentWidget()->parentWidget()) {
+        maxHeight = parentWidget()->parentWidget()->height() / 2;
+    } else if (parentWidget()) {
         maxHeight = parentWidget()->height() / 2;
     }
 
