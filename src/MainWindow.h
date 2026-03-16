@@ -28,6 +28,7 @@
 #include <memory>
 
 #include "BookDatabase.h"
+#include "ChatInputWidget.h"
 #include "ModelExplorer.h"
 #include "OllamaClient.h"
 #include "SettingsDialog.h"
@@ -61,6 +62,8 @@ class MainWindow : public KXmlGuiWindow {
     void showOpenBookContextMenu(const QPoint& pos);
     void showLinearChatContextMenu(const QPoint& pos);
     void showChatTreeContextMenu(const QPoint& pos);
+    void showInputSettingsMenu();
+    void updateInputBehavior();
     void exportChatSession();
     void importChatSession();
 
@@ -96,11 +99,12 @@ class MainWindow : public KXmlGuiWindow {
     void handleBookDrop(const QString& fileName);
     void closeBook(const QString& fileName);
     QStandardItemModel* chatModel;
-    QLineEdit* inputField;
+    ChatInputWidget* inputField;
     QPushButton* sendButton;
     QPushButton* modelSelectButton;
     QStringList m_availableModels;
     QString m_selectedModel;
+    QToolButton* inputSettingsButton;
 
     std::unique_ptr<BookDatabase> currentDb;
     OllamaClient ollamaClient;
