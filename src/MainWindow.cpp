@@ -142,6 +142,7 @@ void MainWindow::setupUi() {
     splitter->setStretchFactor(1, 1);
 
     QToolBar* toolbar = addToolBar("Main");
+    toolbar->setObjectName("MainToolBar");
     QAction* newBookAction = new QAction(QIcon::fromTheme("document-new"), tr("New Book"), this);
     QAction* toggleViewAction = new QAction(QIcon::fromTheme("view-split-left-right"), tr("Toggle Chat View"), this);
     actionCollection()->addAction(QStringLiteral("toggle_view"), toggleViewAction);
