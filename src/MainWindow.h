@@ -88,7 +88,9 @@ class MainWindow : public KXmlGuiWindow {
     QStandardItemModel* chatModel;
     QLineEdit* inputField;
     QPushButton* sendButton;
-    QComboBox* modelComboBox;
+    QPushButton* modelSelectButton;
+    QStringList m_availableModels;
+    QString m_selectedModel;
 
     std::unique_ptr<BookDatabase> currentDb;
     OllamaClient ollamaClient;

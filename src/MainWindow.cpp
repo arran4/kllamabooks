@@ -36,6 +36,7 @@
 #include <QtGui/QAction>
 #include <limits>
 
+#include "ModelSelectionDialog.h"
 #include "WalletManager.h"
 
 MainWindow::MainWindow(QWidget* parent) : KXmlGuiWindow(parent), currentLastNodeId(0) {
@@ -122,10 +123,10 @@ void MainWindow::setupUi() {
 
     inputField = new QLineEdit(this);
     sendButton = new QPushButton("Send", this);
-    modelComboBox = new QComboBox(this);
+    modelSelectButton = new QPushButton(QIcon::fromTheme("system-search"), "Select Model", this);
 
     QHBoxLayout* inputLayout = new QHBoxLayout();
-    inputLayout->addWidget(modelComboBox);
+    inputLayout->addWidget(modelSelectButton);
     inputLayout->addWidget(inputField);
     inputLayout->addWidget(sendButton);
     rightLayout->addLayout(inputLayout);
@@ -185,24 +186,26 @@ void MainWindow::setupUi() {
     connect(chatTree->selectionModel(), &QItemSelectionModel::currentChanged, this, &MainWindow::onChatNodeSelected);
 
     connect(&ollamaClient, &OllamaClient::modelListUpdated, this, [this](const QStringList& models) {
-        modelComboBox->clear();
-
-        QSettings settings;
-        QStringList favorites = settings.value("favoriteModels").toStringList();
-
-        for (const QString& model : models) {
-            if (favorites.contains(model)) {
-                modelComboBox->addItem("⭐ " + model, model);
-            }
+        m_availableModels = models;
+        if (m_availableModels.isEmpty()) {
+            m_availableModels.append("llama2");  // fallback
         }
-        for (const QString& model : models) {
-            if (!favorites.contains(model)) {
-                modelComboBox->addItem(model, model);
-            }
+        if (m_selectedModel.isEmpty() && !m_availableModels.isEmpty()) {
+            m_selectedModel = m_availableModels.first();
+            modelSelectButton->setText(m_selectedModel);
+            modelLabel->setText(tr("Model: %1").arg(m_selectedModel));
         }
+    });
 
-        if (models.isEmpty()) {
-            modelComboBox->addItem("llama2", "llama2");  // fallback
+    connect(modelSelectButton, &QPushButton::clicked, this, [this]() {
+        ModelSelectionDialog dlg(m_availableModels, this);
+        if (dlg.exec() == QDialog::Accepted) {
+            QString selected = dlg.selectedModel();
+            if (!selected.isEmpty()) {
+                m_selectedModel = selected;
+                modelSelectButton->setText(m_selectedModel);
+                modelLabel->setText(tr("Model: %1").arg(m_selectedModel));
+            }
         }
     });
 
@@ -235,14 +238,6 @@ void MainWindow::setupUi() {
 
     modelLabel = new QLabel(tr("Model: Not Selected"), this);
     statusBar->addPermanentWidget(modelLabel);
-
-    connect(modelComboBox, &QComboBox::currentTextChanged, this, [this](const QString& text) {
-        if (text.isEmpty()) {
-            modelLabel->setText(tr("Model: Not Selected"));
-        } else {
-            modelLabel->setText(tr("Model: %1").arg(text));
-        }
-    });
 
     updateEndpointsList();
     loadBooks();
@@ -634,10 +629,7 @@ void MainWindow::onSendMessage() {
 
     updateLinearChatView(currentLastNodeId, currentDb->getMessages());
 
-    QString selectedModel = modelComboBox->currentData().toString();
-    if (selectedModel.isEmpty()) {
-        selectedModel = modelComboBox->currentText();
-    }
+    QString selectedModel = m_selectedModel;
     if (selectedModel.isEmpty()) selectedModel = "llama2";
 
     ollamaClient.generate(
