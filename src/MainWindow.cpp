@@ -181,6 +181,10 @@ void MainWindow::setupUi() {
     QToolBar* toolbar = addToolBar("Main");
     toolbar->setObjectName("MainToolBar");
     QAction* newBookAction = new QAction(QIcon::fromTheme("document-new"), tr("New Book"), this);
+    QAction* exportChatAction = new QAction(QIcon::fromTheme("document-export"), tr("Export Chat Session"), this);
+    actionCollection()->addAction(QStringLiteral("export_chat_session"), exportChatAction);
+    connect(exportChatAction, &QAction::triggered, this, &MainWindow::exportChatSession);
+
     QAction* toggleViewAction = new QAction(QIcon::fromTheme("view-split-left-right"), tr("Toggle Chat View"), this);
     actionCollection()->addAction(QStringLiteral("toggle_view"), toggleViewAction);
     toolbar->addAction(toggleViewAction);
@@ -496,6 +500,8 @@ void MainWindow::showLinearChatContextMenu(const QPoint& pos) {
     QAction* pasteAction = menu.addAction(QIcon::fromTheme("edit-paste"), "Paste to Input");
     menu.addSeparator();
     QAction* forkAction = menu.addAction(QIcon::fromTheme("call-start"), "Fork from Here");
+    menu.addSeparator();
+    QAction* exportAction = menu.addAction(QIcon::fromTheme("document-export"), "Export Chat Session");
 
     QAction* selectedAction = menu.exec(linearChatList->viewport()->mapToGlobal(pos));
     if (selectedAction == copyAction) {
@@ -521,6 +527,8 @@ void MainWindow::showLinearChatContextMenu(const QPoint& pos) {
         if (currentDb) {
             updateLinearChatView(currentLastNodeId, currentDb->getMessages());
         }
+    } else if (selectedAction == exportAction) {
+        exportChatSession();
     }
 }
 
@@ -536,6 +544,8 @@ void MainWindow::showChatTreeContextMenu(const QPoint& pos) {
     QAction* pasteAction = menu.addAction(QIcon::fromTheme("edit-paste"), "Paste to Input");
     menu.addSeparator();
     QAction* forkAction = menu.addAction(QIcon::fromTheme("call-start"), "Fork from Here");
+    menu.addSeparator();
+    QAction* exportAction = menu.addAction(QIcon::fromTheme("document-export"), "Export Chat Session");
 
     QAction* selectedAction = menu.exec(chatTree->viewport()->mapToGlobal(pos));
     if (selectedAction == copyAction) {
@@ -590,6 +600,12 @@ void MainWindow::onBookSelected(const QModelIndex& index) {
     bookItem->setData("book", Qt::UserRole + 1);  // Type
     QStandardItem* chatsItem = new QStandardItem(QIcon::fromTheme("folder-open"), "Chats");
     chatsItem->setData("chats_folder", Qt::UserRole + 1);
+
+    // Add a dummy chat session item for testing export/import menu options
+    QStandardItem* defaultSessionItem = new QStandardItem(QIcon::fromTheme("view-list-tree"), "Default Session");
+    defaultSessionItem->setData("chat_session", Qt::UserRole + 1);
+    chatsItem->appendRow(defaultSessionItem);
+
     QStandardItem* docsItem = new QStandardItem(QIcon::fromTheme("folder-open"), "Documents");
     docsItem->setData("docs_folder", Qt::UserRole + 1);
     QStandardItem* notesItem = new QStandardItem(QIcon::fromTheme("folder-open"), "Notes");
@@ -923,10 +939,113 @@ void MainWindow::showOpenBookContextMenu(const QPoint& pos) {
         QMenu menu(this);
         QAction* newAction = menu.addAction("New Item");
 
+        QAction* importAction = nullptr;
+        if (type == "chats_folder") {
+            importAction = menu.addAction("Import Chat Session");
+        }
+
         QAction* selectedAction = menu.exec(openBooksTree->viewport()->mapToGlobal(pos));
         if (selectedAction == newAction) {
             qDebug() << "New item for" << item->text();
             // Will be fully implemented later
+        } else if (importAction && selectedAction == importAction) {
+            importChatSession();
+        }
+    } else if (type == "chat_session") {
+        QMenu menu(this);
+        QAction* exportAction = menu.addAction("Export Chat Session");
+
+        QAction* selectedAction = menu.exec(openBooksTree->viewport()->mapToGlobal(pos));
+        if (selectedAction == exportAction) {
+            exportChatSession();
         }
     }
+}
+
+void MainWindow::exportChatSession() {
+    if (!currentDb) return;
+
+    // For now we assume all messages in the db are part of the session, but we will add an ID.
+    // However the current code just loads everything as one session.
+    // Let's implement exporting all messages in the DB for now since that's what the current DB does.
+
+    QString fileName =
+        QFileDialog::getSaveFileName(this, tr("Export Chat Session"), QDir::homePath(), tr("JSON Files (*.json)"));
+    if (fileName.isEmpty()) return;
+
+    QList<MessageNode> allMessages = currentDb->getMessages();
+    QJsonArray messagesArray;
+    for (const auto& msg : allMessages) {
+        QJsonObject msgObj;
+        msgObj["id"] = msg.id;
+        msgObj["parentId"] = msg.parentId;
+        msgObj["role"] = msg.role;
+        msgObj["content"] = msg.content;
+        msgObj["timestamp"] = msg.timestamp.toString(Qt::ISODate);
+        messagesArray.append(msgObj);
+    }
+
+    QJsonObject rootObj;
+    rootObj["messages"] = messagesArray;
+    rootObj["version"] = 1;
+
+    QJsonDocument doc(rootObj);
+    QFile file(fileName);
+    if (file.open(QIODevice::WriteOnly)) {
+        file.write(doc.toJson());
+        file.close();
+        statusBar->showMessage(tr("Chat session exported to %1").arg(fileName), 3000);
+    } else {
+        QMessageBox::warning(this, tr("Export Error"), tr("Could not save to file: %1").arg(file.errorString()));
+    }
+}
+
+void MainWindow::importChatSession() {
+    if (!currentDb) {
+        QMessageBox::warning(this, tr("Import Error"), tr("Please open a book first."));
+        return;
+    }
+
+    QString fileName =
+        QFileDialog::getOpenFileName(this, tr("Import Chat Session"), QDir::homePath(), tr("JSON Files (*.json)"));
+    if (fileName.isEmpty()) return;
+
+    QFile file(fileName);
+    if (!file.open(QIODevice::ReadOnly)) {
+        QMessageBox::warning(this, tr("Import Error"), tr("Could not open file: %1").arg(file.errorString()));
+        return;
+    }
+
+    QJsonParseError parseError;
+    QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &parseError);
+    file.close();
+
+    if (parseError.error != QJsonParseError::NoError) {
+        QMessageBox::warning(this, tr("Import Error"), tr("Invalid JSON format: %1").arg(parseError.errorString()));
+        return;
+    }
+
+    QJsonObject rootObj = doc.object();
+    QJsonArray messagesArray = rootObj["messages"].toArray();
+
+    // Map old IDs to new IDs
+    QMap<int, int> idMapping;
+    idMapping[0] = 0;  // Root is always 0
+
+    for (const QJsonValue& val : messagesArray) {
+        QJsonObject msgObj = val.toObject();
+        int oldId = msgObj["id"].toInt();
+        int oldParentId = msgObj["parentId"].toInt();
+        QString role = msgObj["role"].toString();
+        QString content = msgObj["content"].toString();
+
+        int newParentId = idMapping.value(oldParentId, 0);  // Default to root if not found
+        int newId = currentDb->addMessage(newParentId, content, role);
+        if (newId != -1) {
+            idMapping[oldId] = newId;
+        }
+    }
+
+    loadSession(0);
+    statusBar->showMessage(tr("Chat session imported successfully"), 3000);
 }
