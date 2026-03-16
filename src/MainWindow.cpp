@@ -83,16 +83,28 @@ void MainWindow::setupUi() {
     QWidget* rightWidget = new QWidget(this);
     QVBoxLayout* rightLayout = new QVBoxLayout(rightWidget);
 
+    chatStackWidget = new QStackedWidget(this);
+
+    // Linear View
+    linearChatList = new QListWidget(this);
+    chatStackWidget->addWidget(linearChatList);
+
+    // Tree View
     chatTree = new QTreeView(this);
     chatModel = new QStandardItemModel(this);
     chatTree->setModel(chatModel);
     chatTree->setHeaderHidden(true);
     chatTree->setEditTriggers(QAbstractItemView::DoubleClicked);
-    rightLayout->addWidget(chatTree);
+    chatStackWidget->addWidget(chatTree);
+
+    rightLayout->addWidget(chatStackWidget);
 
     inputField = new QLineEdit(this);
     sendButton = new QPushButton("Send", this);
+    modelComboBox = new QComboBox(this);
+
     QHBoxLayout* inputLayout = new QHBoxLayout();
+    inputLayout->addWidget(modelComboBox);
     inputLayout->addWidget(inputField);
     inputLayout->addWidget(sendButton);
     rightLayout->addLayout(inputLayout);
@@ -109,6 +121,16 @@ void MainWindow::setupUi() {
 
     QToolBar* toolbar = addToolBar("Main");
     QAction* newBookAction = new QAction(QIcon::fromTheme("document-new"), tr("New Book"), this);
+    QAction* toggleViewAction = new QAction(QIcon::fromTheme("view-split-left-right"), tr("Toggle Chat View"), this);
+    actionCollection()->addAction(QStringLiteral("toggle_view"), toggleViewAction);
+    toolbar->addAction(toggleViewAction);
+    connect(toggleViewAction, &QAction::triggered, this, [this]() {
+        if (chatStackWidget->currentIndex() == 0) {
+            chatStackWidget->setCurrentIndex(1);
+        } else {
+            chatStackWidget->setCurrentIndex(0);
+        }
+    });
     actionCollection()->addAction(QStringLiteral("new_book"), newBookAction);
     toolbar->addAction(newBookAction);
 
@@ -118,9 +140,25 @@ void MainWindow::setupUi() {
     connect(inputField, &QLineEdit::returnPressed, this, &MainWindow::onSendMessage);
     connect(chatModel, &QStandardItemModel::itemChanged, this, &MainWindow::onItemChanged);
     connect(chatTree->selectionModel(), &QItemSelectionModel::currentChanged, this, &MainWindow::onChatNodeSelected);
+    connect(linearChatList, &QListWidget::itemClicked, this, [this](QListWidgetItem* item) {
+        if (item) {
+            currentLastNodeId = item->data(Qt::UserRole).toInt();
+            qDebug() << "Selected point for fork: " << currentLastNodeId;
 
-    connect(&ollamaClient, &OllamaClient::modelListUpdated, this, [](const QStringList& models){
-        qDebug() << "Available models:" << models;
+            // Highlight it in the tree if we switch views
+            QStandardItem* foundItem = findItem(chatModel->invisibleRootItem(), currentLastNodeId);
+            if (foundItem) {
+                chatTree->setCurrentIndex(foundItem->index());
+            }
+        }
+    });
+
+    connect(&ollamaClient, &OllamaClient::modelListUpdated, this, [this](const QStringList& models){
+        modelComboBox->clear();
+        modelComboBox->addItems(models);
+        if (models.isEmpty()) {
+            modelComboBox->addItem("llama2"); // fallback
+        }
     });
 
     QAction* modelExplorerAction = new QAction(QIcon::fromTheme("server-database"), tr("Model Explorer"), this);
@@ -165,21 +203,41 @@ void MainWindow::loadBooks() {
 
     QStringList filters;
     filters << "*.db";
-    QFileInfoList fileList = dir.entryInfoList(filters, QDir::Files);
+    // Sort by last modified (accessed/changed)
+    QFileInfoList fileList = dir.entryInfoList(filters, QDir::Files | QDir::NoDotAndDotDot, QDir::Time | QDir::Reversed);
 
-    // Add favorites first
+    // Separate into favorites and others
+    QList<QFileInfo> favList;
+    QList<QFileInfo> otherList;
+
     for(const QFileInfo& file : fileList) {
         if (favorites.contains(file.fileName())) {
-            QListWidgetItem* item = new QListWidgetItem(QIcon::fromTheme("emblem-favorite"), file.fileName());
-            bookList->addItem(item);
+            favList.append(file);
+        } else {
+            otherList.append(file);
         }
     }
 
+    // Sort within lists
+    auto sortByTimeDesc = [](const QFileInfo& a, const QFileInfo& b) {
+        return a.lastModified() > b.lastModified();
+    };
+
+    std::sort(favList.begin(), favList.end(), sortByTimeDesc);
+    std::sort(otherList.begin(), otherList.end(), sortByTimeDesc);
+
+    // Add favorites first
+    for(const QFileInfo& file : favList) {
+        QListWidgetItem* item = new QListWidgetItem(QIcon::fromTheme("emblem-favorite"), file.fileName());
+        item->setToolTip(tr("Last modified: %1").arg(QLocale().toString(file.lastModified(), QLocale::ShortFormat)));
+        bookList->addItem(item);
+    }
+
     // Then add non-favorites
-    for(const QFileInfo& file : fileList) {
-        if (!favorites.contains(file.fileName())) {
-            bookList->addItem(file.fileName());
-        }
+    for(const QFileInfo& file : otherList) {
+        QListWidgetItem* item = new QListWidgetItem(file.fileName());
+        item->setToolTip(tr("Last modified: %1").arg(QLocale().toString(file.lastModified(), QLocale::ShortFormat)));
+        bookList->addItem(item);
     }
 }
 
@@ -243,9 +301,13 @@ void MainWindow::onBookSelected(const QModelIndex& index) {
 
     // Add to open books tree
     QStandardItem* bookItem = new QStandardItem(QIcon::fromTheme("application-x-sqlite3"), fileName);
+    bookItem->setData("book", Qt::UserRole + 1); // Type
     QStandardItem* chatsItem = new QStandardItem(QIcon::fromTheme("folder-open"), "Chats");
+    chatsItem->setData("chats_folder", Qt::UserRole + 1);
     QStandardItem* docsItem = new QStandardItem(QIcon::fromTheme("folder-open"), "Documents");
+    docsItem->setData("docs_folder", Qt::UserRole + 1);
     QStandardItem* notesItem = new QStandardItem(QIcon::fromTheme("folder-open"), "Notes");
+    notesItem->setData("notes_folder", Qt::UserRole + 1);
 
     bookItem->appendRow(chatsItem);
     bookItem->appendRow(docsItem);
@@ -262,6 +324,7 @@ void MainWindow::onBookSelected(const QModelIndex& index) {
 
 void MainWindow::loadSession(int rootId) {
     chatModel->clear();
+    linearChatList->clear();
     if (!currentDb) return;
 
     QList<MessageNode> msgs = currentDb->getMessages();
@@ -274,6 +337,35 @@ void MainWindow::loadSession(int rootId) {
     } else {
         currentLastNodeId = 0;
     }
+
+    updateLinearChatView(currentLastNodeId, msgs);
+}
+
+void MainWindow::getPathToRoot(int nodeId, const QList<MessageNode>& allMessages, QList<MessageNode>& path) {
+    for (const auto& msg : allMessages) {
+        if (msg.id == nodeId) {
+            path.prepend(msg); // Prepend to build path from root downwards
+            if (msg.parentId != 0) {
+                getPathToRoot(msg.parentId, allMessages, path);
+            }
+            break;
+        }
+    }
+}
+
+void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& allMessages) {
+    linearChatList->clear();
+    if (tailNodeId == 0 || allMessages.isEmpty()) return;
+
+    QList<MessageNode> path;
+    getPathToRoot(tailNodeId, allMessages, path);
+
+    for (const auto& msg : path) {
+        QListWidgetItem* item = new QListWidgetItem(QString("[%1] %2").arg(msg.role, msg.content));
+        item->setData(Qt::UserRole, msg.id);
+        linearChatList->addItem(item);
+    }
+    linearChatList->scrollToBottom();
 }
 
 void MainWindow::populateTree(QStandardItem* parentItem, int parentId, const QList<MessageNode>& allMessages) {
@@ -326,10 +418,23 @@ void MainWindow::onSendMessage() {
     item->appendRow(aiItem);
     chatTree->expandAll();
 
-    ollamaClient.generate("llama2", text,
+    updateLinearChatView(currentLastNodeId, currentDb->getMessages());
+
+    QString selectedModel = modelComboBox->currentText();
+    if (selectedModel.isEmpty()) selectedModel = "llama2";
+
+    ollamaClient.generate(selectedModel, text,
         [this, aiId, aiItem](const QString& chunk) {
             QString currentText = aiItem->text() + chunk;
             aiItem->setText(currentText);
+
+            // Also update linear view if it's the active tail
+            if (currentLastNodeId == aiId && linearChatList->count() > 0) {
+                QListWidgetItem* lastLinearItem = linearChatList->item(linearChatList->count() - 1);
+                if (lastLinearItem && lastLinearItem->data(Qt::UserRole).toInt() == aiId) {
+                    lastLinearItem->setText(currentText);
+                }
+            }
         },
         [this, aiId, aiItem](const QString& /*full*/) {
             QString content = aiItem->text().mid(12); // remove "[assistant] "
@@ -361,6 +466,9 @@ void MainWindow::onChatNodeSelected(const QModelIndex& current, const QModelInde
     QStandardItem* item = chatModel->itemFromIndex(current);
     if (item) {
         currentLastNodeId = item->data(Qt::UserRole).toInt();
+        if (currentDb) {
+            updateLinearChatView(currentLastNodeId, currentDb->getMessages());
+        }
     }
 }
 
@@ -499,14 +607,25 @@ void MainWindow::showOpenBookContextMenu(const QPoint& pos) {
     QStandardItem* item = openBooksModel->itemFromIndex(index);
     if (!item) return;
 
+    QString type = item->data(Qt::UserRole + 1).toString();
+
     // Only show close for root items (books)
-    if (!item->parent()) {
+    if (type == "book") {
         QMenu menu(this);
         QAction* closeAction = menu.addAction("Close");
 
         QAction* selectedAction = menu.exec(openBooksTree->viewport()->mapToGlobal(pos));
         if (selectedAction == closeAction) {
             closeBook(item->text());
+        }
+    } else if (type == "chats_folder" || type == "docs_folder" || type == "notes_folder") {
+        QMenu menu(this);
+        QAction* newAction = menu.addAction("New Item");
+
+        QAction* selectedAction = menu.exec(openBooksTree->viewport()->mapToGlobal(pos));
+        if (selectedAction == newAction) {
+            qDebug() << "New item for" << item->text();
+            // Will be fully implemented later
         }
     }
 }

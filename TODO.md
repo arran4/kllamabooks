@@ -14,25 +14,25 @@
 - [x] Add a status bar with relevant information (current model, connection status, etc.).
 
 ## Book Management (Databases)
-- [ ] Allow opening/closing books (moving them between the top and bottom lists).
+- [x] Allow opening/closing books (moving them between the top and bottom lists).
 - [x] Implement Drag & Drop for opening/closing books.
 - [x] Add context menus for books (Open, Close, Delete, Properties).
 - [x] Encryption Options: When creating/opening a book, provide a choice to save the password in KWallet or prompt for it every time.
-- [ ] Support marking books as favorites.
+- [x] Support marking books as favorites.
 
 ## Content Organization (Inside a Book)
-- [ ] Structure the "Open Books" tree to support folders and categorization:
+- [x] Structure the "Open Books" tree to support folders and categorization:
   - `Book Name` -> `Chats` -> `[Chat Sessions]`
   - `Book Name` -> `Documents` -> `[Markdown Documents]`
   - `Book Name` -> `Notes` -> `[Plain Text Notes]`
-- [ ] Implement context menus for each item type (Rename, Delete, Export, etc.).
+- [x] Implement context menus for each item type (Rename, Delete, Export, etc.).
 
 ## Chat Interface & Mechanics
-- [ ] Update the chat view to appear linearly but support branching.
-- [ ] Implement "Forking" a chat:
+- [x] Update the chat view to appear linearly but support branching.
+- [x] Implement "Forking" a chat:
   - When replying to a past message, create two branches from that point: the original path and the new path.
   - The UI should clearly show which branch is currently active and allow switching between them.
-- [ ] Allow selecting the LLM/Model for *each* individual response/message.
+- [x] Allow selecting the LLM/Model for *each* individual response/message.
 - [ ] Implement Import/Export functionality for chat sessions.
 - [ ] Add copy/paste support for messages.
 
@@ -58,7 +58,7 @@
 - [ ] Implement a model explorer and downloader to browse available models and fetch them locally.
 
 ## Extra / Deduced Requirements
-- [ ] **Database Schema Updates:** The `BookDatabase` schema will need significant updates to support Documents, Notes, hierarchical folders, and the complex branching logic for chats (storing paths or explicit parent-child relationships).
+- [x] **Database Schema Updates:** The `BookDatabase` schema will need significant updates to support Documents, Notes, hierarchical folders, and the complex branching logic for chats (storing paths or explicit parent-child relationships).
 - [ ] **State Persistence:** Save the state of open books, splitter sizes, and recent selections between application restarts.
 - [ ] **Markdown Rendering:** Ensure the chat and document views can render Markdown properly (using `QTextBrowser` or a WebEngine view if needed).
 - [ ] **Error Handling:** Robust error handling for database corruption, network failures with the LLM, and missing files.
