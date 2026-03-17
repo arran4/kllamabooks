@@ -1,4 +1,4 @@
-FROM debian:bookworm
+FROM public.ecr.aws/docker/library/debian:trixie
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -19,6 +19,8 @@ RUN apt-get update && apt-get install -y \
     libkf6configwidgets-dev \
     libkf6i18n-dev \
     libgl1-mesa-dev \
+    libsqlcipher-dev \
+    pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
 RUN useradd -m jules && echo "jules ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
