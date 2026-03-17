@@ -37,10 +37,8 @@
 - [x] Add copy/paste support for messages.
 
 ## Document Management & AI Interaction (Non-Chat Modes)
-- [ ] Implement a document viewer/editor for Markdown files (`.md`).
-  - [ ] Evaluate and select Markdown rendering approach (Qt built-in Markdown, WebEngine, or third-party).
-  - [ ] Implement read-only rendering view.
-  - [ ] Implement edit mode with simple text editor.
+- [x] Implement a basic document viewer/editor for Markdown files (`.md`) - Currently a basic QTextEdit.
+- [ ] Add Document History Tracking / Forking (similar to chat).
 - [ ] Add Drag & Drop support for `.md` files into and out of the application.
   - [ ] Support importing `.md` files as Document nodes.
   - [ ] Support exporting Document nodes to `.md` files.
@@ -53,7 +51,8 @@
 - [ ] Consider future RAG (Retrieval-Augmented Generation) capabilities (e.g., using documents as context for chats).
 
 ## Notes
-- [ ] Add a dedicated area/feature for user notes that are *explicitly excluded* from the LLM's context.
+- [x] Add a dedicated area/feature for user notes that are *explicitly excluded* from the LLM's context.
+- [ ] Implement a free "file system" logic for notes with full CRUD capabilities and file upload support.
 
 ## Settings & LLM Management
 - [x] Create a comprehensive Settings dialog.
