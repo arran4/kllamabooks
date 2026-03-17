@@ -53,10 +53,6 @@ void ModelExplorer::setupInstalledTab() {
     connect(m_installedSearchField, &QLineEdit::returnPressed, this, &ModelExplorer::onSearchInstalledClicked);
 
     m_tabWidget->addTab(tab, "Installed Models");
-
-    m_modelList = new QListWidget(this);
-    m_modelList->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    mainLayout->addWidget(m_modelList);
 }
 
 void ModelExplorer::setupDownloadTab() {

@@ -34,10 +34,11 @@
   - The UI should clearly show which branch is currently active and allow switching between them.
 - [x] Allow selecting the LLM/Model for *each* individual response/message.
 - [ ] Implement Import/Export functionality for chat sessions.
-- [ ] Add copy/paste support for messages.
+- [x] Add copy/paste support for messages.
 
 ## Document Management & AI Interaction (Non-Chat Modes)
-- [ ] Implement a document viewer/editor for Markdown files (`.md`).
+- [x] Implement a basic document viewer/editor for Markdown files (`.md`) - Currently a basic QTextEdit.
+- [ ] Add Document History Tracking / Forking (similar to chat).
 - [ ] Add Drag & Drop support for `.md` files into and out of the application.
 - [ ] Implement "Complete this text" / "Append" mode for documents.
 - [ ] Implement "Replace entirely" mode for documents (with access to history).
@@ -47,7 +48,8 @@
 - [ ] Consider future RAG (Retrieval-Augmented Generation) capabilities (e.g., using documents as context for chats).
 
 ## Notes
-- [ ] Add a dedicated area/feature for user notes that are *explicitly excluded* from the LLM's context.
+- [x] Add a dedicated area/feature for user notes that are *explicitly excluded* from the LLM's context.
+- [ ] Implement a free "file system" logic for notes with full CRUD capabilities and file upload support.
 
 ## Settings & LLM Management
 - [x] Create a comprehensive Settings dialog.

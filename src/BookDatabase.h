@@ -14,6 +14,21 @@ struct MessageNode {
     QList<MessageNode*> children;
 };
 
+struct DocumentNode {
+    int id;
+    int parentId;
+    QString title;
+    QString content;
+    QDateTime timestamp;
+};
+
+struct NoteNode {
+    int id;
+    QString title;
+    QString content;
+    QDateTime timestamp;
+};
+
 class BookDatabase {
 public:
     BookDatabase(const QString& filepath);
@@ -25,10 +40,22 @@ public:
 
     // Database operations
     bool initSchema();
+
+    // Messages
     int addMessage(int parentId, const QString& content, const QString& role);
     bool updateMessage(int id, const QString& newContent);
     bool deleteMessage(int id);
     QList<MessageNode> getMessages() const;
+
+    // Documents
+    int addDocument(int parentId, const QString& title, const QString& content);
+    bool updateDocument(int id, const QString& newTitle, const QString& newContent);
+    QList<DocumentNode> getDocuments() const;
+
+    // Notes
+    int addNote(const QString& title, const QString& content);
+    bool updateNote(int id, const QString& newTitle, const QString& newContent);
+    QList<NoteNode> getNotes() const;
 
 private:
     QString m_filepath;

@@ -1,4 +1,4 @@
-FROM debian:testing
+FROM public.ecr.aws/docker/library/ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
