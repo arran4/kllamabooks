@@ -1,5 +1,6 @@
 #include "MainWindow.h"
 
+#include <QTextBlock>
 #include <KActionCollection>
 #include <KActionMenu>
 #include <KStandardAction>
@@ -86,9 +87,9 @@ void MainWindow::setupUi() {
         if (item) {
             QString type = item->data(Qt::UserRole + 1).toString();
             if (type == "chats_folder") {
-                mainRightStack->setCurrentWidget(chatContainerWidget);
+                mainContentStack->setCurrentWidget(chatsFolderView);
             } else if (type == "book") {
-                mainRightStack->setCurrentWidget(exploreListWidget);
+                mainContentStack->setCurrentWidget(dbDirectView);
             }
         }
     });
@@ -110,69 +111,287 @@ void MainWindow::setupUi() {
     leftSplitter->setStretchFactor(1, 2);  // 40% approx
 
     splitter->addWidget(leftSplitter);
+    mainContentStack = new QStackedWidget(this);
 
-    mainRightStack = new QStackedWidget(this);
+    emptyView = new QWidget(this);
+    mainContentStack->addWidget(emptyView);
 
-    exploreListWidget = new QListWidget(this);
-    exploreListWidget->setViewMode(QListView::IconMode);
-    exploreListWidget->setIconSize(QSize(64, 64));
-    exploreListWidget->setSpacing(20);
-    exploreListWidget->setMovement(QListView::Static);
-    exploreListWidget->setResizeMode(QListView::Adjust);
+    dbDirectView = new QListView(this);
+    dbDirectModel = new QStandardItemModel(this);
+    dbDirectView->setModel(dbDirectModel);
+    dbDirectView->setViewMode(QListView::IconMode);
+    dbDirectView->setEditTriggers(QAbstractItemView::NoEditTriggers);
 
-    QListWidgetItem* chatsItem = new QListWidgetItem(QIcon::fromTheme("folder-open"), "Chats");
-    chatsItem->setData(Qt::UserRole, "chats");
-    QListWidgetItem* docsItem = new QListWidgetItem(QIcon::fromTheme("folder-open"), "Documents");
-    docsItem->setData(Qt::UserRole, "docs");
-    QListWidgetItem* notesItem = new QListWidgetItem(QIcon::fromTheme("folder-open"), "Notes");
-    notesItem->setData(Qt::UserRole, "notes");
+    QStandardItem* chatsFolderItem = new QStandardItem(QIcon::fromTheme("folder-open"), "Chats");
+    QStandardItem* docsFolderItem = new QStandardItem(QIcon::fromTheme("folder-open"), "Documents");
+    QStandardItem* notesFolderItem = new QStandardItem(QIcon::fromTheme("folder-open"), "Notes");
+    dbDirectModel->appendRow(chatsFolderItem);
+    dbDirectModel->appendRow(docsFolderItem);
+    dbDirectModel->appendRow(notesFolderItem);
 
-    exploreListWidget->addItem(chatsItem);
-    exploreListWidget->addItem(docsItem);
-    exploreListWidget->addItem(notesItem);
+    mainContentStack->addWidget(dbDirectView);
 
-    mainRightStack->addWidget(exploreListWidget);
+    connect(dbDirectView, &QListView::doubleClicked, this, [this](const QModelIndex& index) {
+        if (!index.isValid()) return;
+        QString text = dbDirectModel->itemFromIndex(index)->text();
 
-    chatContainerWidget = new QWidget(this);
-    QVBoxLayout* chatContainerLayout = new QVBoxLayout(chatContainerWidget);
+        if (openBooksModel->rowCount() > 0) {
+            QStandardItem* rootItem = openBooksModel->item(0); // Assuming one open book for now
+            for (int i = 0; i < rootItem->rowCount(); ++i) {
+                QStandardItem* child = rootItem->child(i);
+                if (child->text() == text) {
+                    openBooksTree->setCurrentIndex(child->index());
+                    break;
+                }
+            }
+        }
+    });
 
-    chatStackWidget = new QStackedWidget(this);
-
-    // Linear View
-    linearChatList = new QListWidget(this);
-    linearChatList->setContextMenuPolicy(Qt::CustomContextMenu);
-    linearChatList->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    connect(linearChatList, &QWidget::customContextMenuRequested, this, &MainWindow::showLinearChatContextMenu);
-    chatStackWidget->addWidget(linearChatList);
-
-    // Tree View
-    chatTree = new QTreeView(this);
-    chatTree->setContextMenuPolicy(Qt::CustomContextMenu);
-    connect(chatTree, &QWidget::customContextMenuRequested, this, &MainWindow::showChatTreeContextMenu);
+    chatsFolderView = new QTreeView(this);
+    chatsFolderView->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(chatsFolderView, &QWidget::customContextMenuRequested, this, &MainWindow::showChatTreeContextMenu);
     chatModel = new QStandardItemModel(this);
-    chatTree->setModel(chatModel);
-    chatTree->setHeaderHidden(true);
-    chatTree->setEditTriggers(QAbstractItemView::DoubleClicked);
-    chatStackWidget->addWidget(chatTree);
+    chatsFolderView->setModel(chatModel);
+    chatsFolderView->setHeaderHidden(true);
+    chatsFolderView->setEditTriggers(QAbstractItemView::DoubleClicked);
+    mainContentStack->addWidget(chatsFolderView);
 
-    chatContainerLayout->addWidget(chatStackWidget);
+    connect(chatsFolderView->selectionModel(), &QItemSelectionModel::selectionChanged, this, [this](const QItemSelection& selected, const QItemSelection& deselected) {
+        if (selected.indexes().isEmpty()) return;
+        QModelIndex index = selected.indexes().first();
+        QStandardItem* item = chatModel->itemFromIndex(index);
+        if (!item) return;
 
-    // Create an explicit widget to contain the input controls to limit their vertical expansion
-    QWidget* bottomContainer = new QWidget(this);
-    bottomContainer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Maximum);
+        currentLastNodeId = item->data(Qt::UserRole).toInt();
+        if (currentDb) {
+            updateLinearChatView(currentLastNodeId, currentDb->getMessages());
+            mainContentStack->setCurrentWidget(chatWindowView);
+        }
+    });
 
-    inputField = new ChatInputWidget(bottomContainer);
-    sendButton = new QPushButton("Send", bottomContainer);
+    chatTree = chatsFolderView; // Keep reference to avoid breaking old code for now
+
+    documentsFolderView = new QTreeView(this);
+    documentsModel = new QStandardItemModel(this);
+    documentsFolderView->setModel(documentsModel);
+    documentsFolderView->setHeaderHidden(true);
+    documentsFolderView->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(documentsFolderView, &QWidget::customContextMenuRequested, this, &MainWindow::showDocumentsContextMenu);
+    mainContentStack->addWidget(documentsFolderView);
+
+    notesFolderView = new QTreeView(this);
+    notesModel = new QStandardItemModel(this);
+    notesFolderView->setModel(notesModel);
+    notesFolderView->setHeaderHidden(true);
+    notesFolderView->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(notesFolderView, &QWidget::customContextMenuRequested, this, &MainWindow::showNotesContextMenu);
+    mainContentStack->addWidget(notesFolderView);
+
+    docContainer = new QWidget(this);
+    QVBoxLayout* docLayout = new QVBoxLayout(docContainer);
+    documentEditorView = new QTextEdit(this);
+    saveDocBtn = new QPushButton("Save Document", this);
+    QPushButton* backToDocsBtn = new QPushButton("Back to Documents", this);
+    QHBoxLayout* docBtnLayout = new QHBoxLayout();
+    docBtnLayout->addWidget(backToDocsBtn);
+    docBtnLayout->addWidget(saveDocBtn);
+    docLayout->addWidget(documentEditorView);
+    docLayout->addLayout(docBtnLayout);
+    mainContentStack->addWidget(docContainer);
+
+    noteContainer = new QWidget(this);
+    QVBoxLayout* noteLayout = new QVBoxLayout(noteContainer);
+    noteEditorView = new QTextEdit(this);
+    saveNoteBtn = new QPushButton("Save Note", this);
+    QPushButton* backToNotesBtn = new QPushButton("Back to Notes", this);
+    QHBoxLayout* noteBtnLayout = new QHBoxLayout();
+    noteBtnLayout->addWidget(backToNotesBtn);
+    noteBtnLayout->addWidget(saveNoteBtn);
+    noteLayout->addWidget(noteEditorView);
+    noteLayout->addLayout(noteBtnLayout);
+    mainContentStack->addWidget(noteContainer);
+
+    connect(backToDocsBtn, &QPushButton::clicked, this, [this]() {
+        mainContentStack->setCurrentWidget(documentsFolderView);
+    });
+
+    connect(backToNotesBtn, &QPushButton::clicked, this, [this]() {
+        mainContentStack->setCurrentWidget(notesFolderView);
+    });
+
+    connect(documentsFolderView->selectionModel(), &QItemSelectionModel::selectionChanged, this, [this](const QItemSelection& selected, const QItemSelection& deselected) {
+        if (selected.indexes().isEmpty()) return;
+        QModelIndex index = selected.indexes().first();
+        QStandardItem* item = documentsModel->itemFromIndex(index);
+        if (!item) return;
+
+        currentDocumentId = item->data(Qt::UserRole).toInt();
+        if (currentDb) {
+            QList<DocumentNode> docs = currentDb->getDocuments();
+            for (const auto& doc : docs) {
+                if (doc.id == currentDocumentId) {
+                    documentEditorView->setPlainText(doc.content);
+                    mainContentStack->setCurrentWidget(docContainer);
+                    break;
+                }
+            }
+        }
+    });
+
+    connect(notesFolderView->selectionModel(), &QItemSelectionModel::selectionChanged, this, [this](const QItemSelection& selected, const QItemSelection& deselected) {
+        if (selected.indexes().isEmpty()) return;
+        QModelIndex index = selected.indexes().first();
+        QStandardItem* item = notesModel->itemFromIndex(index);
+        if (!item) return;
+
+        currentNoteId = item->data(Qt::UserRole).toInt();
+        if (currentDb) {
+            QList<NoteNode> notes = currentDb->getNotes();
+            for (const auto& note : notes) {
+                if (note.id == currentNoteId) {
+                    noteEditorView->setPlainText(note.content);
+                    mainContentStack->setCurrentWidget(noteContainer);
+                    break;
+                }
+            }
+        }
+    });
+
+    connect(saveDocBtn, &QPushButton::clicked, this, [this]() {
+        if (!currentDb || currentDocumentId == 0) return;
+        QList<DocumentNode> docs = currentDb->getDocuments();
+        for (const auto& doc : docs) {
+            if (doc.id == currentDocumentId) {
+                currentDb->updateDocument(currentDocumentId, doc.title, documentEditorView->toPlainText());
+                statusBar->showMessage(tr("Document saved."), 3000);
+                break;
+            }
+        }
+    });
+
+    connect(saveNoteBtn, &QPushButton::clicked, this, [this]() {
+        if (!currentDb || currentNoteId == 0) return;
+        QList<NoteNode> notes = currentDb->getNotes();
+        for (const auto& note : notes) {
+            if (note.id == currentNoteId) {
+                currentDb->updateNote(currentNoteId, note.title, noteEditorView->toPlainText());
+                statusBar->showMessage(tr("Note saved."), 3000);
+                break;
+            }
+        }
+    });
+
+    chatWindowView = new QWidget(this);
+    QVBoxLayout* chatLayout = new QVBoxLayout(chatWindowView);
+    chatTextArea = new QTextEdit(this);
+    // Left native standard context menu for basic copy/paste without block mapping
+    chatLayout->addWidget(chatTextArea);
+
+    QHBoxLayout* inputLayout = new QHBoxLayout();
     modelSelectButton = new QPushButton(QIcon::fromTheme("system-search"), "Select Model", this);
+    inputLayout->addWidget(modelSelectButton);
 
+    toggleInputModeBtn = new QPushButton(QIcon::fromTheme("format-text-strikethrough"), "", this);
+    toggleInputModeBtn->setToolTip(tr("Toggle Multi-line Input"));
+    toggleInputModeBtn->setCheckable(true);
+    inputLayout->addWidget(toggleInputModeBtn);
+
+    inputModeStack = new QStackedWidget(this);
+    inputField = new ChatInputWidget(this);
+    // HEAD input settings
+    inputModeStack->addWidget(inputField);
+
+    multiLineInput = new QTextEdit(this);
+    multiLineInput->setMaximumHeight(100);
+    inputModeStack->addWidget(multiLineInput);
+
+    inputLayout->addWidget(inputModeStack);
+
+    saveEditsBtn = new QPushButton("Save Edits", this);
+    saveEditsBtn->setToolTip(tr("Save modifications made to the chat history above."));
+    inputLayout->addWidget(saveEditsBtn);
+
+    sendButton = new QPushButton("Send", this);
     inputSettingsButton = new QToolButton(this);
     inputSettingsButton->setIcon(QIcon::fromTheme("configure"));
     inputSettingsButton->setToolTip(tr("Input Settings"));
     connect(inputSettingsButton, &QToolButton::clicked, this, &MainWindow::showInputSettingsMenu);
+    inputLayout->addWidget(sendButton);
+    inputLayout->addWidget(inputSettingsButton);
 
-    QHBoxLayout* inputLayout = new QHBoxLayout();
-    inputLayout->addWidget(modelSelectButton);
-    inputLayout->addWidget(inputField);
+    chatLayout->addLayout(inputLayout);
+
+    connect(saveEditsBtn, &QPushButton::clicked, this, [this]() {
+        if (!currentDb || currentChatPath.isEmpty()) return;
+
+        // Instead of parsing flat text with regex, iterate blocks to reconstruct messages robustly
+        QTextDocument* doc = chatTextArea->document();
+        QString currentRole = "";
+        QString currentContent = "";
+        int msgIndex = 0;
+
+        for (QTextBlock block = doc->begin(); block.isValid(); block = block.next()) {
+            QString blockText = block.text();
+
+            // Check if this block is a header
+            if (blockText.trimmed() == "[User]") {
+                // If we were already building a message, save it
+                if (!currentRole.isEmpty() && msgIndex < currentChatPath.size()) {
+                    if (currentRole == currentChatPath[msgIndex].role && currentContent.trimmed() != currentChatPath[msgIndex].content.trimmed()) {
+                        currentDb->updateMessage(currentChatPath[msgIndex].id, currentContent.trimmed());
+                        QStandardItem* foundItem = findItem(chatModel->invisibleRootItem(), currentChatPath[msgIndex].id);
+                        if (foundItem) {
+                            QString displayContent = currentContent.trimmed();
+                            if (displayContent.contains('\n')) displayContent = displayContent.left(displayContent.indexOf('\n')) + " ...";
+                            foundItem->setText(QString("[%1] %2").arg(currentChatPath[msgIndex].role, displayContent));
+                        }
+                    }
+                    msgIndex++;
+                }
+                currentRole = "user";
+                currentContent = "";
+                continue;
+            } else if (blockText.trimmed() == "[Assistant]") {
+                if (!currentRole.isEmpty() && msgIndex < currentChatPath.size()) {
+                    if (currentRole == currentChatPath[msgIndex].role && currentContent.trimmed() != currentChatPath[msgIndex].content.trimmed()) {
+                        currentDb->updateMessage(currentChatPath[msgIndex].id, currentContent.trimmed());
+                        QStandardItem* foundItem = findItem(chatModel->invisibleRootItem(), currentChatPath[msgIndex].id);
+                        if (foundItem) {
+                            QString displayContent = currentContent.trimmed();
+                            if (displayContent.contains('\n')) displayContent = displayContent.left(displayContent.indexOf('\n')) + " ...";
+                            foundItem->setText(QString("[%1] %2").arg(currentChatPath[msgIndex].role, displayContent));
+                        }
+                    }
+                    msgIndex++;
+                }
+                currentRole = "assistant";
+                currentContent = "";
+                continue;
+            }
+
+            if (!currentRole.isEmpty()) {
+                currentContent += blockText + "\n";
+            }
+        }
+
+        // Save the very last message in the buffer
+        if (!currentRole.isEmpty() && msgIndex < currentChatPath.size()) {
+            if (currentRole == currentChatPath[msgIndex].role && currentContent.trimmed() != currentChatPath[msgIndex].content.trimmed()) {
+                currentDb->updateMessage(currentChatPath[msgIndex].id, currentContent.trimmed());
+                QStandardItem* foundItem = findItem(chatModel->invisibleRootItem(), currentChatPath[msgIndex].id);
+                if (foundItem) {
+                    QString displayContent = currentContent.trimmed();
+                    if (displayContent.contains('\n')) displayContent = displayContent.left(displayContent.indexOf('\n')) + " ...";
+                    foundItem->setText(QString("[%1] %2").arg(currentChatPath[msgIndex].role, displayContent));
+                }
+            }
+        }
+
+        updateLinearChatView(currentLastNodeId, currentDb->getMessages());
+        statusBar->showMessage(tr("Chat edits saved successfully."), 3000);
+    });
+
+    mainContentStack->addWidget(chatWindowView);
 
     QVBoxLayout* btnLayout = new QVBoxLayout();
     QHBoxLayout* topBtnLayout = new QHBoxLayout();
@@ -181,13 +400,12 @@ void MainWindow::setupUi() {
     btnLayout->addLayout(topBtnLayout);
     btnLayout->addStretch(); // Push to the top of the container
     inputLayout->addLayout(btnLayout);
+    splitter->addWidget(mainContentStack);
 
-    bottomContainer->setLayout(inputLayout);
-    chatContainerLayout->addWidget(bottomContainer);
-
-    mainRightStack->addWidget(chatContainerWidget);
-
-    splitter->addWidget(mainRightStack);
+    connect(openBooksTree->selectionModel(), &QItemSelectionModel::selectionChanged, this, &MainWindow::onOpenBooksSelectionChanged);
+    connect(toggleInputModeBtn, &QPushButton::toggled, this, [this](bool checked) {
+        inputModeStack->setCurrentIndex(checked ? 1 : 0);
+    });
 
     // Initial sizes
     int totalWidth = width();
@@ -204,16 +422,6 @@ void MainWindow::setupUi() {
     actionCollection()->addAction(QStringLiteral("export_chat_session"), exportChatAction);
     connect(exportChatAction, &QAction::triggered, this, &MainWindow::exportChatSession);
 
-    QAction* toggleViewAction = new QAction(QIcon::fromTheme("view-split-left-right"), tr("Toggle Chat View"), this);
-    actionCollection()->addAction(QStringLiteral("toggle_view"), toggleViewAction);
-    toolbar->addAction(toggleViewAction);
-    connect(toggleViewAction, &QAction::triggered, this, [this]() {
-        if (chatStackWidget->currentIndex() == 0) {
-            chatStackWidget->setCurrentIndex(1);
-        } else {
-            chatStackWidget->setCurrentIndex(0);
-        }
-    });
     actionCollection()->addAction(QStringLiteral("new_book"), newBookAction);
     toolbar->addAction(newBookAction);
 
@@ -257,12 +465,6 @@ void MainWindow::setupUi() {
     connect(inputField, &ChatInputWidget::returnPressed, this, &MainWindow::onSendMessage);
     connect(chatModel, &QStandardItemModel::itemChanged, this, &MainWindow::onItemChanged);
     connect(chatTree->selectionModel(), &QItemSelectionModel::currentChanged, this, &MainWindow::onChatNodeSelected);
-
-    connect(exploreListWidget, &QListWidget::itemDoubleClicked, this, [this](QListWidgetItem* item) {
-        if (item->data(Qt::UserRole).toString() == "chats") {
-            mainRightStack->setCurrentWidget(chatContainerWidget);
-        }
-    });
 
     connect(&ollamaClient, &OllamaClient::modelListUpdated, this, [this](const QStringList& models) {
         m_availableModels = models;
@@ -631,78 +833,59 @@ void MainWindow::onCreateBook() {
     }
 }
 
-void MainWindow::showLinearChatContextMenu(const QPoint& pos) {
-    QListWidgetItem* item = linearChatList->itemAt(pos);
-    if (!item) return;
 
-    QMenu menu(this);
-    QAction* copyAction = menu.addAction(QIcon::fromTheme("edit-copy"), "Copy Message");
-    QAction* pasteAction = menu.addAction(QIcon::fromTheme("edit-paste"), "Paste to Input");
-    menu.addSeparator();
-    QAction* forkAction = menu.addAction(QIcon::fromTheme("call-start"), "Fork from Here");
-    menu.addSeparator();
-    QAction* exportAction = menu.addAction(QIcon::fromTheme("document-export"), "Export Chat Session");
-
-    QAction* selectedAction = menu.exec(linearChatList->viewport()->mapToGlobal(pos));
-    if (selectedAction == copyAction) {
-        QString fullText = item->text();
-        // Remove the role tag e.g., "[user] " or "[assistant] "
-        int bracketIndex = fullText.indexOf("] ");
-        if (bracketIndex != -1) {
-            fullText = fullText.mid(bracketIndex + 2);
-        }
-        QGuiApplication::clipboard()->setText(fullText);
-    } else if (selectedAction == pasteAction) {
-        inputField->setPlainText(inputField->toPlainText() + QGuiApplication::clipboard()->text());
-    } else if (selectedAction == forkAction) {
-        currentLastNodeId = item->data(Qt::UserRole).toInt();
-        qDebug() << "Selected point for fork from linear view: " << currentLastNodeId;
-
-        // Highlight it in the tree if we switch views
-        QStandardItem* foundItem = findItem(chatModel->invisibleRootItem(), currentLastNodeId);
-        if (foundItem) {
-            chatTree->setCurrentIndex(foundItem->index());
-        }
-
-        if (currentDb) {
-            updateLinearChatView(currentLastNodeId, currentDb->getMessages());
-        }
-    } else if (selectedAction == exportAction) {
-        exportChatSession();
-    }
-}
 
 void MainWindow::showChatTreeContextMenu(const QPoint& pos) {
-    QModelIndex index = chatTree->indexAt(pos);
-    if (!index.isValid()) return;
-
-    QStandardItem* item = chatModel->itemFromIndex(index);
-    if (!item) return;
-
     QMenu menu(this);
-    QAction* copyAction = menu.addAction(QIcon::fromTheme("edit-copy"), "Copy Message");
-    QAction* pasteAction = menu.addAction(QIcon::fromTheme("edit-paste"), "Paste to Input");
+    QAction* newChatAction = menu.addAction(QIcon::fromTheme("chat-message-new"), "New Chat");
     menu.addSeparator();
-    QAction* forkAction = menu.addAction(QIcon::fromTheme("call-start"), "Fork from Here");
-    menu.addSeparator();
-    QAction* exportAction = menu.addAction(QIcon::fromTheme("document-export"), "Export Chat Session");
 
+    QModelIndex index = chatTree->indexAt(pos);
+    QStandardItem* item = nullptr;
+    QAction* copyAction = nullptr;
+    QAction* pasteAction = nullptr;
+    QAction* forkAction = nullptr;
+
+    if (index.isValid()) {
+        item = chatModel->itemFromIndex(index);
+        if (item) {
+            copyAction = menu.addAction(QIcon::fromTheme("edit-copy"), "Copy Message");
+            pasteAction = menu.addAction(QIcon::fromTheme("edit-paste"), "Paste to Input");
+            menu.addSeparator();
+            forkAction = menu.addAction(QIcon::fromTheme("call-start"), "Fork from Here");
+            menu.addSeparator();
+            QAction* exportAction = menu.addAction(QIcon::fromTheme("document-export"), "Export Chat Session");
+        }
+    }
     QAction* selectedAction = menu.exec(chatTree->viewport()->mapToGlobal(pos));
-    if (selectedAction == copyAction) {
+
+    if (selectedAction == newChatAction) {
+        bool ok;
+        QString name = QInputDialog::getText(this, "New Chat", "Enter chat name/message:", QLineEdit::Normal, "", &ok);
+        if (ok && !name.isEmpty() && currentDb) {
+            int newId = currentDb->addMessage(0, name, "user");
+            currentLastNodeId = newId;
+            loadSession(0); // Refresh tree
+        }
+    } else if (item && selectedAction == copyAction) {
         QString fullText = item->text();
         int bracketIndex = fullText.indexOf("] ");
         if (bracketIndex != -1) {
             fullText = fullText.mid(bracketIndex + 2);
         }
         QGuiApplication::clipboard()->setText(fullText);
-    } else if (selectedAction == pasteAction) {
-        inputField->setPlainText(inputField->toPlainText() + QGuiApplication::clipboard()->text());
-    } else if (selectedAction == forkAction) {
-        currentLastNodeId = item->data(Qt::UserRole).toInt();
+    } else if (item && selectedAction == pasteAction) {
+        if (inputModeStack->currentIndex() == 0) {
+            inputField->setPlainText(inputField->toPlainText() + QGuiApplication::clipboard()->text());
+        } else {
+            multiLineInput->insertPlainText(QGuiApplication::clipboard()->text());
+        }
+    } else if (item && selectedAction == forkAction) {        currentLastNodeId = item->data(Qt::UserRole).toInt();
         qDebug() << "Selected point for fork from tree view: " << currentLastNodeId;
 
         if (currentDb) {
             updateLinearChatView(currentLastNodeId, currentDb->getMessages());
+            mainContentStack->setCurrentWidget(chatWindowView);
         }
     }
 }
@@ -763,13 +946,15 @@ void MainWindow::onBookSelected(const QModelIndex& index) {
 
     loadSession(0);  // For now, load all as one session
 
-    mainRightStack->setCurrentWidget(exploreListWidget);
+    mainContentStack->setCurrentWidget(dbDirectView);
 }
 
 void MainWindow::loadSession(int rootId) {
     chatModel->clear();
-    linearChatList->clear();
+    chatTextArea->clear();
     if (!currentDb) return;
+
+    loadDocumentsAndNotes();
 
     QList<MessageNode> msgs = currentDb->getMessages();
     QStandardItem* rootItem = chatModel->invisibleRootItem();
@@ -799,18 +984,23 @@ void MainWindow::getPathToRoot(int nodeId, const QList<MessageNode>& allMessages
 }
 
 void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& allMessages) {
-    linearChatList->clear();
+    chatTextArea->clear();
+    currentChatPath.clear();
     if (tailNodeId == 0 || allMessages.isEmpty()) return;
 
-    QList<MessageNode> path;
-    getPathToRoot(tailNodeId, allMessages, path);
+    getPathToRoot(tailNodeId, allMessages, currentChatPath);
 
-    for (const auto& msg : path) {
-        QListWidgetItem* item = new QListWidgetItem(QString("[%1] %2").arg(msg.role, msg.content));
-        item->setData(Qt::UserRole, msg.id);
-        linearChatList->addItem(item);
+    for (const auto& msg : currentChatPath) {
+        QTextCursor cursor = chatTextArea->textCursor();
+        cursor.movePosition(QTextCursor::End);
+        chatTextArea->setTextCursor(cursor);
+        if (msg.role == "user") {
+            chatTextArea->insertHtml("<div style='font-weight: bold;'>[User]</div>");
+        } else {
+            chatTextArea->insertHtml("<div style='font-weight: bold; color:#00557f;'>[Assistant]</div>");
+        }
+        chatTextArea->insertPlainText(msg.content + "\n\n");
     }
-    linearChatList->scrollToBottom();
 }
 
 void MainWindow::populateTree(QStandardItem* parentItem, int parentId, const QList<MessageNode>& allMessages) {
@@ -838,12 +1028,38 @@ QStandardItem* MainWindow::findItem(QStandardItem* parent, int id) {
 
 void MainWindow::onSendMessage() {
     if (!currentDb) return;
-    QString text = inputField->toPlainText().trimmed();
-    if (text.isEmpty()) return;
 
-    inputField->clear();
+    if (m_isGenerating) {
+        // User clicked Cancel
+        m_isGenerating = false;
+        ++m_generationId; // Invalidate the running lambda chunks
+        chatTextArea->setReadOnly(false);
+        inputModeStack->setEnabled(true);
+        sendButton->setText("Send");
+        statusBar->showMessage(tr("Generation cancelled."), 3000);
+        return;
+    }
+
+    QString text;
+    if (inputModeStack->currentIndex() == 0) {
+        text = inputField->toPlainText().trimmed();
+        if (text.isEmpty()) return;
+        inputField->clear();
+    } else {
+        text = multiLineInput->toPlainText();
+        if (text.isEmpty()) return;
+        multiLineInput->clear();
+    }
     int parentId = currentLastNodeId;
     int newId = currentDb->addMessage(parentId, text, "user");
+
+    // Add user message to in-memory path to keep parser synced
+    MessageNode userNode;
+    userNode.id = newId;
+    userNode.parentId = parentId;
+    userNode.role = "user";
+    userNode.content = text;
+    currentChatPath.append(userNode);
 
     QStandardItem* parentItem = chatModel->invisibleRootItem();
     if (parentId != 0) {
@@ -858,36 +1074,104 @@ void MainWindow::onSendMessage() {
     // Prepare AI response node
     int aiId = currentDb->addMessage(newId, "", "assistant");
     currentLastNodeId = aiId;
+
+    // Add assistant message to in-memory path to keep parser synced
+    MessageNode aiNode;
+    aiNode.id = aiId;
+    aiNode.parentId = newId;
+    aiNode.role = "assistant";
+    aiNode.content = "";
+    currentChatPath.append(aiNode);
+
     QStandardItem* aiItem = new QStandardItem("[assistant] ");
     aiItem->setData(aiId, Qt::UserRole);
     item->appendRow(aiItem);
     chatTree->expandAll();
 
-    updateLinearChatView(currentLastNodeId, currentDb->getMessages());
+    // Since we manually appended to currentChatPath and the text area is already rendered,
+    // we don't need to do a full clear-and-reload of updateLinearChatView right here.
 
     QString selectedModel = m_selectedModel;
     if (selectedModel.isEmpty()) selectedModel = "llama2";
 
-    ollamaClient.generate(
-        selectedModel, text,
-        [this, aiId, aiItem](const QString& chunk) {
-            QString currentText = aiItem->text() + chunk;
-            aiItem->setText(currentText);
+    int currentGenId = ++m_generationId;
+    m_isGenerating = true;
+    chatTextArea->setReadOnly(true);
+    inputModeStack->setEnabled(false);
+    sendButton->setText("Cancel");
+    // Add user message to UI immediately using basic mixed HTML/plain text
+    QTextCursor cursor = chatTextArea->textCursor();
+    cursor.movePosition(QTextCursor::End);
+    chatTextArea->setTextCursor(cursor);
+    chatTextArea->insertHtml("<div style='font-weight: bold;'>[User]</div>");
+    chatTextArea->insertPlainText(text + "\n\n");
 
-            // Also update linear view if it's the active tail
-            if (currentLastNodeId == aiId && linearChatList->count() > 0) {
-                QListWidgetItem* lastLinearItem = linearChatList->item(linearChatList->count() - 1);
-                if (lastLinearItem && lastLinearItem->data(Qt::UserRole).toInt() == aiId) {
-                    lastLinearItem->setText(currentText);
+    ollamaClient.generate(selectedModel, text,
+        [this, aiId, aiItem, currentGenId, isFirstChunk = true, fullResponse = QString()](const QString& chunk) mutable {
+            if (currentGenId != m_generationId) return; // Ignore chunks if cancelled or superseded
+
+            fullResponse += chunk;
+
+            // Clean display: only show the first few words in the tree node
+            QString displayContent = fullResponse;
+            if (displayContent.contains('\n')) {
+                displayContent = displayContent.left(displayContent.indexOf('\n')) + " ...";
+            }
+            aiItem->setText(QString("[assistant] %1").arg(displayContent));
+
+            // Also update main view if it's the active tail
+            if (currentLastNodeId == aiId) {
+                QTextCursor cursor = chatTextArea->textCursor();
+                cursor.movePosition(QTextCursor::End);
+                chatTextArea->setTextCursor(cursor);
+
+                if (isFirstChunk) {
+                    chatTextArea->insertHtml("<div style='font-weight: bold; color:#00557f;'>[Assistant]</div>");
+                    isFirstChunk = false;
+                }
+
+                chatTextArea->insertPlainText(chunk);
+
+                // Keep the underlying DB synced with the exact full response
+                currentDb->updateMessage(aiId, fullResponse);
+
+                // Keep in-memory path synced for immediate "Save Edits" support
+                if (!currentChatPath.isEmpty() && currentChatPath.last().id == aiId) {
+                    currentChatPath.last().content = fullResponse;
                 }
             }
         },
-        [this, aiId, aiItem](const QString& /*full*/) {
-            QString content = aiItem->text().mid(12);  // remove "[assistant] "
-            currentDb->updateMessage(aiId, content);
+        [this, currentGenId](const QString& /*full*/) {
+            if (currentGenId == m_generationId) {
+                // Add concluding spacing
+                QTextCursor cursor = chatTextArea->textCursor();
+                cursor.movePosition(QTextCursor::End);
+                chatTextArea->setTextCursor(cursor);
+                chatTextArea->insertPlainText("\n\n");
+
+                m_isGenerating = false;
+                chatTextArea->setReadOnly(false); // Make editable again
+                inputModeStack->setEnabled(true);
+                sendButton->setText("Send");
+            }
         },
-        [this, aiItem](const QString& err) { aiItem->setText(aiItem->text() + " [ERROR: " + err + "]"); });
-}
+        [this, aiItem, currentGenId](const QString& err) {
+            if (currentGenId == m_generationId) {
+                // It wasn't a deliberate cancel
+                aiItem->setText(aiItem->text() + " [ERROR: " + err + "]");
+
+                QTextCursor cursor = chatTextArea->textCursor();
+                cursor.movePosition(QTextCursor::End);
+                chatTextArea->setTextCursor(cursor);
+                chatTextArea->insertHtml(QString("<br/><span style='color:red;'>[ERROR: %1]</span>\n\n").arg(err.toHtmlEscaped()));
+
+                m_isGenerating = false;
+                chatTextArea->setReadOnly(false); // Make editable again
+                inputModeStack->setEnabled(true);
+                sendButton->setText("Send");
+            }
+        }
+    );}
 
 void MainWindow::onOllamaChunk(const QString& chunk) {}
 void MainWindow::onOllamaComplete(const QString& fullResponse) {}
@@ -1012,7 +1296,7 @@ void MainWindow::closeBook(const QString& fileName) {
         chatModel->clear();
         statusLabel->setText(tr("Ready"));
 
-        mainRightStack->setCurrentWidget(exploreListWidget);
+        mainContentStack->setCurrentWidget(dbDirectView);
     }
 }
 
@@ -1056,6 +1340,84 @@ void MainWindow::showBookContextMenu(const QPoint& pos) {
         settings.setValue("favorites", favorites);
         // Re-sort or reload list to show favorites at top
         loadBooks();
+    }
+}
+
+void MainWindow::onOpenBooksSelectionChanged(const QItemSelection &selected, const QItemSelection &deselected) {
+    if (selected.indexes().isEmpty()) {
+        mainContentStack->setCurrentWidget(emptyView);
+        return;
+    }
+
+    QModelIndex index = selected.indexes().first();
+    QStandardItem* item = openBooksModel->itemFromIndex(index);
+    if (!item) {
+        mainContentStack->setCurrentWidget(emptyView);
+        return;
+    }
+
+    QString type = item->data(Qt::UserRole + 1).toString();
+    if (type == "book") {
+        mainContentStack->setCurrentWidget(dbDirectView);
+    } else if (type == "chats_folder") {
+        mainContentStack->setCurrentWidget(chatsFolderView);
+    } else if (type == "docs_folder") {
+        mainContentStack->setCurrentWidget(documentsFolderView);
+    } else if (type == "notes_folder") {
+        mainContentStack->setCurrentWidget(notesFolderView);
+    } else {
+        // If it's none of the above, it's a specific chat node or otherwise unknown
+        mainContentStack->setCurrentWidget(chatWindowView);
+    }
+}
+
+void MainWindow::loadDocumentsAndNotes() {
+    documentsModel->clear();
+    notesModel->clear();
+    if (!currentDb) return;
+
+    QList<DocumentNode> docs = currentDb->getDocuments();
+    for (const auto& doc : docs) {
+        QStandardItem* item = new QStandardItem(doc.title);
+        item->setData(doc.id, Qt::UserRole);
+        documentsModel->appendRow(item);
+    }
+
+    QList<NoteNode> notes = currentDb->getNotes();
+    for (const auto& note : notes) {
+        QStandardItem* item = new QStandardItem(note.title);
+        item->setData(note.id, Qt::UserRole);
+        notesModel->appendRow(item);
+    }
+}
+
+void MainWindow::showDocumentsContextMenu(const QPoint& pos) {
+    QMenu menu(this);
+    QAction* newDocAction = menu.addAction(QIcon::fromTheme("document-new"), "New Document");
+
+    QAction* selectedAction = menu.exec(documentsFolderView->viewport()->mapToGlobal(pos));
+    if (selectedAction == newDocAction) {
+        bool ok;
+        QString title = QInputDialog::getText(this, "New Document", "Enter document title:", QLineEdit::Normal, "", &ok);
+        if (ok && !title.isEmpty() && currentDb) {
+            currentDb->addDocument(0, title, "");
+            loadDocumentsAndNotes();
+        }
+    }
+}
+
+void MainWindow::showNotesContextMenu(const QPoint& pos) {
+    QMenu menu(this);
+    QAction* newNoteAction = menu.addAction(QIcon::fromTheme("document-new"), "New Note");
+
+    QAction* selectedAction = menu.exec(notesFolderView->viewport()->mapToGlobal(pos));
+    if (selectedAction == newNoteAction) {
+        bool ok;
+        QString title = QInputDialog::getText(this, "New Note", "Enter note title:", QLineEdit::Normal, "", &ok);
+        if (ok && !title.isEmpty() && currentDb) {
+            currentDb->addNote(title, "");
+            loadDocumentsAndNotes();
+        }
     }
 }
 

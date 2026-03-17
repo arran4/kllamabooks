@@ -25,6 +25,13 @@
 #include <QToolBar>
 #include <QToolButton>
 #include <QTreeView>
+#include <QListView>
+#include <QTextEdit>
+#include <QStandardItemModel>
+#include <QLineEdit>
+#include <QInputDialog>
+#include <QAction>
+#include <QComboBox>
 #include <memory>
 
 #include "BookDatabase.h"
@@ -60,12 +67,14 @@ class MainWindow : public KXmlGuiWindow {
     void updateEndpointsList();
     void showBookContextMenu(const QPoint& pos);
     void showOpenBookContextMenu(const QPoint& pos);
-    void showLinearChatContextMenu(const QPoint& pos);
     void showChatTreeContextMenu(const QPoint& pos);
     void showInputSettingsMenu();
     void updateInputBehavior();
     void exportChatSession();
     void importChatSession();
+    void showDocumentsContextMenu(const QPoint& pos);
+    void showNotesContextMenu(const QPoint& pos);
+    void onOpenBooksSelectionChanged(const QItemSelection &selected, const QItemSelection &deselected);
 
    protected:
     void closeEvent(QCloseEvent* event) override;
@@ -79,19 +88,36 @@ class MainWindow : public KXmlGuiWindow {
     QStandardItem* findItem(QStandardItem* parent, int id);
     void updateLinearChatView(int tailNodeId, const QList<MessageNode>& allMessages);
     void getPathToRoot(int nodeId, const QList<MessageNode>& allMessages, QList<MessageNode>& path);
+    void loadDocumentsAndNotes();
 
-    QSplitter* splitter;
-    QSplitter* leftSplitter;
-    QTreeView* openBooksTree;
-    QStandardItemModel* openBooksModel;
-    QListWidget* bookList;  // Closed books
+    QSplitter *splitter;
+    QSplitter *leftSplitter;
+    QTreeView *openBooksTree;
+    QStandardItemModel *openBooksModel;
+    QListWidget *bookList; // Closed books
+    QStackedWidget *mainContentStack; // To switch between main views
+    QWidget *emptyView;
+    QListView *dbDirectView;
+    QStandardItemModel *dbDirectModel;
+    QTreeView *chatsFolderView; // Replaces chatTree functionality directly or wraps it
+    QTreeView *documentsFolderView;
+    QStandardItemModel *documentsModel;
+    QTreeView *notesFolderView;
+    QStandardItemModel *notesModel;
+    QWidget *chatWindowView;
+    QTreeView *chatTree; // Keeping it for the folder view structure if needed
+    QTextEdit *chatTextArea; // Replaces linearChatList
+    QWidget *docContainer;
+    QTextEdit *documentEditorView;
+    QPushButton *saveDocBtn;
+    QWidget *noteContainer;
+    QTextEdit *noteEditorView;
+    QPushButton *saveNoteBtn;
 
-    QStackedWidget* mainRightStack;
-    QListWidget* exploreListWidget;
-    QWidget* chatContainerWidget;
+    QStackedWidget *inputModeStack;
+    QTextEdit *multiLineInput;
+    QPushButton *toggleInputModeBtn;
 
-    QTreeView* chatTree;              // The full branching tree
-    QListWidget* linearChatList;      // The linear view
     QStackedWidget* chatStackWidget;  // To switch between them
 
     // Drag & Drop helpers
@@ -99,17 +125,26 @@ class MainWindow : public KXmlGuiWindow {
     void handleBookDrop(const QString& fileName);
     void closeBook(const QString& fileName);
     QStandardItemModel* chatModel;
-    ChatInputWidget* inputField;
+    ChatInputWidget* inputField; // Using HEAD's custom input field
     QPushButton* sendButton;
+    QPushButton* saveEditsBtn;
     QPushButton* modelSelectButton;
     QStringList m_availableModels;
     QString m_selectedModel;
     QToolButton* inputSettingsButton;
+    QComboBox *modelComboBox;
 
     std::unique_ptr<BookDatabase> currentDb;
     OllamaClient ollamaClient;
 
-    int currentLastNodeId;  // ID of the last node in the current chat path
+    int currentLastNodeId; // ID of the last node in the current chat path
+    QList<MessageNode> currentChatPath; // Stores the current path for tracking edits/forks
+
+    int currentDocumentId = 0;
+    int currentNoteId = 0;
+
+    bool m_isGenerating = false;
+    int m_generationId = 0;
 
     QStatusBar* statusBar;
     QLabel* statusLabel;
