@@ -72,6 +72,7 @@ class MainWindow : public KXmlGuiWindow {
     void setupWindow();
     void loadSession(int rootId);
     void populateTree(QStandardItem* parentItem, int parentId, const QList<MessageNode>& allMessages);
+    void populateChatFolders(QStandardItem* parentItem, int parentId, const QList<MessageNode>& allMessages);
     QStandardItem* findItem(QStandardItem* parent, int id);
     void updateLinearChatView(int tailNodeId, const QList<MessageNode>& allMessages);
     void getPathToRoot(int nodeId, const QList<MessageNode>& allMessages, QList<MessageNode>& path);
