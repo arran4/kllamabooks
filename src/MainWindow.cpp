@@ -958,7 +958,7 @@ void MainWindow::loadSession(int rootId) {
 
     QList<MessageNode> msgs = currentDb->getMessages();
     QStandardItem* rootItem = chatModel->invisibleRootItem();
-    populateTree(rootItem, 0, msgs);
+    populateChatFolders(rootItem, 0, msgs);
     chatTree->expandAll();
 
     if (!msgs.isEmpty()) {
@@ -979,6 +979,56 @@ void MainWindow::getPathToRoot(int nodeId, const QList<MessageNode>& allMessages
                 getPathToRoot(msg.parentId, allMessages, path);
             }
             break;
+        }
+    }
+}
+
+void MainWindow::populateChatFolders(QStandardItem* parentItem, int parentId, const QList<MessageNode>& allMessages) {
+    for (const auto& msg : allMessages) {
+        if (msg.parentId == parentId) {
+            // Find all children of this message
+            QList<MessageNode> children;
+            for (const auto& childMsg : allMessages) {
+                if (childMsg.parentId == msg.id) {
+                    children.append(childMsg);
+                }
+            }
+
+            QString displayTitle = msg.content.simplified();
+            if (displayTitle.length() > 30) {
+                displayTitle = displayTitle.left(27) + "...";
+            }
+            if (displayTitle.isEmpty()) {
+                displayTitle = "New Chat";
+            }
+
+            QStandardItem* item = nullptr;
+
+            if (parentId == 0) {
+                // It's a root chat
+                item = new QStandardItem(QIcon::fromTheme("folder-open"), displayTitle);
+                item->setData(msg.id, Qt::UserRole);
+            } else if (children.size() > 1) {
+                // It's a fork point, show it as a folder
+                item = new QStandardItem(QIcon::fromTheme("folder-open"), "Fork: " + displayTitle);
+                item->setData(msg.id, Qt::UserRole);
+            } else if (children.size() == 0) {
+                // It's a leaf node (the end of a chat branch). We only show leaves so clicking them loads the full chat path.
+                item = new QStandardItem(QIcon::fromTheme("text-x-generic"), "Path: " + displayTitle);
+                item->setData(msg.id, Qt::UserRole);
+            }
+
+            if (item) {
+                parentItem->appendRow(item);
+                // Recursively populate under this item.
+                // If it's a folder, we pass the folder item so forks/leaves nest under it.
+                populateChatFolders(item, msg.id, allMessages);
+            } else {
+                // If it's just a middle node with 1 child, we don't display it as a folder.
+                // We just continue traversing down the tree, passing the *same* parentItem
+                // so the eventual leaf or fork appears at the current level.
+                populateChatFolders(parentItem, msg.id, allMessages);
+            }
         }
     }
 }
@@ -1061,16 +1111,6 @@ void MainWindow::onSendMessage() {
     userNode.content = text;
     currentChatPath.append(userNode);
 
-    QStandardItem* parentItem = chatModel->invisibleRootItem();
-    if (parentId != 0) {
-        QStandardItem* found = findItem(parentItem, parentId);
-        if (found) parentItem = found;
-    }
-
-    QStandardItem* item = new QStandardItem(QString("[user] %1").arg(text));
-    item->setData(newId, Qt::UserRole);
-    if (parentItem) parentItem->appendRow(item);
-
     // Prepare AI response node
     int aiId = currentDb->addMessage(newId, "", "assistant");
     currentLastNodeId = aiId;
@@ -1083,9 +1123,11 @@ void MainWindow::onSendMessage() {
     aiNode.content = "";
     currentChatPath.append(aiNode);
 
-    QStandardItem* aiItem = new QStandardItem("[assistant] ");
-    aiItem->setData(aiId, Qt::UserRole);
-    item->appendRow(aiItem);
+    // Since the tree is now a folder structure of chats/forks, we simply rebuild it
+    // instead of trying to manually manage appending raw message nodes into a folder view.
+    QStandardItem* rootItem = chatModel->invisibleRootItem();
+    rootItem->removeRows(0, rootItem->rowCount());
+    populateChatFolders(rootItem, 0, currentDb->getMessages());
     chatTree->expandAll();
 
     // Since we manually appended to currentChatPath and the text area is already rendered,
@@ -1107,17 +1149,10 @@ void MainWindow::onSendMessage() {
     chatTextArea->insertPlainText(text + "\n\n");
 
     ollamaClient.generate(selectedModel, text,
-        [this, aiId, aiItem, currentGenId, isFirstChunk = true, fullResponse = QString()](const QString& chunk) mutable {
+        [this, aiId, currentGenId, isFirstChunk = true, fullResponse = QString()](const QString& chunk) mutable {
             if (currentGenId != m_generationId) return; // Ignore chunks if cancelled or superseded
 
             fullResponse += chunk;
-
-            // Clean display: only show the first few words in the tree node
-            QString displayContent = fullResponse;
-            if (displayContent.contains('\n')) {
-                displayContent = displayContent.left(displayContent.indexOf('\n')) + " ...";
-            }
-            aiItem->setText(QString("[assistant] %1").arg(displayContent));
 
             // Also update main view if it's the active tail
             if (currentLastNodeId == aiId) {
@@ -1155,11 +1190,9 @@ void MainWindow::onSendMessage() {
                 sendButton->setText("Send");
             }
         },
-        [this, aiItem, currentGenId](const QString& err) {
+        [this, currentGenId](const QString& err) {
             if (currentGenId == m_generationId) {
                 // It wasn't a deliberate cancel
-                aiItem->setText(aiItem->text() + " [ERROR: " + err + "]");
-
                 QTextCursor cursor = chatTextArea->textCursor();
                 cursor.movePosition(QTextCursor::End);
                 chatTextArea->setTextCursor(cursor);
