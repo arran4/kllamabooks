@@ -70,6 +70,10 @@ install(FILES src/kllamabooks.desktop
     RENAME com.arran4.kllamabooks.desktop
 )
 
+install(FILES src/com.arran4.kllamabooks.metainfo.xml
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/metainfo
+)
+
 install(FILES src/assets/icon.svg
     DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps
     RENAME kllamabooks.svg
