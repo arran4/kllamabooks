@@ -36,8 +36,8 @@ int main(int argc, char *argv[]) {
     aboutData.setDesktopFileName("com.arran4.kllamabooks.desktop");
     KAboutData::setApplicationData(aboutData);
 
-    MainWindow window;
-    window.show();
+    MainWindow *window = new MainWindow();
+    window->show();
 
     return app.exec();
 }
