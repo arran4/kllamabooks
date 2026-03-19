@@ -126,26 +126,27 @@ bool BookDatabase::initSchema() {
 
     if (userVersion < 2) {
         // upgrade to version 2
-        const char* sql = "CREATE TABLE IF NOT EXISTS settings ("
-                          "scope TEXT, "
-                          "target_id INTEGER, "
-                          "key TEXT, "
-                          "value TEXT, "
-                          "PRIMARY KEY(scope, target_id, key)"
-                          ");"
-                          "CREATE TABLE IF NOT EXISTS documents ("
-                          "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-                          "parent_id INTEGER, "
-                          "title TEXT, "
-                          "content TEXT, "
-                          "timestamp DATETIME DEFAULT CURRENT_TIMESTAMP"
-                          ");"
-                          "CREATE TABLE IF NOT EXISTS notes ("
-                          "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-                          "title TEXT, "
-                          "content TEXT, "
-                          "timestamp DATETIME DEFAULT CURRENT_TIMESTAMP"
-                          ");";
+        const char* sql =
+            "CREATE TABLE IF NOT EXISTS settings ("
+            "scope TEXT, "
+            "target_id INTEGER, "
+            "key TEXT, "
+            "value TEXT, "
+            "PRIMARY KEY(scope, target_id, key)"
+            ");"
+            "CREATE TABLE IF NOT EXISTS documents ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "parent_id INTEGER, "
+            "title TEXT, "
+            "content TEXT, "
+            "timestamp DATETIME DEFAULT CURRENT_TIMESTAMP"
+            ");"
+            "CREATE TABLE IF NOT EXISTS notes ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "title TEXT, "
+            "content TEXT, "
+            "timestamp DATETIME DEFAULT CURRENT_TIMESTAMP"
+            ");";
 
         char* errMsg = nullptr;
         int rc = sqlite3_exec((sqlite3*)m_db, sql, nullptr, nullptr, &errMsg);
@@ -180,7 +181,8 @@ void BookDatabase::setSetting(const QString& scope, int targetId, const QString&
     sqlite3_finalize(stmt);
 }
 
-QString BookDatabase::getSetting(const QString& scope, int targetId, const QString& key, const QString& defaultValue) const {
+QString BookDatabase::getSetting(const QString& scope, int targetId, const QString& key,
+                                 const QString& defaultValue) const {
     if (!m_isOpen) return defaultValue;
 
     const char* sql = "SELECT value FROM settings WHERE scope = ? AND target_id = ? AND key = ?;";

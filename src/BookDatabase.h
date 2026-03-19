@@ -50,7 +50,8 @@ class BookDatabase {
 
     // Settings
     void setSetting(const QString& scope, int targetId, const QString& key, const QString& value);
-    QString getSetting(const QString& scope, int targetId, const QString& key, const QString& defaultValue = QString()) const;
+    QString getSetting(const QString& scope, int targetId, const QString& key,
+                       const QString& defaultValue = QString()) const;
 
     // Documents
     int addDocument(int parentId, const QString& title, const QString& content);
@@ -62,7 +63,7 @@ class BookDatabase {
     bool updateNote(int id, const QString& newTitle, const QString& newContent);
     QList<NoteNode> getNotes() const;
 
-private:
+   private:
     QString m_filepath;
     void* m_db;  // sqlite3* handle
     bool m_isOpen;

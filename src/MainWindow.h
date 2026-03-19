@@ -10,6 +10,7 @@
 #include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
+#include <QListView>
 #include <QListWidget>
 #include <QMenu>
 #include <QMessageBox>
@@ -21,17 +22,11 @@
 #include <QStringList>
 #include <QStyle>
 #include <QSystemTrayIcon>
+#include <QTextEdit>
 #include <QTimer>
 #include <QToolBar>
 #include <QToolButton>
 #include <QTreeView>
-#include <QListView>
-#include <QTextEdit>
-#include <QStandardItemModel>
-#include <QLineEdit>
-#include <QInputDialog>
-#include <QAction>
-#include <QComboBox>
 #include <memory>
 
 #include "BookDatabase.h"
@@ -74,7 +69,7 @@ class MainWindow : public KXmlGuiWindow {
     void importChatSession();
     void showDocumentsContextMenu(const QPoint& pos);
     void showNotesContextMenu(const QPoint& pos);
-    void onOpenBooksSelectionChanged(const QItemSelection &selected, const QItemSelection &deselected);
+    void onOpenBooksSelectionChanged(const QItemSelection& selected, const QItemSelection& deselected);
 
    protected:
     void closeEvent(QCloseEvent* event) override;
@@ -91,33 +86,33 @@ class MainWindow : public KXmlGuiWindow {
     void getPathToRoot(int nodeId, const QList<MessageNode>& allMessages, QList<MessageNode>& path);
     void loadDocumentsAndNotes();
 
-    QSplitter *splitter;
-    QSplitter *leftSplitter;
-    QTreeView *openBooksTree;
-    QStandardItemModel *openBooksModel;
-    QListWidget *bookList; // Closed books
-    QStackedWidget *mainContentStack; // To switch between main views
-    QWidget *emptyView;
-    QListView *dbDirectView;
-    QStandardItemModel *dbDirectModel;
-    QTreeView *chatsFolderView; // Replaces chatTree functionality directly or wraps it
-    QTreeView *documentsFolderView;
-    QStandardItemModel *documentsModel;
-    QTreeView *notesFolderView;
-    QStandardItemModel *notesModel;
-    QWidget *chatWindowView;
-    QTreeView *chatTree; // Keeping it for the folder view structure if needed
-    QTextEdit *chatTextArea; // Replaces linearChatList
-    QWidget *docContainer;
-    QTextEdit *documentEditorView;
-    QPushButton *saveDocBtn;
-    QWidget *noteContainer;
-    QTextEdit *noteEditorView;
-    QPushButton *saveNoteBtn;
+    QSplitter* splitter;
+    QSplitter* leftSplitter;
+    QTreeView* openBooksTree;
+    QStandardItemModel* openBooksModel;
+    QListWidget* bookList;             // Closed books
+    QStackedWidget* mainContentStack;  // To switch between main views
+    QWidget* emptyView;
+    QListView* dbDirectView;
+    QStandardItemModel* dbDirectModel;
+    QTreeView* chatsFolderView;  // Replaces chatTree functionality directly or wraps it
+    QTreeView* documentsFolderView;
+    QStandardItemModel* documentsModel;
+    QTreeView* notesFolderView;
+    QStandardItemModel* notesModel;
+    QWidget* chatWindowView;
+    QTreeView* chatTree;      // Keeping it for the folder view structure if needed
+    QTextEdit* chatTextArea;  // Replaces linearChatList
+    QWidget* docContainer;
+    QTextEdit* documentEditorView;
+    QPushButton* saveDocBtn;
+    QWidget* noteContainer;
+    QTextEdit* noteEditorView;
+    QPushButton* saveNoteBtn;
 
-    QStackedWidget *inputModeStack;
-    QTextEdit *multiLineInput;
-    QPushButton *toggleInputModeBtn;
+    QStackedWidget* inputModeStack;
+    QTextEdit* multiLineInput;
+    QPushButton* toggleInputModeBtn;
 
     QStackedWidget* chatStackWidget;  // To switch between them
 
@@ -126,20 +121,20 @@ class MainWindow : public KXmlGuiWindow {
     void handleBookDrop(const QString& fileName);
     void closeBook(const QString& fileName);
     QStandardItemModel* chatModel;
-    ChatInputWidget* inputField; // Using HEAD's custom input field
+    ChatInputWidget* inputField;  // Using HEAD's custom input field
     QPushButton* sendButton;
     QPushButton* saveEditsBtn;
     QPushButton* modelSelectButton;
     QStringList m_availableModels;
     QString m_selectedModel;
     QToolButton* inputSettingsButton;
-    QComboBox *modelComboBox;
+    QComboBox* modelComboBox;
 
     std::unique_ptr<BookDatabase> currentDb;
     OllamaClient ollamaClient;
 
-    int currentLastNodeId; // ID of the last node in the current chat path
-    QList<MessageNode> currentChatPath; // Stores the current path for tracking edits/forks
+    int currentLastNodeId;               // ID of the last node in the current chat path
+    QList<MessageNode> currentChatPath;  // Stores the current path for tracking edits/forks
 
     int currentDocumentId = 0;
     int currentNoteId = 0;
