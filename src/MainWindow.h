@@ -72,6 +72,16 @@ class MainWindow : public KXmlGuiWindow {
     void exportChatSession();
     void importChatSession();
     void onOpenBooksSelectionChanged(const QItemSelection& selected, const QItemSelection& deselected);
+    void updateQueueStatus();
+    void updateNotificationStatus();
+    void showNotificationMenu();
+    void showQueueWindow();
+    void onQueueItemClicked(std::shared_ptr<BookDatabase> db, int messageId);
+    void updateTreeMarkersRecursive(QStandardItem* parent, const QList<Notification>& notifications);
+    void updateVfsMarkers(const QList<Notification>& notifications);
+    void onQueueChunk(std::shared_ptr<BookDatabase> db, int messageId, const QString& chunk);
+    void onProcessingStarted(std::shared_ptr<BookDatabase> db, int messageId);
+    void onProcessingFinished(std::shared_ptr<BookDatabase> db, int messageId, bool success);
 
    protected:
     void closeEvent(QCloseEvent* event) override;
@@ -139,7 +149,8 @@ class MainWindow : public KXmlGuiWindow {
     QToolButton* inputSettingsButton;
     QComboBox* modelComboBox;
 
-    std::unique_ptr<BookDatabase> currentDb;
+    QMap<QString, std::shared_ptr<BookDatabase>> m_openDatabases;
+    std::shared_ptr<BookDatabase> currentDb;
     OllamaClient ollamaClient;
 
     int currentLastNodeId;               // ID of the last node in the current chat path
@@ -161,6 +172,10 @@ class MainWindow : public KXmlGuiWindow {
     QLabel* modelLabel;
     QComboBox* endpointComboBox;
     QLabel* connectionStatusLabel;
+
+    QToolButton* queueStatusBtn;
+    QToolButton* notificationBtn;
+    QMenu* notificationMenu;
 };
 
 #endif  // MAINWINDOW_H

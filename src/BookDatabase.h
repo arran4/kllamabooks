@@ -41,6 +41,24 @@ struct FolderNode {
     int position;
 };
 
+struct QueueItem {
+    int id;
+    int messageId;
+    QString model;
+    QString prompt;
+    QString status; // "pending", "processing", "completed", "error", "paused"
+    int priority;
+    QDateTime timestamp;
+};
+
+struct Notification {
+    int id;
+    int messageId;
+    QString type; // "responded_to", "error"
+    bool isDismissed;
+    QDateTime timestamp;
+};
+
 class BookDatabase {
    public:
     BookDatabase(const QString& filepath);
@@ -90,6 +108,20 @@ class BookDatabase {
     bool updateFolder(int id, const QString& newName);
     bool deleteFolder(int id);
     QList<FolderNode> getFolders(const QString& type) const;
+
+    // Queue
+    int enqueuePrompt(int messageId, const QString& model, const QString& prompt, int priority = 0);
+    QList<QueueItem> getQueue() const;
+    bool updateQueueStatus(int id, const QString& status);
+    bool deleteQueueItem(int id);
+    bool clearCompletedQueue();
+
+    // Notifications
+    int addNotification(int messageId, const QString& type);
+    QList<Notification> getNotifications(bool includeDismissed = false) const;
+    bool dismissNotification(int id);
+    bool dismissNotificationByMessageId(int messageId);
+
     QString getDatabaseDebugInfo() const;
 
    private:

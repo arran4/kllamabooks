@@ -42,10 +42,24 @@
 #include "DatabaseSettingsDialog.h"
 #include "ModelSelectionDialog.h"
 #include "WalletManager.h"
+#include "QueueManager.h"
+#include "QueueWindow.h"
+#include "NotificationDelegate.h"
 
 MainWindow::MainWindow(QWidget* parent) : KXmlGuiWindow(parent), currentLastNodeId(0) {
+    QueueManager::instance().setClient(&ollamaClient);
+    connect(&QueueManager::instance(), &QueueManager::queueChanged, this, &MainWindow::updateQueueStatus);
+    connect(&QueueManager::instance(), &QueueManager::queueChanged, this, &MainWindow::updateNotificationStatus);
+    connect(&QueueManager::instance(), &QueueManager::processingChunk, this, &MainWindow::onQueueChunk);
+    connect(&QueueManager::instance(), &QueueManager::processingStarted, this, &MainWindow::onProcessingStarted);
+    connect(&QueueManager::instance(), &QueueManager::processingFinished, this, &MainWindow::onProcessingFinished);
+
     setupUi();
     setupWindow();
+
+    openBooksTree->setItemDelegate(new NotificationDelegate(this));
+    vfsExplorer->setItemDelegate(new NotificationDelegate(this));
+    chatForkExplorer->setItemDelegate(new NotificationDelegate(this));
 }
 
 MainWindow::~MainWindow() {}
@@ -665,6 +679,20 @@ void MainWindow::setupUi() {
     modelLabel = new QLabel(tr("Model: Not Selected"), this);
     statusBar->addPermanentWidget(modelLabel);
 
+    queueStatusBtn = new QToolButton(this);
+    queueStatusBtn->setText("Q: 0");
+    queueStatusBtn->setToolTip(tr("LLM Request Queue"));
+    connect(queueStatusBtn, &QToolButton::clicked, this, &MainWindow::showQueueWindow);
+    statusBar->addPermanentWidget(queueStatusBtn);
+
+    notificationBtn = new QToolButton(this);
+    notificationBtn->setText("🔔 0");
+    notificationBtn->setToolTip(tr("Notifications"));
+    notificationBtn->setPopupMode(QToolButton::InstantPopup);
+    notificationMenu = new QMenu(this);
+    notificationBtn->setMenu(notificationMenu);
+    statusBar->addPermanentWidget(notificationBtn);
+
     updateEndpointsList();
     loadBooks();
 }
@@ -1205,31 +1233,39 @@ void MainWindow::onBookSelected(const QModelIndex& index) {
 
     QString password = WalletManager::loadPassword(fileName);
 
-    auto db = std::make_unique<BookDatabase>(filePath);
-    if (!db->open(password)) {
-        bool ok;
-        password = QInputDialog::getText(this, "Unlock Book", "Enter password for " + fileName + ":",
-                                         QLineEdit::Password, "", &ok);
-        if (ok && db->open(password)) {
-            if (!password.isEmpty()) {
-                QMessageBox::StandardButton reply =
-                    QMessageBox::question(this, "Save Password", "Do you want to save this password to KWallet?",
-                                          QMessageBox::Yes | QMessageBox::No);
-                if (reply == QMessageBox::Yes) {
-                    WalletManager::savePassword(fileName, password);
+    if (m_openDatabases.contains(fileName)) {
+        currentDb = m_openDatabases[fileName];
+    } else {
+        auto db = std::make_shared<BookDatabase>(filePath);
+        if (!db->open(password)) {
+            bool ok;
+            password = QInputDialog::getText(this, "Unlock Book", "Enter password for " + fileName + ":",
+                                             QLineEdit::Password, "", &ok);
+            if (ok && db->open(password)) {
+                if (!password.isEmpty()) {
+                    QMessageBox::StandardButton reply =
+                        QMessageBox::question(this, "Save Password", "Do you want to save this password to KWallet?",
+                                              QMessageBox::Yes | QMessageBox::No);
+                    if (reply == QMessageBox::Yes) {
+                        WalletManager::savePassword(fileName, password);
+                    }
                 }
+            } else {
+                QMessageBox::warning(this, "Error", "Could not open book.");
+                return;
             }
-        } else {
-            QMessageBox::warning(this, "Error", "Could not open book.");
-            return;
         }
+        m_openDatabases[fileName] = db;
+        currentDb = db;
+        QueueManager::instance().addDatabase(db);
     }
-
-    currentDb = std::move(db);
+    
+    QueueManager::instance().setActiveDatabase(currentDb);
 
     // Add to open books tree
     QStandardItem* bookItem = new QStandardItem(QIcon::fromTheme("application-x-sqlite3"), fileName);
     bookItem->setData("book", Qt::UserRole + 1);  // Type
+    bookItem->setData(filePath, Qt::UserRole + 2); // Store path
     QStandardItem* chatsItem = new QStandardItem(QIcon::fromTheme("folder-open"), "Chats");
     chatsItem->setData("chats_folder", Qt::UserRole + 1);
 
@@ -1243,7 +1279,8 @@ void MainWindow::onBookSelected(const QModelIndex& index) {
     draftsItem->setData("drafts_folder", Qt::UserRole + 1);
 
     // Populate actual chats from database directly into the tree
-    QList<MessageNode> msgs = currentDb->getMessages();
+    auto dbPtr = currentDb; // Keep shared_ptr to avoid issues during iteration
+    QList<MessageNode> msgs = dbPtr->getMessages();
     populateChatFolders(chatsItem, 0, msgs);
 
     populateDocumentFolders(docsItem, 0, "documents");
@@ -1470,6 +1507,10 @@ void MainWindow::populateMessageForks(QStandardItem* parentItem, int parentId, c
 }
 
 void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& allMessages) {
+    if (currentDb) {
+        currentDb->dismissNotificationByMessageId(tailNodeId);
+        updateNotificationStatus();
+    }
     chatTextArea->blockSignals(true);
     chatTextArea->clear();
     currentChatPath.clear();
@@ -1713,17 +1754,6 @@ QStandardItem* MainWindow::findItem(QStandardItem* parent, int id) {
 void MainWindow::onSendMessage() {
     if (!currentDb) return;
 
-    if (m_isGenerating) {
-        // User clicked Cancel
-        m_isGenerating = false;
-        ++m_generationId;  // Invalidate the running lambda chunks
-        chatTextArea->setReadOnly(false);
-        inputModeStack->setEnabled(true);
-        sendButton->setText("Send");
-        statusBar->showMessage(tr("Generation cancelled."), 3000);
-        return;
-    }
-
     QString text;
     if (inputModeStack->currentIndex() == 0) {
         text = inputField->toPlainText().trimmed();
@@ -1791,32 +1821,21 @@ void MainWindow::onSendMessage() {
     int parentId = isCreatingNewChat ? 0 : currentLastNodeId;
     int folderId = isCreatingNewChat ? currentChatFolderId : 0;
     isCreatingNewChat = false;
-    int newId = currentDb->addMessage(parentId, text, "user", folderId);
 
-    // Add user message to in-memory path to keep parser synced
-    MessageNode userNode;
-    userNode.id = newId;
-    userNode.parentId = parentId;
-    userNode.role = "user";
-    userNode.content = text;
-    currentChatPath.append(userNode);
-
-    // Prepare AI response node
-    int aiId = currentDb->addMessage(newId, "", "assistant");
+    // 1. Add User message
+    int userMsgId = currentDb->addMessage(parentId, text, "user", folderId);
+    
+    // 2. Add Assistant placeholder
+    int aiId = currentDb->addMessage(userMsgId, "...", "assistant");
     currentLastNodeId = aiId;
 
-    // Add assistant message to in-memory path to keep parser synced
-    MessageNode aiNode;
-    aiNode.id = aiId;
-    aiNode.parentId = newId;
-    aiNode.role = "assistant";
-    aiNode.content = "";
-    currentChatPath.append(aiNode);
+    // 3. Enqueue
+    QueueManager::instance().enqueuePrompt(aiId, m_selectedModel, text);
 
-    // Rebuild the openBooksModel Chats folder to reflect the new message
+    // 4. Refresh tree if needed (especially for new chats)
     QStandardItem* chatsFolder = nullptr;
     if (openBooksModel && openBooksModel->rowCount() > 0) {
-        QStandardItem* bookItem = openBooksModel->item(0);
+        QStandardItem* bookItem = openBooksModel->item(0); // Assume first for now or find correct one
         for (int j = 0; j < bookItem->rowCount(); ++j) {
             if (bookItem->child(j)->data(Qt::UserRole + 1).toString() == "chats_folder") {
                 chatsFolder = bookItem->child(j);
@@ -1828,105 +1847,46 @@ void MainWindow::onSendMessage() {
         chatsFolder->removeRows(0, chatsFolder->rowCount());
         populateChatFolders(chatsFolder, 0, currentDb->getMessages());
         openBooksTree->expandAll();
-        // If it was a new chat, find and select the new node
-        if (newId != -1) {
-            QStandardItem* newNode = findItemInTree(newId, "chat_session");
-            if (newNode) openBooksTree->setCurrentIndex(newNode->index());
-        }
     }
 
-    // Since we manually appended to currentChatPath and the text area is already rendered,
-    // we don't need to do a full clear-and-reload of updateLinearChatView right here.
-
-    QString selectedModel = m_selectedModel;
-    if (selectedModel.isEmpty()) selectedModel = "llama2";
-
-    int currentGenId = ++m_generationId;
-    m_isGenerating = true;
-    chatTextArea->setReadOnly(true);
-    inputModeStack->setEnabled(false);
-    sendButton->setText("Cancel");
-    // Add user message to UI immediately using basic mixed HTML/plain text
-    QTextCursor cursor = chatTextArea->textCursor();
-    cursor.movePosition(QTextCursor::End);
-    chatTextArea->setTextCursor(cursor);
-    QString userName = currentDb ? currentDb->getSetting("book", 0, "userName", "User") : "User";
-    chatTextArea->insertHtml(QString("<div style='font-weight: bold;'>[%1]</div>").arg(userName.toHtmlEscaped()));
-    chatTextArea->insertPlainText(text + "\n\n");
-
-    QString systemPrompt = currentDb ? currentDb->getSetting("book", 0, "systemPrompt", "") : "";
-    ollamaClient.setSystemPrompt(systemPrompt);
-
-    ollamaClient.generate(
-        selectedModel, text,
-        [this, aiId, currentGenId, isFirstChunk = true, fullResponse = QString()](const QString& chunk) mutable {
-            if (currentGenId != m_generationId) return;  // Ignore chunks if cancelled or superseded
-
-            fullResponse += chunk;
-
-            // Also update main view if it's the active tail
-            if (currentLastNodeId == aiId) {
-                chatTextArea->blockSignals(true);
-                QTextCursor cursor = chatTextArea->textCursor();
-                cursor.movePosition(QTextCursor::End);
-                chatTextArea->setTextCursor(cursor);
-
-                if (isFirstChunk) {
-                    QString assistantName =
-                        currentDb ? currentDb->getSetting("book", 0, "assistantName", "Assistant") : "Assistant";
-                    chatTextArea->insertHtml(QString("<div style='font-weight: bold; color:#00557f;'>[%1]</div>")
-                                                 .arg(assistantName.toHtmlEscaped()));
-                    isFirstChunk = false;
-                }
-
-                chatTextArea->insertPlainText(chunk);
-                chatTextArea->blockSignals(false);
-
-                // Keep the underlying DB synced with the exact full response
-                currentDb->updateMessage(aiId, fullResponse);
-
-                // Keep in-memory path synced for immediate "Save Edits" support
-                if (!currentChatPath.isEmpty() && currentChatPath.last().id == aiId) {
-                    currentChatPath.last().content = fullResponse;
-                }
-            }
-        },
-        [this, currentGenId](const QString& /*full*/) {
-            if (currentGenId == m_generationId) {
-                // Add concluding spacing
-                QTextCursor cursor = chatTextArea->textCursor();
-                cursor.movePosition(QTextCursor::End);
-                chatTextArea->setTextCursor(cursor);
-                chatTextArea->insertPlainText("\n\n");
-
-                m_isGenerating = false;
-                chatTextArea->setReadOnly(false);  // Make editable again
-                inputModeStack->setEnabled(true);
-                sendButton->setText("Send");
-            }
-        },
-        [this, currentGenId](const QString& err) {
-            if (currentGenId == m_generationId) {
-                // It wasn't a deliberate cancel
-                chatTextArea->blockSignals(true);
-                QTextCursor cursor = chatTextArea->textCursor();
-                cursor.movePosition(QTextCursor::End);
-                chatTextArea->setTextCursor(cursor);
-                chatTextArea->insertHtml(
-                    QString("<br/><span style='color:red;'>[ERROR: %1]</span>\n\n").arg(err.toHtmlEscaped()));
-                chatTextArea->blockSignals(false);
-
-                m_isGenerating = false;
-                chatTextArea->setReadOnly(false);  // Make editable again
-                inputModeStack->setEnabled(true);
-                sendButton->setText("Send");
-            }
-        });
+    // 5. Update view
+    updateLinearChatView(currentLastNodeId, currentDb->getMessages());
+    statusBar->showMessage(tr("Request queued."), 3000);
 }
 
 void MainWindow::onOllamaChunk(const QString& chunk) {}
 void MainWindow::onOllamaComplete(const QString& fullResponse) {}
 void MainWindow::onOllamaError(const QString& error) {}
+
+void MainWindow::onQueueChunk(std::shared_ptr<BookDatabase> db, int messageId, const QString& chunk) {
+    if (currentDb == db && currentLastNodeId == messageId) {
+        chatTextArea->blockSignals(true);
+        QTextCursor cursor = chatTextArea->textCursor();
+        cursor.movePosition(QTextCursor::End);
+        chatTextArea->setTextCursor(cursor);
+        chatTextArea->insertPlainText(chunk);
+        chatTextArea->blockSignals(false);
+        
+        if (!currentChatPath.isEmpty() && currentChatPath.last().id == messageId) {
+            currentChatPath.last().content += chunk;
+        }
+    }
+}
+
+void MainWindow::onProcessingStarted(std::shared_ptr<BookDatabase> db, int messageId) {
+    if (currentDb == db && currentLastNodeId == messageId) {
+        statusBar->showMessage(tr("LLM is responding..."));
+    }
+    updateQueueStatus();
+}
+
+void MainWindow::onProcessingFinished(std::shared_ptr<BookDatabase> db, int messageId, bool success) {
+    if (currentDb == db && currentLastNodeId == messageId) {
+        statusBar->showMessage(success ? tr("Response complete.") : tr("Error in response."), 3000);
+        updateLinearChatView(currentLastNodeId, db->getMessages());
+    }
+    updateQueueStatus();
+}
 
 void MainWindow::onPullProgressUpdated(const QString& modelName, int percent, const QString& status) {
     statusLabel->setText(QString("Downloading %1: %2% (%3)").arg(modelName).arg(percent).arg(status));
@@ -2051,15 +2011,18 @@ void MainWindow::closeBook(const QString& fileName) {
     bookList->addItem(fileName);
 
     // Clear current db if closed
-    if (currentDb && currentDb->isOpen()) {
-        // Here we'd ideally check if the closed book is the currently active one
-        // For now just close the active one to be safe
-        currentDb->close();
-        currentDb.reset();
-        chatModel->clear();
-        statusLabel->setText(tr("Ready"));
-
-        mainContentStack->setCurrentWidget(emptyView);
+    if (m_openDatabases.contains(fileName)) {
+        auto db = m_openDatabases[fileName];
+        QueueManager::instance().removeDatabase(db);
+        db->close();
+        m_openDatabases.remove(fileName);
+        
+        if (currentDb == db) {
+            currentDb = nullptr;
+            chatModel->clear();
+            statusLabel->setText(tr("Ready"));
+            mainContentStack->setCurrentWidget(emptyView);
+        }
     }
 }
 
@@ -2455,4 +2418,138 @@ QStandardItem* MainWindow::findItemRecursive(QStandardItem* parent, int id, cons
         if (found) return found;
     }
     return nullptr;
+}
+
+void MainWindow::updateQueueStatus() {
+    int total = QueueManager::instance().totalPendingCount();
+    queueStatusBtn->setText(QString("Q: %1").arg(total));
+    if (QueueManager::instance().isProcessing()) {
+        queueStatusBtn->setStyleSheet("background-color: #2196F3; color: white;");
+    } else {
+        queueStatusBtn->setStyleSheet("");
+    }
+}
+
+void MainWindow::updateNotificationStatus() {
+    int total = 0;
+    notificationMenu->clear();
+    for (auto db : QueueManager::instance().databases()) {
+        if (!db || !db->isOpen()) continue;
+        auto notifications = db->getNotifications();
+        total += notifications.size();
+        for (const auto& n : notifications) {
+            QString bookName = QFileInfo(db->filepath()).fileName();
+            QString typeStr = (n.type == "error") ? tr("Error") : tr("Finished");
+            QAction* action = notificationMenu->addAction(QString("[%1] %2: Msg %3").arg(bookName, typeStr, QString::number(n.messageId)));
+            connect(action, &QAction::triggered, this, [this, db, n]() {
+                onQueueItemClicked(db, n.messageId);
+                db->dismissNotification(n.id);
+                updateNotificationStatus();
+            });
+        }
+    }
+    notificationBtn->setText(QString("🔔 %1").arg(total));
+    if (total > 0) {
+        notificationBtn->setStyleSheet("background-color: #f44336; color: white;");
+    } else {
+        notificationBtn->setStyleSheet("");
+    }
+
+    // Live update tree markers
+    for (int i = 0; i < openBooksModel->rowCount(); ++i) {
+        QStandardItem* bookItem = openBooksModel->item(i);
+        QString filePath = bookItem->data(Qt::UserRole + 2).toString();
+        QString fileName = QFileInfo(filePath).fileName();
+        if (m_openDatabases.contains(fileName)) {
+            auto notifications = m_openDatabases[fileName]->getNotifications();
+            updateTreeMarkersRecursive(bookItem, notifications);
+            
+            // Also update VFS and Fork explorers if they are currently displaying items for this DB
+            if (currentDb && currentDb->filepath() == filePath) {
+                updateVfsMarkers(notifications);
+            }
+        }
+    }
+    
+    openBooksModel->layoutChanged();
+}
+
+void MainWindow::showNotificationMenu() {
+    notificationBtn->showMenu();
+}
+
+void MainWindow::showQueueWindow() {
+    QueueWindow* qw = new QueueWindow(this);
+    qw->setAttribute(Qt::WA_DeleteOnClose);
+    qw->show();
+}
+
+void MainWindow::onQueueItemClicked(std::shared_ptr<BookDatabase> db, int messageId) {
+    if (!db) return;
+    
+    // Find book index
+    QString bookFileName = QFileInfo(db->filepath()).fileName();
+    for (int i = 0; i < openBooksModel->rowCount(); ++i) {
+        if (openBooksModel->item(i)->text() == bookFileName) {
+            openBooksTree->setCurrentIndex(openBooksModel->item(i)->index());
+            currentDb = db;
+            QueueManager::instance().setActiveDatabase(db);
+            break;
+        }
+    }
+
+    currentLastNodeId = messageId;
+    updateLinearChatView(currentLastNodeId, db->getMessages());
+    mainContentStack->setCurrentWidget(chatWindowView);
+    db->dismissNotificationByMessageId(messageId);
+    updateNotificationStatus();
+}
+
+void MainWindow::updateVfsMarkers(const QList<Notification>& notifications) {
+    if (vfsModel) {
+        for (int i = 0; i < vfsModel->rowCount(); ++i) {
+            QStandardItem* item = vfsModel->item(i);
+            int id = item->data(Qt::UserRole).toInt();
+            int nType = 0;
+            for (const auto& n : notifications) {
+                if (n.messageId == id && !n.isDismissed) {
+                    nType = (n.type == "error") ? 2 : 1;
+                    break;
+                }
+            }
+            item->setData(nType, Qt::UserRole + 10);
+        }
+    }
+    if (forkExplorerModel) {
+        for (int i = 0; i < forkExplorerModel->rowCount(); ++i) {
+            QStandardItem* item = forkExplorerModel->item(i);
+            int id = item->data(Qt::UserRole).toInt();
+            int nType = 0;
+            for (const auto& n : notifications) {
+                if (n.messageId == id && !n.isDismissed) {
+                    nType = (n.type == "error") ? 2 : 1;
+                    break;
+                }
+            }
+            item->setData(nType, Qt::UserRole + 10);
+        }
+    }
+}
+
+void MainWindow::updateTreeMarkersRecursive(QStandardItem* parent, const QList<Notification>& notifications) {
+    if (!parent) return;
+    for (int i = 0; i < parent->rowCount(); ++i) {
+        QStandardItem* child = parent->child(i);
+        if (!child) continue;
+        int messageId = child->data(Qt::UserRole).toInt();
+        int notifyType = 0;
+        for (const auto& n : notifications) {
+            if (n.messageId == messageId && !n.isDismissed) {
+                notifyType = (n.type == "error") ? 2 : 1;
+                break;
+            }
+        }
+        child->setData(notifyType, Qt::UserRole + 10);
+        updateTreeMarkersRecursive(child, notifications);
+    }
 }
