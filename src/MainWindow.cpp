@@ -307,9 +307,45 @@ void MainWindow::setupUi() {
 
     chatWindowView = new QWidget(this);
     QVBoxLayout* chatLayout = new QVBoxLayout(chatWindowView);
+    chatLayout->setContentsMargins(0, 0, 0, 0);
+
+    chatSplitter = new QSplitter(Qt::Vertical, this);
+
+    chatInputContainer = new QWidget(this);
+    QVBoxLayout* chatInputLayout = new QVBoxLayout(chatInputContainer);
+    chatInputLayout->setContentsMargins(0, 0, 0, 0);
+
     chatTextArea = new QTextEdit(this);
     // Left native standard context menu for basic copy/paste without block mapping
-    chatLayout->addWidget(chatTextArea);
+    chatInputLayout->addWidget(chatTextArea);
+
+    chatSplitter->addWidget(chatInputContainer);
+
+    forkExplorerModel = new QStandardItemModel(this);
+    chatForkExplorer = new QListView(this);
+    chatForkExplorer->setModel(forkExplorerModel);
+    chatForkExplorer->setViewMode(QListView::IconMode);
+    chatForkExplorer->setEditTriggers(QAbstractItemView::NoEditTriggers);
+
+    connect(chatForkExplorer, &QListView::doubleClicked, this,
+            [this](const QModelIndex& index) {
+                if (!index.isValid()) return;
+                QStandardItem* item = forkExplorerModel->itemFromIndex(index);
+                if (!item) return;
+
+                int nodeId = item->data(Qt::UserRole).toInt();
+                
+                if (nodeId != currentLastNodeId) {
+                    currentLastNodeId = nodeId;
+                    if (currentDb) {
+                        updateLinearChatView(currentLastNodeId, currentDb->getMessages());
+                        chatTextArea->setFocus();
+                    }
+                }
+            });
+
+    chatSplitter->addWidget(chatForkExplorer);
+    chatLayout->addWidget(chatSplitter);
 
     QHBoxLayout* inputLayout = new QHBoxLayout();
     modelSelectButton = new QPushButton(QIcon::fromTheme("system-search"), "Select Model", this);
@@ -343,7 +379,7 @@ void MainWindow::setupUi() {
     inputLayout->addWidget(sendButton);
     inputLayout->addWidget(inputSettingsButton);
 
-    chatLayout->addLayout(inputLayout);
+    chatInputLayout->addLayout(inputLayout);
 
     connect(saveEditsBtn, &QPushButton::clicked, this, [this]() {
         if (!currentDb || currentChatPath.isEmpty()) return;
@@ -1117,7 +1153,52 @@ void MainWindow::populateChatFolders(QStandardItem* parentItem, int parentId, co
 void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& allMessages) {
     chatTextArea->clear();
     currentChatPath.clear();
-    if (tailNodeId == 0 || allMessages.isEmpty()) return;
+
+    if (forkExplorerModel && chatForkExplorer) {
+        forkExplorerModel->clear();
+        QList<MessageNode> children;
+        int parentOfTail = 0;
+        
+        if (!allMessages.isEmpty()) {
+            for (const auto& msg : allMessages) {
+                if (msg.parentId == tailNodeId) {
+                    children.append(msg);
+                }
+                if (msg.id == tailNodeId && tailNodeId != 0) {
+                    parentOfTail = msg.parentId;
+                }
+            }
+        }
+        
+        if (children.isEmpty() && tailNodeId != 0) {
+            chatForkExplorer->hide();
+            if (chatInputContainer) chatInputContainer->show();
+        } else if (!children.isEmpty() || tailNodeId == 0) {
+            chatForkExplorer->show();
+            
+            if (tailNodeId == 0) {
+                if (chatInputContainer) chatInputContainer->hide();
+            } else {
+                if (chatInputContainer) chatInputContainer->show();
+            }
+            
+            if (tailNodeId != 0) {
+                QStandardItem* upItem = new QStandardItem(QIcon::fromTheme("go-up"), "..");
+                upItem->setData(parentOfTail, Qt::UserRole);
+                forkExplorerModel->appendRow(upItem);
+            }
+            
+            for (const auto& child : children) {
+                QString preview = child.content.simplified();
+                if (preview.length() > 30) {
+                    preview = preview.left(27) + "...";
+                }
+                QStandardItem* childItem = new QStandardItem(QIcon::fromTheme("text-plain"), QString("[%1] %2").arg(child.role, preview));
+                childItem->setData(child.id, Qt::UserRole);
+                forkExplorerModel->appendRow(childItem);
+            }
+        }
+    }
 
     getPathToRoot(tailNodeId, allMessages, currentChatPath);
 
@@ -1137,6 +1218,39 @@ void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& 
         }
         chatTextArea->insertPlainText(msg.content + "\n\n");
     }
+
+    if (openBooksTree && openBooksModel) {
+        QStandardItem* foundFolderItem = nullptr;
+        for (int i = 0; i < openBooksModel->rowCount(); ++i) {
+            QStandardItem* bookItem = openBooksModel->item(i);
+            for (int j = 0; j < bookItem->rowCount(); ++j) {
+                QStandardItem* folderItem = bookItem->child(j);
+                if (folderItem && folderItem->data(Qt::UserRole + 1).toString() == "chats_folder") {
+                    if (tailNodeId == 0) {
+                        foundFolderItem = folderItem;
+                        break;
+                    } else {
+                        foundFolderItem = findItem(folderItem, tailNodeId);
+                        if (foundFolderItem) break;
+                    }
+                }
+            }
+            if (foundFolderItem) break;
+        }
+        
+        if (foundFolderItem) {
+            openBooksTree->selectionModel()->blockSignals(true);
+            openBooksTree->selectionModel()->select(foundFolderItem->index(), QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Current);
+            openBooksTree->scrollTo(foundFolderItem->index());
+            openBooksTree->selectionModel()->blockSignals(false);
+        }
+    }
+
+    if (tailNodeId == 0 || allMessages.isEmpty()) {
+        return;
+    }
+
+    getPathToRoot(tailNodeId, allMessages, currentChatPath);
 }
 
 void MainWindow::populateTree(QStandardItem* parentItem, int parentId, const QList<MessageNode>& allMessages) {
@@ -1487,7 +1601,15 @@ void MainWindow::onOpenBooksSelectionChanged(const QItemSelection& selected, con
     QString type = item->data(Qt::UserRole + 1).toString();
     if (type == "book") {
         mainContentStack->setCurrentWidget(emptyView);
-    } else if (type == "chats_folder" || type == "docs_folder" || type == "notes_folder" ||
+    } else if (type == "chats_folder") {
+        if (currentDb) {
+            currentLastNodeId = 0;
+            updateLinearChatView(0, currentDb->getMessages());
+            mainContentStack->setCurrentWidget(chatWindowView);
+        } else {
+            mainContentStack->setCurrentWidget(emptyView);
+        }
+    } else if (type == "docs_folder" || type == "notes_folder" ||
                type == "templates_folder" || type == "drafts_folder") {
         mainContentStack->setCurrentWidget(emptyView);
     } else {

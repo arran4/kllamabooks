@@ -102,8 +102,12 @@ class MainWindow : public KXmlGuiWindow {
     QTreeView* notesFolderView;
     QStandardItemModel* notesModel;
     QWidget* chatWindowView;
+    QSplitter* chatSplitter;
+    QListView* chatForkExplorer;
+    QStandardItemModel* forkExplorerModel;
     QTreeView* chatTree;      // Keeping it for the folder view structure if needed
     QTextEdit* chatTextArea;  // Replaces linearChatList
+    QWidget* chatInputContainer;
     QWidget* docContainer;
     QTextEdit* documentEditorView;
     QPushButton* saveDocBtn;
