@@ -8,7 +8,7 @@
 #include <QVariant>
 
 namespace {
-constexpr int CURRENT_SCHEMA_VERSION = 2;
+constexpr int CURRENT_SCHEMA_VERSION = 3;
 }
 
 BookDatabase::BookDatabase(const QString& filepath) : m_filepath(filepath), m_db(nullptr), m_isOpen(false) {}
@@ -89,6 +89,7 @@ bool BookDatabase::initSchema() {
             "parent_id INTEGER, "
             "title TEXT, "
             "content TEXT, "
+            "is_folder INTEGER DEFAULT 0, "
             "timestamp DATETIME DEFAULT CURRENT_TIMESTAMP"
             ");"
             "CREATE TABLE IF NOT EXISTS notes ("
@@ -109,6 +110,22 @@ bool BookDatabase::initSchema() {
             "key TEXT, "
             "value TEXT, "
             "PRIMARY KEY(scope, target_id, key)"
+            ");"
+            "CREATE TABLE IF NOT EXISTS templates ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "parent_id INTEGER, "
+            "title TEXT, "
+            "content TEXT, "
+            "is_folder INTEGER DEFAULT 0, "
+            "timestamp DATETIME DEFAULT CURRENT_TIMESTAMP"
+            ");"
+            "CREATE TABLE IF NOT EXISTS drafts ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "parent_id INTEGER, "
+            "title TEXT, "
+            "content TEXT, "
+            "is_folder INTEGER DEFAULT 0, "
+            "timestamp DATETIME DEFAULT CURRENT_TIMESTAMP"
             ");";
 
         char* errMsg = nullptr;
@@ -159,6 +176,42 @@ bool BookDatabase::initSchema() {
         QString versionSql = QString("PRAGMA user_version = 2;");
         sqlite3_exec((sqlite3*)m_db, versionSql.toUtf8().constData(), nullptr, nullptr, nullptr);
         userVersion = 2;
+    }
+
+    if (userVersion < 3) {
+        // upgrade to version 3
+        const char* alterSql = "ALTER TABLE documents ADD COLUMN is_folder INTEGER DEFAULT 0;";
+        sqlite3_exec((sqlite3*)m_db, alterSql, nullptr, nullptr, nullptr); // Ignore errors if it already exists
+
+        const char* sql =
+            "CREATE TABLE IF NOT EXISTS templates ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "parent_id INTEGER, "
+            "title TEXT, "
+            "content TEXT, "
+            "is_folder INTEGER DEFAULT 0, "
+            "timestamp DATETIME DEFAULT CURRENT_TIMESTAMP"
+            ");"
+            "CREATE TABLE IF NOT EXISTS drafts ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "parent_id INTEGER, "
+            "title TEXT, "
+            "content TEXT, "
+            "is_folder INTEGER DEFAULT 0, "
+            "timestamp DATETIME DEFAULT CURRENT_TIMESTAMP"
+            ");";
+
+        char* errMsg = nullptr;
+        int rc = sqlite3_exec((sqlite3*)m_db, sql, nullptr, nullptr, &errMsg);
+        if (rc != SQLITE_OK) {
+            qWarning() << "SQL error during schema migration to v3: " << errMsg;
+            sqlite3_free(errMsg);
+            return false;
+        }
+
+        QString versionSql = QString("PRAGMA user_version = 3;");
+        sqlite3_exec((sqlite3*)m_db, versionSql.toUtf8().constData(), nullptr, nullptr, nullptr);
+        userVersion = 3;
     }
 
     return true;
