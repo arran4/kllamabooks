@@ -16,18 +16,28 @@ struct MessageNode {
 
 struct DocumentNode {
     int id;
-    int parentId;
+    int folderId; // 0 if root
     QString title;
     QString content;
     QDateTime timestamp;
-    bool isFolder;
+    bool isFolder; // Deprecated, but keeping for compatibility during migration if needed
 };
 
 struct NoteNode {
     int id;
+    int folderId; // 0 if root
     QString title;
     QString content;
     QDateTime timestamp;
+};
+
+struct FolderNode {
+    int id;
+    int parentId;
+    QString name;
+    QString type; // "documents", "notes", "templates", "drafts"
+    QDateTime timestamp;
+    int position;
 };
 
 class BookDatabase {
@@ -55,24 +65,30 @@ class BookDatabase {
                        const QString& defaultValue = QString()) const;
 
     // Documents
-    int addDocument(int parentId, const QString& title, const QString& content, bool isFolder = false);
+    int addDocument(int folderId, const QString& title, const QString& content);
     bool updateDocument(int id, const QString& newTitle, const QString& newContent);
-    QList<DocumentNode> getDocuments() const;
+    QList<DocumentNode> getDocuments(int folderId = -1) const; // -1 for all, 0 for root
 
     // Templates
-    int addTemplate(int parentId, const QString& title, const QString& content, bool isFolder = false);
+    int addTemplate(int folderId, const QString& title, const QString& content);
     bool updateTemplate(int id, const QString& newTitle, const QString& newContent);
-    QList<DocumentNode> getTemplates() const;
+    QList<DocumentNode> getTemplates(int folderId = -1) const;
 
     // Drafts
-    int addDraft(int parentId, const QString& title, const QString& content, bool isFolder = false);
+    int addDraft(int folderId, const QString& title, const QString& content);
     bool updateDraft(int id, const QString& newTitle, const QString& newContent);
-    QList<DocumentNode> getDrafts() const;
+    QList<DocumentNode> getDrafts(int folderId = -1) const;
 
     // Notes
-    int addNote(const QString& title, const QString& content);
+    int addNote(int folderId, const QString& title, const QString& content);
     bool updateNote(int id, const QString& newTitle, const QString& newContent);
-    QList<NoteNode> getNotes() const;
+    QList<NoteNode> getNotes(int folderId = -1) const;
+
+    // Folders
+    int addFolder(int parentId, const QString& name, const QString& type);
+    bool updateFolder(int id, const QString& newName);
+    bool deleteFolder(int id);
+    QList<FolderNode> getFolders(const QString& type) const;
     QString getDatabaseDebugInfo() const;
 
    private:
