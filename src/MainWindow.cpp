@@ -214,10 +214,10 @@ void MainWindow::setupUi() {
     mainContentStack->addWidget(noteContainer);
 
     connect(backToDocsBtn, &QPushButton::clicked, this,
-            [this]() { mainContentStack->setCurrentWidget(documentsFolderView); });
+            [this]() { mainContentStack->setCurrentWidget(emptyView); });
 
     connect(backToNotesBtn, &QPushButton::clicked, this,
-            [this]() { mainContentStack->setCurrentWidget(notesFolderView); });
+            [this]() { mainContentStack->setCurrentWidget(emptyView); });
 
     connect(documentsFolderView->selectionModel(), &QItemSelectionModel::selectionChanged, this,
             [this](const QItemSelection& selected, const QItemSelection& deselected) {
@@ -944,19 +944,31 @@ void MainWindow::onBookSelected(const QModelIndex& index) {
     QStandardItem* chatsItem = new QStandardItem(QIcon::fromTheme("folder-open"), "Chats");
     chatsItem->setData("chats_folder", Qt::UserRole + 1);
 
-    // Add a dummy chat session item for testing export/import menu options
-    QStandardItem* defaultSessionItem = new QStandardItem(QIcon::fromTheme("view-list-tree"), "Default Session");
-    defaultSessionItem->setData("chat_session", Qt::UserRole + 1);
-    chatsItem->appendRow(defaultSessionItem);
-
     QStandardItem* docsItem = new QStandardItem(QIcon::fromTheme("folder-open"), "Documents");
     docsItem->setData("docs_folder", Qt::UserRole + 1);
     QStandardItem* notesItem = new QStandardItem(QIcon::fromTheme("folder-open"), "Notes");
     notesItem->setData("notes_folder", Qt::UserRole + 1);
+    QStandardItem* templatesItem = new QStandardItem(QIcon::fromTheme("folder-open"), "Templates");
+    templatesItem->setData("templates_folder", Qt::UserRole + 1);
+    QStandardItem* draftsItem = new QStandardItem(QIcon::fromTheme("folder-open"), "Drafts");
+    draftsItem->setData("drafts_folder", Qt::UserRole + 1);
+
+    // Populate actual chats from database directly into the tree
+    QList<MessageNode> msgs = currentDb->getMessages();
+    populateChatFolders(chatsItem, 0, msgs);
+
+    QList<DocumentNode> docs = currentDb->getDocuments();
+    populateDocumentFolders(docsItem, 0, docs);
+    QList<DocumentNode> templates = currentDb->getTemplates();
+    populateDocumentFolders(templatesItem, 0, templates, "template");
+    QList<DocumentNode> drafts = currentDb->getDrafts();
+    populateDocumentFolders(draftsItem, 0, drafts, "draft");
 
     bookItem->appendRow(chatsItem);
     bookItem->appendRow(docsItem);
     bookItem->appendRow(notesItem);
+    bookItem->appendRow(templatesItem);
+    bookItem->appendRow(draftsItem);
 
     openBooksModel->appendRow(bookItem);
     openBooksTree->expandAll();
@@ -967,6 +979,29 @@ void MainWindow::onBookSelected(const QModelIndex& index) {
     loadSession(0);  // For now, load all as one session
 
     mainContentStack->setCurrentWidget(dbDirectView);
+}
+
+void MainWindow::populateDocumentFolders(QStandardItem* parentItem, int parentId, const QList<DocumentNode>& allDocs, const QString& type) {
+    for (const auto& doc : allDocs) {
+        if (doc.parentId == parentId) {
+            QStandardItem* item = nullptr;
+            if (doc.isFolder) {
+                item = new QStandardItem(QIcon::fromTheme("folder-open"), doc.title);
+                item->setData(type == "document" ? "doc_folder" : (type == "template" ? "templates_folder" : "drafts_folder"), Qt::UserRole + 1);
+            } else {
+                item = new QStandardItem(QIcon::fromTheme("text-x-generic"), doc.title);
+                item->setData(type, Qt::UserRole + 1);
+            }
+            item->setData(doc.id, Qt::UserRole);
+
+            if (item) {
+                parentItem->appendRow(item);
+                if (doc.isFolder) {
+                    populateDocumentFolders(item, doc.id, allDocs, type);
+                }
+            }
+        }
+    }
 }
 
 void MainWindow::loadSession(int rootId) {
