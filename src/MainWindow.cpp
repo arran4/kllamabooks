@@ -83,7 +83,7 @@ void MainWindow::setupUi() {
     openBooksTree->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(openBooksTree, &QWidget::customContextMenuRequested, this, &MainWindow::showOpenBookContextMenu);
 
-    connect(openBooksTree, &QTreeView::doubleClicked, this, [this](const QModelIndex& index) {
+    connect(openBooksTree, &QTreeView::clicked, this, [this](const QModelIndex& index) {
         QStandardItem* item = openBooksModel->itemFromIndex(index);
         if (item) {
             QString type = item->data(Qt::UserRole + 1).toString();
@@ -156,7 +156,7 @@ void MainWindow::setupUi() {
 
     mainContentStack->addWidget(dbDirectView);
 
-    connect(dbDirectView, &QListView::doubleClicked, this, [this](const QModelIndex& index) {
+    connect(dbDirectView, &QListView::clicked, this, [this](const QModelIndex& index) {
         if (!index.isValid()) return;
         QString text = dbDirectModel->itemFromIndex(index)->text();
 
@@ -488,8 +488,8 @@ void MainWindow::setupUi() {
     connect(&ollamaClient, &OllamaClient::connectionStatusChanged, this, &MainWindow::onConnectionStatusChanged);
 
     connect(newBookAction, &QAction::triggered, this, &MainWindow::onCreateBook);
-    connect(bookList, &QListWidget::doubleClicked, this,
-            &MainWindow::onBookSelected);  // Open book from list via double click
+    connect(bookList, &QListWidget::clicked, this,
+            &MainWindow::onBookSelected);  // Open book from list via single click
     connect(sendButton, &QPushButton::clicked, this, &MainWindow::onSendMessage);
     connect(inputField, &ChatInputWidget::returnPressed, this, &MainWindow::onSendMessage);
     connect(chatModel, &QStandardItemModel::itemChanged, this, &MainWindow::onItemChanged);
