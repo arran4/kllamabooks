@@ -213,11 +213,9 @@ void MainWindow::setupUi() {
     noteLayout->addLayout(noteBtnLayout);
     mainContentStack->addWidget(noteContainer);
 
-    connect(backToDocsBtn, &QPushButton::clicked, this,
-            [this]() { mainContentStack->setCurrentWidget(emptyView); });
+    connect(backToDocsBtn, &QPushButton::clicked, this, [this]() { mainContentStack->setCurrentWidget(emptyView); });
 
-    connect(backToNotesBtn, &QPushButton::clicked, this,
-            [this]() { mainContentStack->setCurrentWidget(emptyView); });
+    connect(backToNotesBtn, &QPushButton::clicked, this, [this]() { mainContentStack->setCurrentWidget(emptyView); });
 
     connect(documentsFolderView->selectionModel(), &QItemSelectionModel::selectionChanged, this,
             [this](const QItemSelection& selected, const QItemSelection& deselected) {
@@ -504,8 +502,8 @@ void MainWindow::setupUi() {
     actionCollection()->addAction(QStringLiteral("model_explorer"), modelExplorerAction);
     connect(modelExplorerAction, &QAction::triggered, this, &MainWindow::showModelExplorer);
 
-    QAction* settingsAction = new QAction(QIcon::fromTheme("preferences-system"), tr("Settings..."), this);
-    actionCollection()->addAction(QStringLiteral("preferences"), settingsAction);
+    QAction* settingsAction = new QAction(QIcon::fromTheme("configure"), tr("Configure KLlamaBooks..."), this);
+    actionCollection()->addAction(QStringLiteral("configure_app"), settingsAction);
     connect(settingsAction, &QAction::triggered, this, &MainWindow::showSettingsDialog);
 
     QAction* quitAction = KStandardAction::quit(qApp, &QCoreApplication::quit, actionCollection());
@@ -981,13 +979,16 @@ void MainWindow::onBookSelected(const QModelIndex& index) {
     mainContentStack->setCurrentWidget(dbDirectView);
 }
 
-void MainWindow::populateDocumentFolders(QStandardItem* parentItem, int parentId, const QList<DocumentNode>& allDocs, const QString& type) {
+void MainWindow::populateDocumentFolders(QStandardItem* parentItem, int parentId, const QList<DocumentNode>& allDocs,
+                                         const QString& type) {
     for (const auto& doc : allDocs) {
         if (doc.parentId == parentId) {
             QStandardItem* item = nullptr;
             if (doc.isFolder) {
                 item = new QStandardItem(QIcon::fromTheme("folder-open"), doc.title);
-                item->setData(type == "document" ? "doc_folder" : (type == "template" ? "templates_folder" : "drafts_folder"), Qt::UserRole + 1);
+                item->setData(
+                    type == "document" ? "doc_folder" : (type == "template" ? "templates_folder" : "drafts_folder"),
+                    Qt::UserRole + 1);
             } else {
                 item = new QStandardItem(QIcon::fromTheme("text-x-generic"), doc.title);
                 item->setData(type, Qt::UserRole + 1);
@@ -1102,12 +1103,13 @@ void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& 
         chatTextArea->setTextCursor(cursor);
         if (msg.role == "user") {
             QString userName = currentDb ? currentDb->getSetting("book", 0, "userName", "User") : "User";
-            chatTextArea->insertHtml(QString("<div style='font-weight: bold;'>[%1]</div>").arg(userName.toHtmlEscaped()));
+            chatTextArea->insertHtml(
+                QString("<div style='font-weight: bold;'>[%1]</div>").arg(userName.toHtmlEscaped()));
         } else {
             QString assistantName =
                 currentDb ? currentDb->getSetting("book", 0, "assistantName", "Assistant") : "Assistant";
-            chatTextArea->insertHtml(
-                QString("<div style='font-weight: bold; color:#00557f;'>[%1]</div>").arg(assistantName.toHtmlEscaped()));
+            chatTextArea->insertHtml(QString("<div style='font-weight: bold; color:#00557f;'>[%1]</div>")
+                                         .arg(assistantName.toHtmlEscaped()));
         }
         chatTextArea->insertPlainText(msg.content + "\n\n");
     }
@@ -1228,8 +1230,8 @@ void MainWindow::onSendMessage() {
                 if (isFirstChunk) {
                     QString assistantName =
                         currentDb ? currentDb->getSetting("book", 0, "assistantName", "Assistant") : "Assistant";
-                    chatTextArea->insertHtml(
-                        QString("<div style='font-weight: bold; color:#00557f;'>[%1]</div>").arg(assistantName.toHtmlEscaped()));
+                    chatTextArea->insertHtml(QString("<div style='font-weight: bold; color:#00557f;'>[%1]</div>")
+                                                 .arg(assistantName.toHtmlEscaped()));
                     isFirstChunk = false;
                 }
 
