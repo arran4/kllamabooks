@@ -1549,6 +1549,21 @@ void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& 
     }
 
     getPathToRoot(tailNodeId, allMessages, currentChatPath);
+
+    QString userName = currentDb ? currentDb->getSetting("book", 0, "userName", "User") : "User";
+    QString assistantName = currentDb ? currentDb->getSetting("book", 0, "assistantName", "Assistant") : "Assistant";
+
+    for (const auto& node : currentChatPath) {
+        QString roleName = (node.role == "user") ? userName : assistantName;
+        
+        QTextCursor cursor(chatTextArea->document());
+        cursor.movePosition(QTextCursor::End);
+        chatTextArea->setTextCursor(cursor);
+
+        chatTextArea->insertHtml(QString("<div style='font-weight: bold;'>[%1]</div>").arg(roleName.toHtmlEscaped()));
+        chatTextArea->insertPlainText(node.content + "\n\n");
+    }
+
     chatTextArea->blockSignals(false);
     if (discardChangesBtn) discardChangesBtn->hide();
     updateBreadcrumbs();
