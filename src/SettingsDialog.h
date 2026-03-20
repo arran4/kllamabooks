@@ -12,7 +12,6 @@
 #include <QSettings>
 #include <QTableWidget>
 #include <QVBoxLayout>
-#include <QComboBox>
 #include <QVariantList>
 #include <QVariantMap>
 

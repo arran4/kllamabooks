@@ -10,7 +10,8 @@ ChatInputWidget::ChatInputWidget(QWidget* parent) : QTextEdit(parent), m_sendBeh
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
 
     // Connect text change signal to dynamically adjust size
-    connect(document()->documentLayout(), &QAbstractTextDocumentLayout::documentSizeChanged, this, &ChatInputWidget::adjustHeightToContent);
+    connect(document()->documentLayout(), &QAbstractTextDocumentLayout::documentSizeChanged, this,
+            &ChatInputWidget::adjustHeightToContent);
     connect(this, &QTextEdit::textChanged, this, &ChatInputWidget::adjustHeightToContent);
 
     // Initial size adjustment
@@ -18,17 +19,16 @@ ChatInputWidget::ChatInputWidget(QWidget* parent) : QTextEdit(parent), m_sendBeh
 }
 
 void ChatInputWidget::adjustHeightToContent() {
-    int margins = contentsMargins().top() + contentsMargins().bottom() +
-                  document()->documentMargin() * 2;
+    int margins = contentsMargins().top() + contentsMargins().bottom() + document()->documentMargin() * 2;
 
     // Calculate content height using document layout to accurately account for wrapped lines
-    QTextDocument *doc = document();
+    QTextDocument* doc = document();
     int contentHeight = doc->size().height() + margins;
 
     // Set a sensible minimum and maximum height
     // Minimum: 1 line roughly, Maximum: half of parent or a sensible max
     int minHeight = fontMetrics().height() + margins + 10;
-    int maxHeight = 300; // Sensible default max before scrolling
+    int maxHeight = 300;  // Sensible default max before scrolling
 
     if (parentWidget() && parentWidget()->parentWidget()) {
         maxHeight = parentWidget()->parentWidget()->height() / 2;

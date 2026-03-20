@@ -30,6 +30,7 @@
         </Menu>
         <Menu name="settings">
             <text>&amp;Settings</text>
+            <Action name="configure_app" />
             <Action name="preferences" />
         </Menu>
         <Menu name="help">
@@ -40,5 +41,7 @@
     <ToolBar name="mainToolBar">
         <text>Main Toolbar</text>
         <Action name="new_book" />
+        <Separator />
+        <Action name="nav_up" />
     </ToolBar>
 </gui>

@@ -29,6 +29,8 @@ add_executable(kllamabooks
     src/WalletManager.h
     src/SettingsDialog.cpp
     src/SettingsDialog.h
+    src/DatabaseSettingsDialog.cpp
+    src/DatabaseSettingsDialog.h
     src/MainWindow.cpp
     src/MainWindow.h
     src/ChatInputWidget.cpp

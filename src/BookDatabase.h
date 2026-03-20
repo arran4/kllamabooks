@@ -20,6 +20,7 @@ struct DocumentNode {
     QString title;
     QString content;
     QDateTime timestamp;
+    bool isFolder;
 };
 
 struct NoteNode {
@@ -50,19 +51,30 @@ class BookDatabase {
 
     // Settings
     void setSetting(const QString& scope, int targetId, const QString& key, const QString& value);
-    QString getSetting(const QString& scope, int targetId, const QString& key, const QString& defaultValue = QString()) const;
+    QString getSetting(const QString& scope, int targetId, const QString& key,
+                       const QString& defaultValue = QString()) const;
 
     // Documents
-    int addDocument(int parentId, const QString& title, const QString& content);
+    int addDocument(int parentId, const QString& title, const QString& content, bool isFolder = false);
     bool updateDocument(int id, const QString& newTitle, const QString& newContent);
     QList<DocumentNode> getDocuments() const;
+
+    // Templates
+    int addTemplate(int parentId, const QString& title, const QString& content, bool isFolder = false);
+    bool updateTemplate(int id, const QString& newTitle, const QString& newContent);
+    QList<DocumentNode> getTemplates() const;
+
+    // Drafts
+    int addDraft(int parentId, const QString& title, const QString& content, bool isFolder = false);
+    bool updateDraft(int id, const QString& newTitle, const QString& newContent);
+    QList<DocumentNode> getDrafts() const;
 
     // Notes
     int addNote(const QString& title, const QString& content);
     bool updateNote(int id, const QString& newTitle, const QString& newContent);
     QList<NoteNode> getNotes() const;
 
-private:
+   private:
     QString m_filepath;
     void* m_db;  // sqlite3* handle
     bool m_isOpen;

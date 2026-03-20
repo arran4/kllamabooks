@@ -21,6 +21,10 @@ QString OllamaClient::getAuthKey() const { return m_authKey; }
 
 QString OllamaClient::getBaseUrl() const { return m_baseUrl; }
 
+void OllamaClient::setSystemPrompt(const QString& prompt) {
+    m_systemPrompt = prompt;
+}
+
 void OllamaClient::fetchModels() {
     QUrl url(m_baseUrl + "/api/tags");
     QNetworkRequest request(url);
@@ -125,6 +129,10 @@ void OllamaClient::generate(const QString& model, const QString& prompt, std::fu
     json["model"] = model;
     json["prompt"] = prompt;
     json["stream"] = true;
+
+    if (!m_systemPrompt.isEmpty()) {
+        json["system"] = m_systemPrompt;
+    }
 
     QJsonDocument doc(json);
     QByteArray data = doc.toJson();

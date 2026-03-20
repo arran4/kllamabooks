@@ -21,6 +21,8 @@ class OllamaClient : public QObject {
     QString getAuthKey() const;
     QString getBaseUrl() const;
 
+    void setSystemPrompt(const QString& prompt);
+
     void generate(const QString& model, const QString& prompt, std::function<void(const QString&)> onChunk,
                   std::function<void(const QString&)> onComplete, std::function<void(const QString&)> onError);
 
@@ -38,6 +40,7 @@ class OllamaClient : public QObject {
     QNetworkAccessManager* m_networkManager;
     QString m_baseUrl;
     QString m_authKey;
+    QString m_systemPrompt;
     QMap<QNetworkReply*, QString> m_activePulls;
     QMap<QNetworkReply*, QByteArray> m_pullBuffers;
 };
