@@ -33,6 +33,8 @@
 #include "ChatInputWidget.h"
 #include "ModelExplorer.h"
 #include "OllamaClient.h"
+#include "PromptQueueManager.h"
+#include "QueueWindow.h"
 #include "SettingsDialog.h"
 
 class MainWindow : public KXmlGuiWindow {
@@ -72,6 +74,15 @@ class MainWindow : public KXmlGuiWindow {
     void exportChatSession();
     void importChatSession();
     void onOpenBooksSelectionChanged(const QItemSelection& selected, const QItemSelection& deselected);
+    void onQueueUpdated(int pendingCount, int totalCount);
+    void onNotificationsUpdated(int unreadCount);
+    void showQueueWindow();
+    void showNotificationsMenu();
+    void onJobChunkReceived(int jobId, const QString& bookFilepath, int assistantMessageId, const QString& chunk,
+                            const QString& fullText);
+    void onJobCompleted(int jobId, const QString& bookFilepath, int assistantMessageId, const QString& fullText);
+    void onJobError(int jobId, const QString& bookFilepath, int assistantMessageId, const QString& errorText);
+    void updateTreeMarkers();
 
    protected:
     void closeEvent(QCloseEvent* event) override;
@@ -121,7 +132,7 @@ class MainWindow : public KXmlGuiWindow {
     QPushButton* toggleInputModeBtn;
 
     QStackedWidget* chatStackWidget;  // To switch between them
-    
+
     QWidget* breadcrumbWidget;
     QHBoxLayout* breadcrumbLayout;
 
@@ -141,6 +152,7 @@ class MainWindow : public KXmlGuiWindow {
 
     std::unique_ptr<BookDatabase> currentDb;
     OllamaClient ollamaClient;
+    PromptQueueManager* m_promptQueueManager;
 
     int currentLastNodeId;               // ID of the last node in the current chat path
     QList<MessageNode> currentChatPath;  // Stores the current path for tracking edits/forks
@@ -148,7 +160,7 @@ class MainWindow : public KXmlGuiWindow {
     int currentDocumentId = 0;
     int currentNoteId = 0;
     int currentChatFolderId = 0;
-    
+
     bool isCreatingNewChat = false;
     bool isCreatingNewDoc = false;
     bool isCreatingNewNote = false;
@@ -161,6 +173,9 @@ class MainWindow : public KXmlGuiWindow {
     QLabel* modelLabel;
     QComboBox* endpointComboBox;
     QLabel* connectionStatusLabel;
+
+    QPushButton* m_queueStatusBtn;
+    QPushButton* m_notificationStatusBtn;
 };
 
 #endif  // MAINWINDOW_H

@@ -1,4 +1,4 @@
-FROM public.ecr.aws/docker/library/debian:trixie
+FROM debian:trixie
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y \

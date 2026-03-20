@@ -26,6 +26,8 @@ add_executable(kllamabooks
     src/BookDatabase.cpp
     src/BookDatabase.h
     src/WalletManager.cpp
+    src/PromptQueueManager.cpp
+    src/QueueWindow.cpp
     src/WalletManager.h
     src/SettingsDialog.cpp
     src/SettingsDialog.h
