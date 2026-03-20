@@ -83,7 +83,7 @@ void MainWindow::setupUi() {
     openBooksTree->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(openBooksTree, &QWidget::customContextMenuRequested, this, &MainWindow::showOpenBookContextMenu);
 
-    connect(openBooksTree, &QTreeView::clicked, this, [this](const QModelIndex& index) {
+    connect(openBooksTree, &QTreeView::doubleClicked, this, [this](const QModelIndex& index) {
         QStandardItem* item = openBooksModel->itemFromIndex(index);
         if (item) {
             QString type = item->data(Qt::UserRole + 1).toString();
@@ -141,77 +141,59 @@ void MainWindow::setupUi() {
     emptyView = new QWidget(this);
     mainContentStack->addWidget(emptyView);
 
-    dbDirectView = new QListView(this);
-    dbDirectModel = new QStandardItemModel(this);
-    dbDirectView->setModel(dbDirectModel);
-    dbDirectView->setViewMode(QListView::IconMode);
-    dbDirectView->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    vfsExplorer = new QListView(this);
+    vfsModel = new QStandardItemModel(this);
+    vfsExplorer->setModel(vfsModel);
+    vfsExplorer->setViewMode(QListView::IconMode);
+    vfsExplorer->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    vfsExplorer->setContextMenuPolicy(Qt::CustomContextMenu);
+    mainContentStack->addWidget(vfsExplorer);
 
-    QStandardItem* chatsFolderItem = new QStandardItem(QIcon::fromTheme("folder-open"), "Chats");
-    QStandardItem* docsFolderItem = new QStandardItem(QIcon::fromTheme("folder-open"), "Documents");
-    QStandardItem* notesFolderItem = new QStandardItem(QIcon::fromTheme("folder-open"), "Notes");
-    dbDirectModel->appendRow(chatsFolderItem);
-    dbDirectModel->appendRow(docsFolderItem);
-    dbDirectModel->appendRow(notesFolderItem);
-
-    mainContentStack->addWidget(dbDirectView);
-
-    connect(dbDirectView, &QListView::clicked, this, [this](const QModelIndex& index) {
+    connect(vfsExplorer, &QListView::doubleClicked, this, [this](const QModelIndex& index) {
         if (!index.isValid()) return;
-        QString text = dbDirectModel->itemFromIndex(index)->text();
+        
+        QStandardItem* item = vfsModel->itemFromIndex(index);
+        if (!item) return;
 
-        if (openBooksModel->rowCount() > 0) {
-            QStandardItem* rootItem = openBooksModel->item(0);  // Assuming one open book for now
-            for (int i = 0; i < rootItem->rowCount(); ++i) {
-                QStandardItem* child = rootItem->child(i);
-                if (child->text() == text) {
-                    openBooksTree->setCurrentIndex(child->index());
-                    break;
-                }
+        if (item->text() == "..") {
+            QModelIndex currentIndex = openBooksTree->currentIndex();
+            if (currentIndex.isValid() && currentIndex.parent().isValid()) {
+                openBooksTree->setCurrentIndex(currentIndex.parent());
             }
+            return;
+        }
+
+        QString type = item->data(Qt::UserRole + 1).toString();
+        int nodeId = item->data(Qt::UserRole).toInt();
+
+        std::function<QStandardItem*(QStandardItem*)> findNode = [&](QStandardItem* parent) -> QStandardItem* {
+            for (int i = 0; i < parent->rowCount(); ++i) {
+                QStandardItem* child = parent->child(i);
+                if (child->data(Qt::UserRole).toInt() == nodeId &&
+                    child->data(Qt::UserRole + 1).toString() == type) {
+                    return child;
+                }
+                QStandardItem* found = findNode(child);
+                if (found) return found;
+            }
+            return nullptr;
+        };
+
+        QStandardItem* found = nullptr;
+        if (openBooksModel && openBooksModel->rowCount() > 0) {
+            for (int i = 0; i < openBooksModel->rowCount(); ++i) {
+                found = findNode(openBooksModel->item(i));
+                if (found) break;
+            }
+        }
+
+        if (found) {
+            openBooksTree->setCurrentIndex(found->index());
         }
     });
 
-    chatsFolderView = new QTreeView(this);
-    chatsFolderView->setContextMenuPolicy(Qt::CustomContextMenu);
-    connect(chatsFolderView, &QWidget::customContextMenuRequested, this, &MainWindow::showChatTreeContextMenu);
     chatModel = new QStandardItemModel(this);
-    chatsFolderView->setModel(chatModel);
-    chatsFolderView->setHeaderHidden(true);
-    chatsFolderView->setEditTriggers(QAbstractItemView::DoubleClicked);
-    mainContentStack->addWidget(chatsFolderView);
-
-    connect(chatsFolderView->selectionModel(), &QItemSelectionModel::selectionChanged, this,
-            [this](const QItemSelection& selected, const QItemSelection& deselected) {
-                if (selected.indexes().isEmpty()) return;
-                QModelIndex index = selected.indexes().first();
-                QStandardItem* item = chatModel->itemFromIndex(index);
-                if (!item) return;
-
-                currentLastNodeId = item->data(Qt::UserRole).toInt();
-                if (currentDb) {
-                    updateLinearChatView(currentLastNodeId, currentDb->getMessages());
-                    mainContentStack->setCurrentWidget(chatWindowView);
-                }
-            });
-
-    chatTree = chatsFolderView;  // Keep reference to avoid breaking old code for now
-
-    documentsFolderView = new QTreeView(this);
-    documentsModel = new QStandardItemModel(this);
-    documentsFolderView->setModel(documentsModel);
-    documentsFolderView->setHeaderHidden(true);
-    documentsFolderView->setContextMenuPolicy(Qt::CustomContextMenu);
-    connect(documentsFolderView, &QWidget::customContextMenuRequested, this, &MainWindow::showDocumentsContextMenu);
-    mainContentStack->addWidget(documentsFolderView);
-
-    notesFolderView = new QTreeView(this);
-    notesModel = new QStandardItemModel(this);
-    notesFolderView->setModel(notesModel);
-    notesFolderView->setHeaderHidden(true);
-    notesFolderView->setContextMenuPolicy(Qt::CustomContextMenu);
-    connect(notesFolderView, &QWidget::customContextMenuRequested, this, &MainWindow::showNotesContextMenu);
-    mainContentStack->addWidget(notesFolderView);
+    chatTree = openBooksTree;
 
     docContainer = new QWidget(this);
     QVBoxLayout* docLayout = new QVBoxLayout(docContainer);
@@ -241,65 +223,63 @@ void MainWindow::setupUi() {
 
     connect(backToNotesBtn, &QPushButton::clicked, this, [this]() { mainContentStack->setCurrentWidget(emptyView); });
 
-    connect(documentsFolderView->selectionModel(), &QItemSelectionModel::selectionChanged, this,
-            [this](const QItemSelection& selected, const QItemSelection& deselected) {
-                if (selected.indexes().isEmpty()) return;
-                QModelIndex index = selected.indexes().first();
-                QStandardItem* item = documentsModel->itemFromIndex(index);
-                if (!item) return;
-
-                currentDocumentId = item->data(Qt::UserRole).toInt();
-                if (currentDb) {
-                    QList<DocumentNode> docs = currentDb->getDocuments();
-                    for (const auto& doc : docs) {
-                        if (doc.id == currentDocumentId) {
-                            documentEditorView->setPlainText(doc.content);
-                            mainContentStack->setCurrentWidget(docContainer);
-                            break;
-                        }
-                    }
-                }
-            });
-
-    connect(notesFolderView->selectionModel(), &QItemSelectionModel::selectionChanged, this,
-            [this](const QItemSelection& selected, const QItemSelection& deselected) {
-                if (selected.indexes().isEmpty()) return;
-                QModelIndex index = selected.indexes().first();
-                QStandardItem* item = notesModel->itemFromIndex(index);
-                if (!item) return;
-
-                currentNoteId = item->data(Qt::UserRole).toInt();
-                if (currentDb) {
-                    QList<NoteNode> notes = currentDb->getNotes();
-                    for (const auto& note : notes) {
-                        if (note.id == currentNoteId) {
-                            noteEditorView->setPlainText(note.content);
-                            mainContentStack->setCurrentWidget(noteContainer);
-                            break;
-                        }
-                    }
-                }
-            });
+    // Remove old folder view connections
 
     connect(saveDocBtn, &QPushButton::clicked, this, [this]() {
-        if (!currentDb || currentDocumentId == 0) return;
+        if (!currentDb) return;
+        QModelIndex index = openBooksTree->currentIndex();
+        QString currentTitle = index.isValid() ? openBooksModel->itemFromIndex(index)->text() : "New Document";
+        if (currentTitle == "*New Item*") currentTitle = "Untitled Document";
+
+        if (isCreatingNewDoc) {
+            int newId = currentDb->addDocument(0, currentTitle, documentEditorView->toPlainText());
+            statusBar->showMessage(tr("Document saved."), 3000);
+            isCreatingNewDoc = false;
+            loadDocumentsAndNotes();
+            // Restore selection to the new item
+            QStandardItem* newItem = findItemInTree(newId, "document");
+            if (newItem) {
+                openBooksTree->setCurrentIndex(newItem->index());
+            }
+            return;
+        }
+        if (currentDocumentId == 0) return;
         QList<DocumentNode> docs = currentDb->getDocuments();
         for (const auto& doc : docs) {
             if (doc.id == currentDocumentId) {
-                currentDb->updateDocument(currentDocumentId, doc.title, documentEditorView->toPlainText());
+                currentDb->updateDocument(currentDocumentId, currentTitle, documentEditorView->toPlainText());
                 statusBar->showMessage(tr("Document saved."), 3000);
+                loadDocumentsAndNotes(); // Refresh tree to show new title
                 break;
             }
         }
     });
 
     connect(saveNoteBtn, &QPushButton::clicked, this, [this]() {
-        if (!currentDb || currentNoteId == 0) return;
+        if (!currentDb) return;
+        QModelIndex index = openBooksTree->currentIndex();
+        QString currentTitle = index.isValid() ? openBooksModel->itemFromIndex(index)->text() : "New Note";
+        if (currentTitle == "*New Item*") currentTitle = "Untitled Note";
+
+        if (isCreatingNewNote) {
+            int newId = currentDb->addNote(currentTitle, noteEditorView->toPlainText());
+            statusBar->showMessage(tr("Note saved."), 3000);
+            isCreatingNewNote = false;
+            loadDocumentsAndNotes();
+            // Restore selection to the new item
+            QStandardItem* newItem = findItemInTree(newId, "note");
+            if (newItem) {
+                openBooksTree->setCurrentIndex(newItem->index());
+            }
+            return;
+        }
+        if (currentNoteId == 0) return;
         QList<NoteNode> notes = currentDb->getNotes();
         for (const auto& note : notes) {
             if (note.id == currentNoteId) {
-                currentDb->updateNote(currentNoteId, note.title, noteEditorView->toPlainText());
+                currentDb->updateNote(currentNoteId, currentTitle, noteEditorView->toPlainText());
                 statusBar->showMessage(tr("Note saved."), 3000);
+                loadDocumentsAndNotes(); // Refresh tree to show new title
                 break;
             }
         }
@@ -316,6 +296,33 @@ void MainWindow::setupUi() {
     chatInputLayout->setContentsMargins(0, 0, 0, 0);
 
     chatTextArea = new QTextEdit(this);
+    chatTextArea->setReadOnly(true);
+    chatTextArea->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(chatTextArea, &QWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
+        QMenu* menu = chatTextArea->createStandardContextMenu();
+        menu->addSeparator();
+        QAction* saveDraftAction = menu->addAction(QIcon::fromTheme("document-save-as"), "Save chat as draft");
+        QAction* saveTemplateAction = menu->addAction(QIcon::fromTheme("document-save-as"), "Save chat as template");
+        
+        QAction* selectedAction = menu->exec(chatTextArea->viewport()->mapToGlobal(pos));
+        if (selectedAction == saveDraftAction) {
+            bool ok;
+            QString name = QInputDialog::getText(this, "Save as Draft", "Draft Name:", QLineEdit::Normal, "New Draft", &ok);
+            if (ok && !name.isEmpty() && currentDb) {
+                currentDb->addDraft(0, name, chatTextArea->toPlainText());
+                loadDocumentsAndNotes();
+            }
+        } else if (selectedAction == saveTemplateAction) {
+            bool ok;
+            QString name = QInputDialog::getText(this, "Save as Template", "Template Name:", QLineEdit::Normal, "New Template", &ok);
+            if (ok && !name.isEmpty() && currentDb) {
+                currentDb->addTemplate(0, name, chatTextArea->toPlainText());
+                loadDocumentsAndNotes();
+            }
+        }
+        delete menu;
+    });
+    chatTextArea->setStyleSheet("QTextEdit { background-color: #f9f9f9; border: 1px solid #ccc; border-radius: 4px; padding: 10px; }");
     // Left native standard context menu for basic copy/paste without block mapping
     chatInputLayout->addWidget(chatTextArea);
 
@@ -334,7 +341,6 @@ void MainWindow::setupUi() {
                 if (!item) return;
 
                 int nodeId = item->data(Qt::UserRole).toInt();
-                
                 if (nodeId != currentLastNodeId) {
                     currentLastNodeId = nodeId;
                     if (currentDb) {
@@ -343,6 +349,52 @@ void MainWindow::setupUi() {
                     }
                 }
             });
+
+    chatForkExplorer->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(chatForkExplorer, &QWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
+        QMenu menu(this);
+        QModelIndex index = chatForkExplorer->indexAt(pos);
+        
+        QAction* newChatAction = menu.addAction(QIcon::fromTheme("chat-message-new"), "New Chat");
+        QAction* importAction = menu.addAction(QIcon::fromTheme("document-import"), "Import Chat Session");
+        menu.addSeparator();
+
+        QAction* copyAction = nullptr;
+        QAction* forkAction = nullptr;
+
+        if (index.isValid()) {
+            copyAction = menu.addAction(QIcon::fromTheme("edit-copy"), "Copy Message");
+            forkAction = menu.addAction(QIcon::fromTheme("call-start"), "Fork from Here");
+        }
+
+        QAction* selectedAction = menu.exec(chatForkExplorer->viewport()->mapToGlobal(pos));
+        if (selectedAction == newChatAction) {
+            // Find chats folder item in the main tree
+            QStandardItem* chatsFolder = nullptr;
+            if (openBooksModel && openBooksModel->rowCount() > 0) {
+                QStandardItem* root = openBooksModel->item(0);
+                for (int i = 0; i < root->rowCount(); ++i) {
+                    if (root->child(i)->data(Qt::UserRole + 1).toString() == "chats_folder") {
+                        chatsFolder = root->child(i);
+                        break;
+                    }
+                }
+            }
+            if (chatsFolder) addPhantomItem(chatsFolder, "chats_folder");
+        } else if (selectedAction == importAction) {
+            importChatSession();
+        } else if (index.isValid() && selectedAction == copyAction) {
+            QStandardItem* item = forkExplorerModel->itemFromIndex(index);
+            if (item) QApplication::clipboard()->setText(item->text());
+        } else if (index.isValid() && selectedAction == forkAction) {
+            QStandardItem* item = forkExplorerModel->itemFromIndex(index);
+            if (item) {
+                int nodeId = item->data(Qt::UserRole).toInt();
+                currentLastNodeId = nodeId;
+                if (currentDb) updateLinearChatView(currentLastNodeId, currentDb->getMessages());
+            }
+        }
+    });
 
     chatSplitter->addWidget(chatForkExplorer);
     chatLayout->addWidget(chatSplitter);
@@ -367,9 +419,16 @@ void MainWindow::setupUi() {
 
     inputLayout->addWidget(inputModeStack);
 
-    saveEditsBtn = new QPushButton("Save Edits", this);
-    saveEditsBtn->setToolTip(tr("Save modifications made to the chat history above."));
-    inputLayout->addWidget(saveEditsBtn);
+    discardChangesBtn = new QPushButton("Discard Changes", this);
+    discardChangesBtn->setToolTip(tr("Discard any pending edits to history."));
+    discardChangesBtn->hide(); // Initially hidden until an edit happens
+    inputLayout->addWidget(discardChangesBtn);
+
+    connect(chatTextArea, &QTextEdit::textChanged, this, [this]() {
+        if (!chatTextArea->isReadOnly() && !m_isGenerating && currentLastNodeId != 0) {
+            discardChangesBtn->show();
+        }
+    });
 
     sendButton = new QPushButton("Send", this);
     inputSettingsButton = new QToolButton(this);
@@ -381,80 +440,7 @@ void MainWindow::setupUi() {
 
     chatInputLayout->addLayout(inputLayout);
 
-    connect(saveEditsBtn, &QPushButton::clicked, this, [this]() {
-        if (!currentDb || currentChatPath.isEmpty()) return;
-
-        QTextDocument* doc = chatTextArea->document();
-        QString currentRole = "";
-        QString currentContent = "";
-        int msgIndex = 0;
-
-        bool forkCreated = false;
-
-        QString expectedUserBlock = QString("[%1]").arg(currentDb->getSetting("book", 0, "userName", "User"));
-        QString expectedAssistantBlock =
-            QString("[%1]").arg(currentDb->getSetting("book", 0, "assistantName", "Assistant"));
-
-        for (QTextBlock block = doc->begin(); block.isValid(); block = block.next()) {
-            QString blockText = block.text();
-
-            // We compare against plain text so no HTML escaping is needed for parser boundary checks
-            if (blockText.trimmed() == expectedUserBlock || blockText.trimmed() == expectedAssistantBlock) {
-                if (!currentRole.isEmpty() && msgIndex < currentChatPath.size()) {
-                    if (currentRole == currentChatPath[msgIndex].role &&
-                        currentContent.trimmed() != currentChatPath[msgIndex].content.trimmed()) {
-                        // User modified the history. Fork instead of overwrite!
-                        int parentId = (msgIndex > 0) ? currentChatPath[msgIndex - 1].id : 0;
-                        int newId = currentDb->addMessage(parentId, currentContent.trimmed(), currentRole);
-                        currentLastNodeId = newId;
-                        forkCreated = true;
-
-                        // Break out, we've forked. Rest of text needs to be processed as new path
-                        break;
-                    }
-                    msgIndex++;
-                }
-                currentRole = blockText.trimmed() == expectedUserBlock ? "user" : "assistant";
-                currentContent = "";
-                continue;
-            }
-
-            if (!currentRole.isEmpty()) {
-                currentContent += blockText + "\n";
-            }
-        }
-
-        if (!forkCreated && !currentRole.isEmpty() && msgIndex < currentChatPath.size()) {
-            if (currentRole == currentChatPath[msgIndex].role &&
-                currentContent.trimmed() != currentChatPath[msgIndex].content.trimmed()) {
-                // Fork on very last message
-                int parentId = (msgIndex > 0) ? currentChatPath[msgIndex - 1].id : 0;
-                int newId = currentDb->addMessage(parentId, currentContent.trimmed(), currentRole);
-                currentLastNodeId = newId;
-                forkCreated = true;
-            }
-        }
-
-        if (forkCreated) {
-            updateLinearChatView(currentLastNodeId, currentDb->getMessages());
-
-            // Update left tree visually if we can find the chats folder for current book
-            for (int i = 0; i < openBooksModel->rowCount(); ++i) {
-                QStandardItem* bookItem = openBooksModel->item(i);
-                for (int j = 0; j < bookItem->rowCount(); ++j) {
-                    QStandardItem* folderItem = bookItem->child(j);
-                    if (folderItem->data(Qt::UserRole + 1).toString() == "chats_folder") {
-                        folderItem->removeRows(0, folderItem->rowCount());
-                        populateChatFolders(folderItem, 0, currentDb->getMessages());
-                        break;
-                    }
-                }
-            }
-            statusBar->showMessage(tr("Edits resulted in a new fork."), 3000);
-        } else {
-            statusBar->showMessage(tr("No edits detected or saved in place."), 3000);
-        }
-    });
+    connect(discardChangesBtn, &QPushButton::clicked, this, &MainWindow::onDiscardChanges);
 
     mainContentStack->addWidget(chatWindowView);
 
@@ -465,7 +451,20 @@ void MainWindow::setupUi() {
     btnLayout->addLayout(topBtnLayout);
     btnLayout->addStretch();  // Push to the top of the container
     inputLayout->addLayout(btnLayout);
-    splitter->addWidget(mainContentStack);
+
+    QWidget* rightContainer = new QWidget(this);
+    QVBoxLayout* rightLayout = new QVBoxLayout(rightContainer);
+    rightLayout->setContentsMargins(0, 0, 0, 0);
+
+    breadcrumbWidget = new QWidget(this);
+    breadcrumbLayout = new QHBoxLayout(breadcrumbWidget);
+    breadcrumbLayout->setContentsMargins(5, 5, 5, 5);
+    breadcrumbWidget->hide();
+
+    rightLayout->addWidget(breadcrumbWidget);
+    rightLayout->addWidget(mainContentStack);
+
+    splitter->addWidget(rightContainer);
 
     connect(openBooksTree->selectionModel(), &QItemSelectionModel::selectionChanged, this,
             &MainWindow::onOpenBooksSelectionChanged);
@@ -501,6 +500,68 @@ void MainWindow::setupUi() {
     QAction* openBookLocationAction = new QAction(QIcon::fromTheme("folder-open"), tr("Open Book Location"), this);
     actionCollection()->addAction(QStringLiteral("open_book_location"), openBookLocationAction);
     connect(openBookLocationAction, &QAction::triggered, this, &MainWindow::onOpenBookLocation);
+
+    QAction* newChatMenuAction = new QAction(QIcon::fromTheme("chat-message-new"), tr("New Chat"), this);
+    actionCollection()->addAction(QStringLiteral("new_chat"), newChatMenuAction);
+    connect(newChatMenuAction, &QAction::triggered, this, [this]() {
+        addPhantomItem(nullptr, "chats_folder");
+    });
+
+    QAction* newDocMenuAction = new QAction(QIcon::fromTheme("document-new"), tr("New Document"), this);
+    actionCollection()->addAction(QStringLiteral("new_document"), newDocMenuAction);
+    connect(newDocMenuAction, &QAction::triggered, this, [this]() {
+        addPhantomItem(nullptr, "docs_folder");
+    });
+
+    QAction* newNoteMenuAction = new QAction(QIcon::fromTheme("document-new"), tr("New Note"), this);
+    actionCollection()->addAction(QStringLiteral("new_note"), newNoteMenuAction);
+    connect(newNoteMenuAction, &QAction::triggered, this, [this]() {
+        addPhantomItem(nullptr, "notes_folder");
+    });
+
+    QAction* newTemplateMenuAction = new QAction(QIcon::fromTheme("document-new"), tr("New Template"), this);
+    actionCollection()->addAction(QStringLiteral("new_template"), newTemplateMenuAction);
+    connect(newTemplateMenuAction, &QAction::triggered, this, [this]() {
+        addPhantomItem(nullptr, "templates_folder");
+    });
+
+    QAction* newDraftMenuAction = new QAction(QIcon::fromTheme("document-new"), tr("New Draft"), this);
+    actionCollection()->addAction(QStringLiteral("new_draft"), newDraftMenuAction);
+    connect(newDraftMenuAction, &QAction::triggered, this, [this]() {
+        addPhantomItem(nullptr, "drafts_folder");
+    });
+
+    QAction* createFolderMenuAction = new QAction(QIcon::fromTheme("folder-new"), tr("Create Folder"), this);
+    actionCollection()->addAction(QStringLiteral("create_folder"), createFolderMenuAction);
+    connect(createFolderMenuAction, &QAction::triggered, this, [this]() {
+        // Find current folder
+        QModelIndex index = openBooksTree->currentIndex();
+        QStandardItem* item = index.isValid() ? openBooksModel->itemFromIndex(index) : nullptr;
+        if (!item || !item->data(Qt::UserRole + 1).toString().contains("_folder")) {
+            // Default to docs folder if no folder selected
+            if (openBooksModel && openBooksModel->rowCount() > 0) {
+                QStandardItem* book = openBooksModel->item(0);
+                for (int i = 0; i < book->rowCount(); ++i) {
+                    if (book->child(i)->data(Qt::UserRole + 1).toString() == "docs_folder") {
+                        item = book->child(i);
+                        break;
+                    }
+                }
+            }
+        }
+        if (item && currentDb) {
+            QString type = item->data(Qt::UserRole + 1).toString();
+            bool ok;
+            QString name = QInputDialog::getText(this, "Create Folder", "Enter folder name:", QLineEdit::Normal, "New Folder", &ok);
+            if (ok && !name.isEmpty()) {
+                int parentId = item->data(Qt::UserRole).toInt();
+                if (type == "docs_folder") currentDb->addDocument(parentId, name, "", true);
+                else if (type == "templates_folder") currentDb->addTemplate(parentId, name, "", true);
+                else if (type == "drafts_folder") currentDb->addDraft(parentId, name, "", true);
+                loadSession(0);
+            }
+        }
+    });
 
     // Endpoints in toolbar
     QWidget* spacer = new QWidget(this);
@@ -566,12 +627,30 @@ void MainWindow::setupUi() {
     actionCollection()->addAction(QStringLiteral("configure_app"), settingsAction);
     connect(settingsAction, &QAction::triggered, this, &MainWindow::showSettingsDialog);
 
+    QAction* debugInfoAction = new QAction(QIcon::fromTheme("tools-report-bug"), tr("Database Debug Info"), this);
+    actionCollection()->addAction(QStringLiteral("debug_info"), debugInfoAction);
+    connect(debugInfoAction, &QAction::triggered, this, [this]() {
+        if (currentDb) {
+            QMessageBox::information(this, "Database Debug Info", currentDb->getDatabaseDebugInfo());
+        }
+    });
+
     QAction* quitAction = KStandardAction::quit(qApp, &QCoreApplication::quit, actionCollection());
     actionCollection()->addAction("quit", quitAction);
 
     QAction* aboutQtAction = new QAction(tr("About &Qt"), this);
     connect(aboutQtAction, &QAction::triggered, qApp, &QApplication::aboutQt);
     actionCollection()->addAction(QStringLiteral("about_qt"), aboutQtAction);
+
+    QAction* createFolderAction = new QAction(QIcon::fromTheme("folder-new"), tr("Create Folder"), this);
+    actionCollection()->addAction(QStringLiteral("create_folder"), createFolderAction);
+    connect(createFolderAction, &QAction::triggered, this, [this]() {
+        QModelIndex idx = openBooksTree->currentIndex();
+        if (idx.isValid()) {
+            QStandardItem* item = openBooksModel->itemFromIndex(idx);
+            showVfsContextMenu(openBooksTree->mapToGlobal(openBooksTree->visualRect(idx).center()));
+        }
+    });
 
     setupGUI(Default, ":/kllamabooksui.rc");
 
@@ -736,6 +815,81 @@ void MainWindow::showInputSettingsMenu() {
         if (currentDb && currentDb->isOpen()) {
             currentDb->setSetting("chat", rootId, "sendBehavior", action->data().toString());
             updateInputBehavior();
+        }
+    });
+
+    menu.addSeparator();
+
+    QAction* saveDraftAction = menu.addAction(tr("Save as Draft"));
+    connect(saveDraftAction, &QAction::triggered, this, [this]() {
+        if (!currentDb) return;
+        QString content = chatTextArea->toPlainText();
+        bool ok;
+        QString title = QInputDialog::getText(this, "Save Draft", "Name this draft:", QLineEdit::Normal, "New Draft", &ok);
+        if (ok && !title.isEmpty()) {
+            currentDb->addDraft(0, title, content);
+            statusBar->showMessage(tr("Draft saved."), 3000);
+            loadSession(0);
+        }
+    });
+
+    QAction* saveTemplateAction = menu.addAction(tr("Save as Template"));
+    connect(saveTemplateAction, &QAction::triggered, this, [this]() {
+        if (!currentDb) return;
+        QString content = chatTextArea->toPlainText();
+        bool ok;
+        QString title = QInputDialog::getText(this, "Save Template", "Name this template:", QLineEdit::Normal, "New Template", &ok);
+        if (ok && !title.isEmpty()) {
+            currentDb->addTemplate(0, title, content);
+            statusBar->showMessage(tr("Template saved."), 3000);
+            loadDocumentsAndNotes();
+        }
+    });
+
+    menu.addSeparator();
+    QAction* loadTemplateAction = menu.addAction(tr("Load Template..."));
+    connect(loadTemplateAction, &QAction::triggered, this, [this]() {
+        if (currentDb) {
+            QList<DocumentNode> templates = currentDb->getTemplates();
+            if (templates.isEmpty()) {
+                statusBar->showMessage("No templates found.", 3000);
+            } else {
+                QStringList titles;
+                for (const auto& t : templates) titles << t.title;
+                bool ok;
+                QString sel = QInputDialog::getItem(this, "Load Template", "Choose Template:", titles, 0, false, &ok);
+                if (ok) {
+                    for (const auto& t : templates) {
+                        if (t.title == sel) {
+                            inputField->setPlainText(t.content);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    QAction* resumeDraftAction = menu.addAction(tr("Resume Draft..."));
+    connect(resumeDraftAction, &QAction::triggered, this, [this]() {
+        if (currentDb) {
+            QList<DocumentNode> drafts = currentDb->getDrafts();
+            if (drafts.isEmpty()) {
+                statusBar->showMessage("No drafts found.", 3000);
+            } else {
+                QStringList titles;
+                for (const auto& d : drafts) titles << d.title;
+                bool ok;
+                QString sel = QInputDialog::getItem(this, "Resume Draft", "Choose Draft:", titles, 0, false, &ok);
+                if (ok) {
+                    for (const auto& d : drafts) {
+                        if (d.title == sel) {
+                            inputField->setPlainText(d.content);
+                            break;
+                        }
+                    }
+                }
+            }
         }
     });
 
@@ -912,44 +1066,114 @@ void MainWindow::onCreateBook() {
     }
 }
 
-void MainWindow::showChatTreeContextMenu(const QPoint& pos) {
-    QMenu menu(this);
-    QAction* newChatAction = menu.addAction(QIcon::fromTheme("chat-message-new"), "New Chat");
-    menu.addSeparator();
-
-    QModelIndex index = chatTree->indexAt(pos);
+void MainWindow::showVfsContextMenu(const QPoint& pos) {
+    QModelIndex index = vfsExplorer->indexAt(pos);
     QStandardItem* item = nullptr;
+    QMenu menu(this);
+    
+    QAction* newChatAction = nullptr;
+    QAction* newDocAction = nullptr;
+    QAction* newNoteAction = nullptr;
+    QAction* createFolderAction = nullptr;
     QAction* copyAction = nullptr;
     QAction* pasteAction = nullptr;
     QAction* forkAction = nullptr;
 
-    if (index.isValid()) {
-        item = chatModel->itemFromIndex(index);
-        if (item) {
-            copyAction = menu.addAction(QIcon::fromTheme("edit-copy"), "Copy Message");
-            pasteAction = menu.addAction(QIcon::fromTheme("edit-paste"), "Paste to Input");
-            menu.addSeparator();
-            forkAction = menu.addAction(QIcon::fromTheme("call-start"), "Fork from Here");
-            menu.addSeparator();
-            QAction* exportAction = menu.addAction(QIcon::fromTheme("document-export"), "Export Chat Session");
-        }
+    QModelIndex treeIndex = openBooksTree->currentIndex();
+    QStandardItem* treeItem = nullptr;
+    if (treeIndex.isValid() && openBooksModel) {
+        treeItem = openBooksModel->itemFromIndex(treeIndex);
     }
-    QAction* selectedAction = menu.exec(chatTree->viewport()->mapToGlobal(pos));
+    QString currentFolderType = treeItem ? treeItem->data(Qt::UserRole + 1).toString() : "";
 
-    if (selectedAction == newChatAction) {
-        bool ok;
-        QString name = QInputDialog::getText(this, "New Chat", "Enter chat name/message:", QLineEdit::Normal, "", &ok);
-        if (ok && !name.isEmpty() && currentDb) {
-            int newId = currentDb->addMessage(0, name, "user");
-            currentLastNodeId = newId;
-            loadSession(0);  // Refresh tree
+    if (currentFolderType == "chats_folder" || currentFolderType == "chat_session") {
+        newChatAction = menu.addAction(QIcon::fromTheme("chat-message-new"), "New Chat");
+        menu.addSeparator();
+    } else if (currentFolderType == "docs_folder" || currentFolderType == "templates_folder" || currentFolderType == "drafts_folder") {
+        QString actionName = "New Document";
+        if (currentFolderType == "templates_folder") actionName = "New Template";
+        else if (currentFolderType == "drafts_folder") actionName = "New Draft";
+        newDocAction = menu.addAction(QIcon::fromTheme("document-new"), actionName);
+        createFolderAction = menu.addAction(QIcon::fromTheme("folder-new"), "Create Folder");
+        menu.addSeparator();
+    } else if (currentFolderType == "notes_folder") {
+        newNoteAction = menu.addAction(QIcon::fromTheme("document-new"), "New Note");
+        menu.addSeparator();
+    }
+
+    if (index.isValid()) {
+        item = vfsModel->itemFromIndex(index);
+        if (item && item->text() != "..") {
+            QString itemType = item->data(Qt::UserRole + 1).toString();
+            if (itemType == "template") {
+                QAction* loadTemplateAction = menu.addAction(QIcon::fromTheme("document-import"), "Load Template");
+                QAction* sel = menu.exec(vfsExplorer->viewport()->mapToGlobal(pos));
+                if (sel == loadTemplateAction) {
+                    int docId = item->data(Qt::UserRole).toInt();
+                    if (currentDb) {
+                        QList<DocumentNode> templates = currentDb->getTemplates();
+                        for (const auto& t : templates) {
+                            if (t.id == docId) {
+                                inputField->setPlainText(t.content);
+                                break;
+                            }
+                        }
+                    }
+                }
+                return;
+            }
+            if (itemType == "draft") {
+                QAction* resumeDraftAction = menu.addAction(QIcon::fromTheme("document-import"), "Resume Draft");
+                QAction* sel = menu.exec(vfsExplorer->viewport()->mapToGlobal(pos));
+                if (sel == resumeDraftAction) {
+                    int docId = item->data(Qt::UserRole).toInt();
+                    if (currentDb) {
+                        QList<DocumentNode> drafts = currentDb->getDrafts();
+                        for (const auto& d : drafts) {
+                            if (d.id == docId) {
+                                inputField->setPlainText(d.content);
+                                break;
+                            }
+                        }
+                    }
+                }
+                return;
+            }
+            if (itemType.isEmpty() || itemType == "chat_session") {
+                copyAction = menu.addAction(QIcon::fromTheme("edit-copy"), "Copy Message");
+                pasteAction = menu.addAction(QIcon::fromTheme("edit-paste"), "Paste to Input");
+                menu.addSeparator();
+                forkAction = menu.addAction(QIcon::fromTheme("call-start"), "Fork from Here");
+                menu.addSeparator();
+                menu.addAction(QIcon::fromTheme("document-export"), "Export Chat Session");
+            }
         }
+    } else {
+        // Empty space - already populated with folder actions at top
+    }
+    
+    QAction* selectedAction = menu.exec(vfsExplorer->viewport()->mapToGlobal(pos));
+
+    if (newChatAction && selectedAction == newChatAction) {
+        if (treeItem) addPhantomItem(treeItem, currentFolderType);
+    } else if (newDocAction && selectedAction == newDocAction) {
+        if (treeItem) addPhantomItem(treeItem, currentFolderType);
+    } else if (selectedAction == createFolderAction) {
+        bool ok;
+        QString name = QInputDialog::getText(this, "Create Folder", "Enter folder name:", QLineEdit::Normal, "New Folder", &ok);
+        if (ok && !name.isEmpty() && currentDb) {
+            int parentId = treeItem ? treeItem->data(Qt::UserRole).toInt() : 0;
+            if (currentFolderType == "docs_folder") currentDb->addDocument(parentId, name, "", true);
+            else if (currentFolderType == "templates_folder") currentDb->addTemplate(parentId, name, "", true);
+            else if (currentFolderType == "drafts_folder") currentDb->addDraft(parentId, name, "", true);
+            loadSession(0);
+        }
+    } else if (newNoteAction && selectedAction == newNoteAction) {
+        if (treeItem) addPhantomItem(treeItem, currentFolderType);
     } else if (item && selectedAction == copyAction) {
         QString fullText = item->text();
         int bracketIndex = fullText.indexOf("] ");
-        if (bracketIndex != -1) {
-            fullText = fullText.mid(bracketIndex + 2);
-        }
+        if (bracketIndex != -1) fullText = fullText.mid(bracketIndex + 2);
         QGuiApplication::clipboard()->setText(fullText);
     } else if (item && selectedAction == pasteAction) {
         if (inputModeStack->currentIndex() == 0) {
@@ -959,11 +1183,10 @@ void MainWindow::showChatTreeContextMenu(const QPoint& pos) {
         }
     } else if (item && selectedAction == forkAction) {
         currentLastNodeId = item->data(Qt::UserRole).toInt();
-        qDebug() << "Selected point for fork from tree view: " << currentLastNodeId;
-
         if (currentDb) {
             updateLinearChatView(currentLastNodeId, currentDb->getMessages());
             mainContentStack->setCurrentWidget(chatWindowView);
+            chatTextArea->setFocus();
         }
     }
 }
@@ -1036,7 +1259,7 @@ void MainWindow::onBookSelected(const QModelIndex& index) {
 
     loadSession(0);  // For now, load all as one session
 
-    mainContentStack->setCurrentWidget(dbDirectView);
+    openBooksTree->setCurrentIndex(bookItem->index());
 }
 
 void MainWindow::populateDocumentFolders(QStandardItem* parentItem, int parentId, const QList<DocumentNode>& allDocs,
@@ -1063,6 +1286,38 @@ void MainWindow::populateDocumentFolders(QStandardItem* parentItem, int parentId
             }
         }
     }
+}
+
+void MainWindow::addPhantomItem(QStandardItem* folderItem, const QString& type) {
+    if (!folderItem && openBooksModel && openBooksModel->rowCount() > 0) {
+        QStandardItem* book = openBooksModel->item(0);
+        for (int i = 0; i < book->rowCount(); ++i) {
+            if (book->child(i)->data(Qt::UserRole + 1).toString() == type) {
+                folderItem = book->child(i);
+                break;
+            }
+        }
+    }
+    if (!folderItem) return;
+
+    QStandardItem* phantomItem = new QStandardItem(QIcon::fromTheme("text-x-generic"), "*New Item*");
+    QFont f = phantomItem->font();
+    f.setItalic(true);
+    phantomItem->setFont(f);
+    phantomItem->setData(0, Qt::UserRole);
+    
+    QString itemType = type;
+    if (type == "chats_folder") itemType = "chat_session";
+    else if (type == "docs_folder") itemType = "document";
+    else if (type == "templates_folder") itemType = "template";
+    else if (type == "drafts_folder") itemType = "draft";
+    else if (type == "notes_folder") itemType = "note";
+    
+    phantomItem->setData(itemType, Qt::UserRole + 1);
+    folderItem->appendRow(phantomItem);
+    
+    openBooksTree->setExpanded(folderItem->index(), true);
+    openBooksTree->setCurrentIndex(phantomItem->index());
 }
 
 void MainWindow::loadSession(int rootId) {
@@ -1120,17 +1375,12 @@ void MainWindow::populateChatFolders(QStandardItem* parentItem, int parentId, co
 
             QStandardItem* item = nullptr;
 
-            if (parentId == 0) {
-                // It's a root chat
-                item = new QStandardItem(QIcon::fromTheme("folder-open"), displayTitle);
-                item->setData(msg.id, Qt::UserRole);
-            } else if (children.size() > 1) {
-                // It's a fork point, show it as a folder
-                item = new QStandardItem(QIcon::fromTheme("folder-open"), "Fork: " + displayTitle);
+            if (children.size() > 1) {
+                // It's a fork point, show it as a folder using a branch/fork icon
+                item = new QStandardItem(QIcon::fromTheme("vcs-branch", QIcon::fromTheme("folder-open")), "Fork: " + displayTitle);
                 item->setData(msg.id, Qt::UserRole);
             } else if (children.size() == 0) {
-                // It's a leaf node (the end of a chat branch). We only show leaves so clicking them loads the full chat
-                // path.
+                // It's a leaf node (the end of a chat branch)
                 item = new QStandardItem(QIcon::fromTheme("text-x-generic"), "Path: " + displayTitle);
                 item->setData(msg.id, Qt::UserRole);
             }
@@ -1138,89 +1388,19 @@ void MainWindow::populateChatFolders(QStandardItem* parentItem, int parentId, co
             if (item) {
                 parentItem->appendRow(item);
                 // Recursively populate under this item.
-                // If it's a folder, we pass the folder item so forks/leaves nest under it.
                 populateChatFolders(item, msg.id, allMessages);
-            } else {
-                // If it's just a middle node with 1 child, we don't display it as a folder.
-                // We just continue traversing down the tree, passing the *same* parentItem
-                // so the eventual leaf or fork appears at the current level.
-                populateChatFolders(parentItem, msg.id, allMessages);
             }
         }
     }
 }
 
 void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& allMessages) {
+    chatTextArea->blockSignals(true);
     chatTextArea->clear();
     currentChatPath.clear();
 
-    if (forkExplorerModel && chatForkExplorer) {
-        forkExplorerModel->clear();
-        QList<MessageNode> children;
-        int parentOfTail = 0;
-        
-        if (!allMessages.isEmpty()) {
-            for (const auto& msg : allMessages) {
-                if (msg.parentId == tailNodeId) {
-                    children.append(msg);
-                }
-                if (msg.id == tailNodeId && tailNodeId != 0) {
-                    parentOfTail = msg.parentId;
-                }
-            }
-        }
-        
-        if (children.isEmpty() && tailNodeId != 0) {
-            chatForkExplorer->hide();
-            if (chatInputContainer) chatInputContainer->show();
-        } else if (!children.isEmpty() || tailNodeId == 0) {
-            chatForkExplorer->show();
-            
-            if (tailNodeId == 0) {
-                if (chatInputContainer) chatInputContainer->hide();
-            } else {
-                if (chatInputContainer) chatInputContainer->show();
-            }
-            
-            if (tailNodeId != 0) {
-                QStandardItem* upItem = new QStandardItem(QIcon::fromTheme("go-up"), "..");
-                upItem->setData(parentOfTail, Qt::UserRole);
-                forkExplorerModel->appendRow(upItem);
-            }
-            
-            for (const auto& child : children) {
-                QString preview = child.content.simplified();
-                if (preview.length() > 30) {
-                    preview = preview.left(27) + "...";
-                }
-                QStandardItem* childItem = new QStandardItem(QIcon::fromTheme("text-plain"), QString("[%1] %2").arg(child.role, preview));
-                childItem->setData(child.id, Qt::UserRole);
-                forkExplorerModel->appendRow(childItem);
-            }
-        }
-    }
-
-    getPathToRoot(tailNodeId, allMessages, currentChatPath);
-
-    for (const auto& msg : currentChatPath) {
-        QTextCursor cursor = chatTextArea->textCursor();
-        cursor.movePosition(QTextCursor::End);
-        chatTextArea->setTextCursor(cursor);
-        if (msg.role == "user") {
-            QString userName = currentDb ? currentDb->getSetting("book", 0, "userName", "User") : "User";
-            chatTextArea->insertHtml(
-                QString("<div style='font-weight: bold;'>[%1]</div>").arg(userName.toHtmlEscaped()));
-        } else {
-            QString assistantName =
-                currentDb ? currentDb->getSetting("book", 0, "assistantName", "Assistant") : "Assistant";
-            chatTextArea->insertHtml(QString("<div style='font-weight: bold; color:#00557f;'>[%1]</div>")
-                                         .arg(assistantName.toHtmlEscaped()));
-        }
-        chatTextArea->insertPlainText(msg.content + "\n\n");
-    }
-
+    QStandardItem* foundFolderItem = nullptr;
     if (openBooksTree && openBooksModel) {
-        QStandardItem* foundFolderItem = nullptr;
         for (int i = 0; i < openBooksModel->rowCount(); ++i) {
             QStandardItem* bookItem = openBooksModel->item(i);
             for (int j = 0; j < bookItem->rowCount(); ++j) {
@@ -1246,11 +1426,175 @@ void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& 
         }
     }
 
+    if (forkExplorerModel && chatForkExplorer && foundFolderItem) {
+        forkExplorerModel->clear();
+        
+        bool hasChildren = foundFolderItem->rowCount() > 0;
+        
+        if (isCreatingNewChat) {
+            chatForkExplorer->hide();
+            if (chatInputContainer) chatInputContainer->show();
+        } else if (!hasChildren && tailNodeId != 0) {
+            chatForkExplorer->hide();
+            if (chatInputContainer) chatInputContainer->show();
+        } else {
+            chatForkExplorer->show();
+            
+            if (tailNodeId == 0) {
+                if (chatInputContainer) chatInputContainer->hide();
+            } else {
+                if (chatInputContainer) chatInputContainer->show();
+            }
+            
+            if (tailNodeId != 0) {
+                QStandardItem* parentInTree = foundFolderItem->parent();
+                int parentId = 0; 
+                if (parentInTree && parentInTree->data(Qt::UserRole + 1).toString() != "chats_folder") {
+                    parentId = parentInTree->data(Qt::UserRole).toInt();
+                }
+                QStandardItem* upItem = new QStandardItem(QIcon::fromTheme("go-up"), "..");
+                upItem->setData(parentId, Qt::UserRole);
+                forkExplorerModel->appendRow(upItem);
+            }
+            
+            for (int i = 0; i < foundFolderItem->rowCount(); ++i) {
+                QStandardItem* childTreeItem = foundFolderItem->child(i);
+                QStandardItem* childItem = new QStandardItem(childTreeItem->icon(), childTreeItem->text());
+                childItem->setData(childTreeItem->data(Qt::UserRole), Qt::UserRole);
+                forkExplorerModel->appendRow(childItem);
+            }
+        }
+    } else if (forkExplorerModel && chatForkExplorer) {
+        chatForkExplorer->hide();
+        if (chatInputContainer) chatInputContainer->hide();
+    }
+
     if (tailNodeId == 0 || allMessages.isEmpty()) {
         return;
     }
 
     getPathToRoot(tailNodeId, allMessages, currentChatPath);
+    chatTextArea->blockSignals(false);
+    if (discardChangesBtn) discardChangesBtn->hide();
+    updateBreadcrumbs();
+}
+
+void MainWindow::updateBreadcrumbs() {
+    if (!breadcrumbLayout) return;
+
+    QLayoutItem* item;
+    while ((item = breadcrumbLayout->takeAt(0)) != nullptr) {
+        delete item->widget();
+        delete item;
+    }
+
+    if (!currentDb) {
+        breadcrumbWidget->hide();
+        return;
+    }
+
+    breadcrumbWidget->show();
+    
+    QModelIndex index = openBooksTree->currentIndex();
+    if (!index.isValid()) {
+        breadcrumbLayout->addWidget(new QLabel("No selection", this));
+        breadcrumbLayout->addStretch();
+        return;
+    }
+    
+    QStandardItem* treeItem = openBooksModel->itemFromIndex(index);
+    if (!treeItem) return;
+    
+    QString type = treeItem->data(Qt::UserRole + 1).toString();
+    QStringList parts;
+    if (type == "book") {
+        parts << treeItem->text();
+    } else {
+        parts << openBooksModel->item(0)->text(); // Book name
+        if (type.contains("folder")) {
+            parts << treeItem->text();
+        } else {
+            parts << treeItem->parent()->text() << treeItem->text();
+        }
+    }
+
+    for (int i = 0; i < parts.size(); ++i) {
+        if (i < parts.size() - 1) {
+            QLabel* label = new QLabel(parts[i], this);
+            breadcrumbLayout->addWidget(label);
+            breadcrumbLayout->addWidget(new QLabel(">", this));
+        } else {
+            QLineEdit* edit = new QLineEdit(parts[i], this);
+            edit->setFrame(false);
+            edit->setStyleSheet("QLineEdit { background: transparent; }");
+            QFont f = edit->font();
+            f.setBold(true);
+            edit->setFont(f);
+            
+            edit->setProperty("is_breadcrumb_edit", true);
+            edit->installEventFilter(this);
+            
+            int id = treeItem->data(Qt::UserRole).toInt();
+            if (id == 0) {
+                edit->setReadOnly(false);
+                edit->setFocus();
+                edit->selectAll();
+            } else {
+                edit->setReadOnly(true);
+            }
+            
+            breadcrumbLayout->addWidget(edit);
+            
+            connect(edit, &QLineEdit::returnPressed, this, [this, edit, treeItem, type]() {
+                QString newName = edit->text().trimmed();
+                if (newName.isEmpty() || newName == treeItem->text()) {
+                    edit->setText(treeItem->text());
+                    edit->clearFocus();
+                    return;
+                }
+                
+                int id = treeItem->data(Qt::UserRole).toInt();
+                
+                if (id != 0) {
+                    if (type == "document") currentDb->updateDocument(id, newName, documentEditorView->toPlainText());
+                    else if (type == "template") currentDb->updateTemplate(id, newName, documentEditorView->toPlainText());
+                    else if (type == "draft") currentDb->updateDraft(id, newName, documentEditorView->toPlainText());
+                    else if (type == "note") currentDb->updateNote(id, newName, noteEditorView->toPlainText());
+                    statusBar->showMessage(tr("Renamed to %1").arg(newName), 3000);
+                }
+                
+                treeItem->setText(newName);
+                edit->clearFocus();
+            });
+            
+            connect(edit, &QLineEdit::editingFinished, this, [edit, treeItem]() {
+                QString newName = edit->text().trimmed();
+                if (!newName.isEmpty()) {
+                    treeItem->setText(newName);
+                } else {
+                    edit->setText(treeItem->text());
+                }
+                edit->setReadOnly(true);
+                edit->setSelection(0, 0);
+            });
+        }
+    }
+    breadcrumbLayout->addStretch();
+}
+
+void MainWindow::onBreadcrumbClicked(const QString& type, int id) {
+    // Allows jumping up the tree
+}
+
+void MainWindow::onRenameCurrentItem() {
+    // Enables inline rename
+}
+
+void MainWindow::onDiscardChanges() {
+    if (!currentDb || currentLastNodeId == 0) return;
+    updateLinearChatView(currentLastNodeId, currentDb->getMessages());
+    discardChangesBtn->hide();
+    statusBar->showMessage(tr("Changes discarded."), 3000);
 }
 
 void MainWindow::populateTree(QStandardItem* parentItem, int parentId, const QList<MessageNode>& allMessages) {
@@ -1300,7 +1644,62 @@ void MainWindow::onSendMessage() {
         if (text.isEmpty()) return;
         multiLineInput->clear();
     }
-    int parentId = currentLastNodeId;
+    
+    // Passive edit check
+    if (!currentChatPath.isEmpty() && currentLastNodeId != 0 && !isCreatingNewChat) {
+        QTextDocument* doc = chatTextArea->document();
+        QString currentRole = "";
+        QString currentContent = "";
+        int msgIndex = 0;
+        bool forkCreated = false;
+
+        QString expectedUserBlock = QString("[%1]").arg(currentDb->getSetting("book", 0, "userName", "User"));
+        QString expectedAssistantBlock =
+            QString("[%1]").arg(currentDb->getSetting("book", 0, "assistantName", "Assistant"));
+
+        for (QTextBlock block = doc->begin(); block.isValid(); block = block.next()) {
+            QString blockText = block.text();
+            if (blockText.trimmed() == expectedUserBlock || blockText.trimmed() == expectedAssistantBlock) {
+                if (!currentRole.isEmpty() && msgIndex < currentChatPath.size()) {
+                    if (currentRole == currentChatPath[msgIndex].role &&
+                        currentContent.trimmed() != currentChatPath[msgIndex].content.trimmed()) {
+                        int pId = (msgIndex > 0) ? currentChatPath[msgIndex - 1].id : 0;
+                        int newFId = currentDb->addMessage(pId, currentContent.trimmed(), currentRole);
+                        currentLastNodeId = newFId;
+                        forkCreated = true;
+                        break;
+                    }
+                    msgIndex++;
+                }
+                currentRole = blockText.trimmed() == expectedUserBlock ? "user" : "assistant";
+                currentContent = "";
+                continue;
+            }
+            if (!currentRole.isEmpty()) {
+                currentContent += blockText + "\n";
+            }
+        }
+        
+        if (!forkCreated && !currentRole.isEmpty() && msgIndex < currentChatPath.size()) {
+            if (currentRole == currentChatPath[msgIndex].role &&
+                currentContent.trimmed() != currentChatPath[msgIndex].content.trimmed()) {
+                int pId = (msgIndex > 0) ? currentChatPath[msgIndex - 1].id : 0;
+                int newFId = currentDb->addMessage(pId, currentContent.trimmed(), currentRole);
+                currentLastNodeId = newFId;
+                forkCreated = true;
+            }
+        }
+        
+        if (forkCreated) {
+            QList<MessageNode> allMsgs = currentDb->getMessages();
+            currentChatPath.clear();
+            getPathToRoot(currentLastNodeId, allMsgs, currentChatPath);
+            statusBar->showMessage(tr("Edits resulted in a new fork."), 3000);
+        }
+    }
+
+    int parentId = isCreatingNewChat ? 0 : currentLastNodeId;
+    isCreatingNewChat = false;
     int newId = currentDb->addMessage(parentId, text, "user");
 
     // Add user message to in-memory path to keep parser synced
@@ -1323,12 +1722,27 @@ void MainWindow::onSendMessage() {
     aiNode.content = "";
     currentChatPath.append(aiNode);
 
-    // Since the tree is now a folder structure of chats/forks, we simply rebuild it
-    // instead of trying to manually manage appending raw message nodes into a folder view.
-    QStandardItem* rootItem = chatModel->invisibleRootItem();
-    rootItem->removeRows(0, rootItem->rowCount());
-    populateChatFolders(rootItem, 0, currentDb->getMessages());
-    chatTree->expandAll();
+    // Rebuild the openBooksModel Chats folder to reflect the new message
+    QStandardItem* chatsFolder = nullptr;
+    if (openBooksModel && openBooksModel->rowCount() > 0) {
+        QStandardItem* bookItem = openBooksModel->item(0);
+        for (int j = 0; j < bookItem->rowCount(); ++j) {
+            if (bookItem->child(j)->data(Qt::UserRole + 1).toString() == "chats_folder") {
+                chatsFolder = bookItem->child(j);
+                break;
+            }
+        }
+    }
+    if (chatsFolder) {
+        chatsFolder->removeRows(0, chatsFolder->rowCount());
+        populateChatFolders(chatsFolder, 0, currentDb->getMessages());
+        openBooksTree->expandAll();
+        // If it was a new chat, find and select the new node
+        if (newId != -1) {
+            QStandardItem* newNode = findItemInTree(newId, "chat_session");
+            if (newNode) openBooksTree->setCurrentIndex(newNode->index());
+        }
+    }
 
     // Since we manually appended to currentChatPath and the text area is already rendered,
     // we don't need to do a full clear-and-reload of updateLinearChatView right here.
@@ -1361,6 +1775,7 @@ void MainWindow::onSendMessage() {
 
             // Also update main view if it's the active tail
             if (currentLastNodeId == aiId) {
+                chatTextArea->blockSignals(true);
                 QTextCursor cursor = chatTextArea->textCursor();
                 cursor.movePosition(QTextCursor::End);
                 chatTextArea->setTextCursor(cursor);
@@ -1374,6 +1789,7 @@ void MainWindow::onSendMessage() {
                 }
 
                 chatTextArea->insertPlainText(chunk);
+                chatTextArea->blockSignals(false);
 
                 // Keep the underlying DB synced with the exact full response
                 currentDb->updateMessage(aiId, fullResponse);
@@ -1401,11 +1817,13 @@ void MainWindow::onSendMessage() {
         [this, currentGenId](const QString& err) {
             if (currentGenId == m_generationId) {
                 // It wasn't a deliberate cancel
+                chatTextArea->blockSignals(true);
                 QTextCursor cursor = chatTextArea->textCursor();
                 cursor.movePosition(QTextCursor::End);
                 chatTextArea->setTextCursor(cursor);
                 chatTextArea->insertHtml(
                     QString("<br/><span style='color:red;'>[ERROR: %1]</span>\n\n").arg(err.toHtmlEscaped()));
+                chatTextArea->blockSignals(false);
 
                 m_isGenerating = false;
                 chatTextArea->setReadOnly(false);  // Make editable again
@@ -1456,6 +1874,18 @@ void MainWindow::onChatNodeSelected(const QModelIndex& current, const QModelInde
 }
 
 bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
+    if (obj->property("is_breadcrumb_edit").toBool()) {
+        if (event->type() == QEvent::MouseButtonDblClick) {
+            QLineEdit* edit = qobject_cast<QLineEdit*>(obj);
+            if (edit && edit->isReadOnly()) {
+                edit->setReadOnly(false);
+                edit->setFocus();
+                edit->selectAll();
+                return true;
+            }
+        }
+    }
+
     if (event->type() == QEvent::DragEnter) {
         QDragEnterEvent* dragEvent = static_cast<QDragEnterEvent*>(event);
         if (dragEvent->mimeData()->hasUrls()) {
@@ -1538,7 +1968,7 @@ void MainWindow::closeBook(const QString& fileName) {
         chatModel->clear();
         statusLabel->setText(tr("Ready"));
 
-        mainContentStack->setCurrentWidget(dbDirectView);
+        mainContentStack->setCurrentWidget(emptyView);
     }
 }
 
@@ -1548,6 +1978,7 @@ void MainWindow::showBookContextMenu(const QPoint& pos) {
 
     QMenu menu(this);
     QAction* openAction = menu.addAction("Open");
+    QAction* openLocationAction = menu.addAction(QIcon::fromTheme("folder-open"), "Open book location");
     QAction* deleteAction = menu.addAction("Delete");
 
     // Favorite support
@@ -1566,6 +1997,8 @@ void MainWindow::showBookContextMenu(const QPoint& pos) {
     QAction* selectedAction = menu.exec(bookList->viewport()->mapToGlobal(pos));
     if (selectedAction == openAction) {
         onBookSelected(bookList->model()->index(bookList->row(item), 0));
+    } else if (selectedAction == openLocationAction) {
+        onOpenBookLocation();
     } else if (selectedAction == deleteAction) {
         QString fileName = item->text();
         QString filePath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + "/" + fileName;
@@ -1599,74 +2032,139 @@ void MainWindow::onOpenBooksSelectionChanged(const QItemSelection& selected, con
     }
 
     QString type = item->data(Qt::UserRole + 1).toString();
-    if (type == "book") {
-        mainContentStack->setCurrentWidget(emptyView);
-    } else if (type == "chats_folder") {
-        if (currentDb) {
-            currentLastNodeId = 0;
-            updateLinearChatView(0, currentDb->getMessages());
-            mainContentStack->setCurrentWidget(chatWindowView);
-        } else {
-            mainContentStack->setCurrentWidget(emptyView);
+    if (type == "book" || type == "chats_folder" || type == "docs_folder" || 
+        type == "notes_folder" || type == "templates_folder" || type == "drafts_folder") {
+        
+        vfsModel->clear();
+        
+        // Add virtual ".." folder for non-book items (books are at root)
+        if (type != "book") {
+            QStandardItem* upItem = new QStandardItem(QIcon::fromTheme("go-up"), "..");
+            vfsModel->appendRow(upItem);
+            
+            // If it's the chats_folder, sync currentLastNodeId = 0
+            if (type == "chats_folder") {
+                currentLastNodeId = 0;
+            }
         }
-    } else if (type == "docs_folder" || type == "notes_folder" ||
-               type == "templates_folder" || type == "drafts_folder") {
-        mainContentStack->setCurrentWidget(emptyView);
+        
+        for (int i = 0; i < item->rowCount(); ++i) {
+            QStandardItem* childTreeItem = item->child(i);
+            QStandardItem* childItem = new QStandardItem(childTreeItem->icon(), childTreeItem->text());
+            childItem->setData(childTreeItem->data(Qt::UserRole), Qt::UserRole);
+            childItem->setData(childTreeItem->data(Qt::UserRole + 1), Qt::UserRole + 1);
+            vfsModel->appendRow(childItem);
+        }
+        
+        mainContentStack->setCurrentWidget(vfsExplorer);
     } else {
-        // Double click will handle opening specific nodes/documents
+        int nodeId = item->data(Qt::UserRole).toInt();
+        if (type == "document" || type == "template" || type == "draft") {
+            currentDocumentId = nodeId;
+            isCreatingNewDoc = (nodeId == 0);
+            if (isCreatingNewDoc) {
+                documentEditorView->clear();
+                mainContentStack->setCurrentWidget(docContainer);
+            } else if (currentDb) {
+                QList<DocumentNode> docs = (type == "template") ? currentDb->getTemplates() : 
+                                            ((type == "draft") ? currentDb->getDrafts() : currentDb->getDocuments());
+                for (const auto& doc : docs) {
+                    if (doc.id == currentDocumentId) {
+                        documentEditorView->setPlainText(doc.content);
+                        mainContentStack->setCurrentWidget(docContainer);
+                        break;
+                    }
+                }
+            }
+        } else if (type == "note") {
+            currentNoteId = nodeId;
+            isCreatingNewNote = (nodeId == 0);
+            if (isCreatingNewNote) {
+                noteEditorView->clear();
+                mainContentStack->setCurrentWidget(noteContainer);
+            } else {
+                // For notes, we just use the selected item's text if possible, 
+                // but let's fetch content from DB to be sure
+                if (currentDb) {
+                    QList<NoteNode> notes = currentDb->getNotes();
+                    for (const auto& note : notes) {
+                        if (note.id == currentNoteId) {
+                            noteEditorView->setPlainText(note.content);
+                            mainContentStack->setCurrentWidget(noteContainer);
+                            break;
+                        }
+                    }
+                }
+            }
+        } else {
+            // It's a chat leaf or fork point
+            currentLastNodeId = nodeId;
+            isCreatingNewChat = (nodeId == 0);
+            if (currentDb) {
+                updateLinearChatView(currentLastNodeId, currentDb->getMessages());
+                mainContentStack->setCurrentWidget(chatWindowView);
+            }
+        }
     }
 }
 
 void MainWindow::loadDocumentsAndNotes() {
-    documentsModel->clear();
-    notesModel->clear();
-    if (!currentDb) return;
+    if (!currentDb || !openBooksModel) return;
 
-    QList<DocumentNode> docs = currentDb->getDocuments();
-    for (const auto& doc : docs) {
-        QStandardItem* item = new QStandardItem(doc.title);
-        item->setData(doc.id, Qt::UserRole);
-        documentsModel->appendRow(item);
+    QStandardItem* docsFolder = nullptr;
+    QStandardItem* templatesFolder = nullptr;
+    QStandardItem* draftsFolder = nullptr;
+    QStandardItem* notesFolder = nullptr;
+
+    if (openBooksModel->rowCount() > 0) {
+        QStandardItem* bookItem = openBooksModel->item(0);
+        for (int j = 0; j < bookItem->rowCount(); ++j) {
+            QString type = bookItem->child(j)->data(Qt::UserRole + 1).toString();
+            if (type == "docs_folder") docsFolder = bookItem->child(j);
+            else if (type == "templates_folder") templatesFolder = bookItem->child(j);
+            else if (type == "drafts_folder") draftsFolder = bookItem->child(j);
+            else if (type == "notes_folder") notesFolder = bookItem->child(j);
+        }
     }
 
-    QList<NoteNode> notes = currentDb->getNotes();
-    for (const auto& note : notes) {
-        QStandardItem* item = new QStandardItem(note.title);
-        item->setData(note.id, Qt::UserRole);
-        notesModel->appendRow(item);
+    if (docsFolder) {
+        docsFolder->removeRows(0, docsFolder->rowCount());
+        populateDocumentFolders(docsFolder, 0, currentDb->getDocuments(), "document");
     }
-}
+    if (templatesFolder) {
+        templatesFolder->removeRows(0, templatesFolder->rowCount());
+        populateDocumentFolders(templatesFolder, 0, currentDb->getTemplates(), "template");
+    }
+    if (draftsFolder) {
+        draftsFolder->removeRows(0, draftsFolder->rowCount());
+        populateDocumentFolders(draftsFolder, 0, currentDb->getDrafts(), "draft");
+    }
+    if (notesFolder) {
+        notesFolder->removeRows(0, notesFolder->rowCount());
+        QList<NoteNode> notes = currentDb->getNotes();
+        for (const auto& note : notes) {
+            QStandardItem* item = new QStandardItem(QIcon::fromTheme("text-x-generic"), note.title);
+            item->setData(note.id, Qt::UserRole);
+            item->setData("note", Qt::UserRole + 1);
+            notesFolder->appendRow(item);
+        }
+    }
 
-void MainWindow::showDocumentsContextMenu(const QPoint& pos) {
-    QMenu menu(this);
-    QAction* newDocAction = menu.addAction(QIcon::fromTheme("document-new"), "New Document");
-
-    QAction* selectedAction = menu.exec(documentsFolderView->viewport()->mapToGlobal(pos));
-    if (selectedAction == newDocAction) {
-        bool ok;
-        QString title =
-            QInputDialog::getText(this, "New Document", "Enter document title:", QLineEdit::Normal, "", &ok);
-        if (ok && !title.isEmpty() && currentDb) {
-            currentDb->addDocument(0, title, "");
-            loadDocumentsAndNotes();
+    QModelIndex currentIndex = openBooksTree->currentIndex();
+    if (currentIndex.isValid()) {
+        QStandardItem* currentItem = openBooksModel->itemFromIndex(currentIndex);
+        if (currentItem) {
+            QString type = currentItem->data(Qt::UserRole + 1).toString();
+            if (type == "docs_folder" || type == "templates_folder" || type == "drafts_folder" || type == "notes_folder") {
+                emit openBooksTree->selectionModel()->selectionChanged(QItemSelection(currentIndex, currentIndex), QItemSelection());
+            }
         }
     }
 }
 
-void MainWindow::showNotesContextMenu(const QPoint& pos) {
-    QMenu menu(this);
-    QAction* newNoteAction = menu.addAction(QIcon::fromTheme("document-new"), "New Note");
 
-    QAction* selectedAction = menu.exec(notesFolderView->viewport()->mapToGlobal(pos));
-    if (selectedAction == newNoteAction) {
-        bool ok;
-        QString title = QInputDialog::getText(this, "New Note", "Enter note title:", QLineEdit::Normal, "", &ok);
-        if (ok && !title.isEmpty() && currentDb) {
-            currentDb->addNote(title, "");
-            loadDocumentsAndNotes();
-        }
-    }
-}
+
+// Replaced showDocumentsContextMenu and showNotesContextMenu with showVfsContextMenu
 
 void MainWindow::showOpenBookContextMenu(const QPoint& pos) {
     QModelIndex index = openBooksTree->indexAt(pos);
@@ -1681,12 +2179,21 @@ void MainWindow::showOpenBookContextMenu(const QPoint& pos) {
     if (type == "book") {
         QMenu menu(this);
         QAction* settingsAction = menu.addAction(QIcon::fromTheme("configure"), "Settings");
+        QAction* openLocAction = menu.addAction(QIcon::fromTheme("folder-open"), "Open book location");
+        QAction* debugAction = menu.addAction(QIcon::fromTheme("tools-report-bug"), "Debug Info");
         menu.addSeparator();
         QAction* closeAction = menu.addAction("Close");
 
         QAction* selectedAction = menu.exec(openBooksTree->viewport()->mapToGlobal(pos));
         if (selectedAction == closeAction) {
             closeBook(item->text());
+        } else if (selectedAction == openLocAction) {
+            onOpenBookLocation();
+        } else if (selectedAction == debugAction) {
+            if (currentDb) {
+                QString info = currentDb->getDatabaseDebugInfo();
+                QMessageBox::information(this, "Database Debug Info", info);
+            }
         } else if (selectedAction == settingsAction) {
             if (currentDb) {
                 DatabaseSettingsDialog dlg(currentDb.get(), m_availableModels, this);
@@ -1706,9 +2213,21 @@ void MainWindow::showOpenBookContextMenu(const QPoint& pos) {
                 }
             }
         }
-    } else if (type == "chats_folder" || type == "docs_folder" || type == "notes_folder") {
+    } else if (type == "chats_folder" || type == "docs_folder" || type == "notes_folder" || type == "templates_folder" || type == "drafts_folder") {
         QMenu menu(this);
-        QAction* newAction = menu.addAction("New Item");
+        QString actionName = "New Item";
+        if (type == "chats_folder") actionName = "New Chat";
+        else if (type == "docs_folder") actionName = "New Document";
+        else if (type == "notes_folder") actionName = "New Note";
+        else if (type == "templates_folder") actionName = "New Template";
+        else if (type == "drafts_folder") actionName = "New Draft";
+
+        QAction* newAction = menu.addAction(actionName);
+        
+        QAction* createFolderAction = nullptr;
+        if (type == "docs_folder" || type == "templates_folder" || type == "drafts_folder") {
+            createFolderAction = menu.addAction(QIcon::fromTheme("folder-new"), "Create Folder");
+        }
 
         QAction* importAction = nullptr;
         if (type == "chats_folder") {
@@ -1717,8 +2236,17 @@ void MainWindow::showOpenBookContextMenu(const QPoint& pos) {
 
         QAction* selectedAction = menu.exec(openBooksTree->viewport()->mapToGlobal(pos));
         if (selectedAction == newAction) {
-            qDebug() << "New item for" << item->text();
-            // Will be fully implemented later
+            addPhantomItem(item, type);
+        } else if (createFolderAction && selectedAction == createFolderAction) {
+            bool ok;
+            QString name = QInputDialog::getText(this, "Create Folder", "Enter folder name:", QLineEdit::Normal, "New Folder", &ok);
+            if (ok && !name.isEmpty() && currentDb) {
+                int parentId = item->data(Qt::UserRole).toInt();
+                if (type == "docs_folder") currentDb->addDocument(parentId, name, "", true);
+                else if (type == "templates_folder") currentDb->addTemplate(parentId, name, "", true);
+                else if (type == "drafts_folder") currentDb->addDraft(parentId, name, "", true);
+                loadSession(0);
+            }
         } else if (importAction && selectedAction == importAction) {
             importChatSession();
         }
@@ -1819,4 +2347,20 @@ void MainWindow::importChatSession() {
 
     loadSession(0);
     statusBar->showMessage(tr("Chat session imported successfully"), 3000);
+}
+
+QStandardItem* MainWindow::findItemInTree(int id, const QString& type) {
+    if (!openBooksModel || openBooksModel->rowCount() == 0) return nullptr;
+    return findItemRecursive(openBooksModel->invisibleRootItem(), id, type);
+}
+
+QStandardItem* MainWindow::findItemRecursive(QStandardItem* parent, int id, const QString& type) {
+    if (parent->data(Qt::UserRole).toInt() == id && parent->data(Qt::UserRole + 1).toString() == type) {
+        return parent;
+    }
+    for (int i = 0; i < parent->rowCount(); ++i) {
+        QStandardItem* found = findItemRecursive(parent->child(i), id, type);
+        if (found) return found;
+    }
+    return nullptr;
 }

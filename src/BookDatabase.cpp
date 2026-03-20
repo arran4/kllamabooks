@@ -538,3 +538,30 @@ QList<DocumentNode> BookDatabase::getDrafts() const {
     sqlite3_finalize(stmt);
     return nodes;
 }
+
+QString BookDatabase::getDatabaseDebugInfo() const {
+    if (!m_isOpen) return "Database not open.";
+
+    QString info;
+    int userVersion = 0;
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2((sqlite3*)m_db, "PRAGMA user_version;", -1, &stmt, nullptr) == SQLITE_OK) {
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            userVersion = sqlite3_column_int(stmt, 0);
+        }
+        sqlite3_finalize(stmt);
+    }
+    info += QString("Schema Version: %1\n\n").arg(userVersion);
+
+    info += "Tables:\n";
+    if (sqlite3_prepare_v2((sqlite3*)m_db, "SELECT name, sql FROM sqlite_master WHERE type='table';", -1, &stmt, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            const unsigned char* namePtr = sqlite3_column_text(stmt, 0);
+            QString name = namePtr ? QString::fromUtf8((const char*)namePtr) : "";
+            info += QString("- %1\n").arg(name);
+        }
+        sqlite3_finalize(stmt);
+    }
+
+    return info;
+}

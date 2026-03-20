@@ -11,6 +11,17 @@
             <Action name="new_book" />
             <Action name="open_book" />
             <Separator />
+            <Menu name="new_items">
+                <text>&amp;New</text>
+                <Action name="new_chat" />
+                <Action name="new_document" />
+                <Action name="new_note" />
+                <Action name="new_template" />
+                <Action name="new_draft" />
+                <Separator />
+                <Action name="create_folder" />
+            </Menu>
+            <Separator />
             <Action name="close_book" />
             <Separator />
             <Action name="export_chat_session" />
@@ -27,6 +38,7 @@
             <text>&amp;Tools</text>
             <Action name="model_explorer" />
             <Action name="open_book_location" />
+            <Action name="debug_info" />
         </Menu>
         <Menu name="settings">
             <text>&amp;Settings</text>

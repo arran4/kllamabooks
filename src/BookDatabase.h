@@ -73,6 +73,7 @@ class BookDatabase {
     int addNote(const QString& title, const QString& content);
     bool updateNote(int id, const QString& newTitle, const QString& newContent);
     QList<NoteNode> getNotes() const;
+    QString getDatabaseDebugInfo() const;
 
    private:
     QString m_filepath;

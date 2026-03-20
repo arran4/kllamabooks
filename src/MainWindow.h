@@ -60,15 +60,17 @@ class MainWindow : public KXmlGuiWindow {
     void onActiveEndpointChanged(int index);
     void onConnectionStatusChanged(bool isOk);
     void updateEndpointsList();
+    void updateBreadcrumbs();
+    void onBreadcrumbClicked(const QString& type, int id);
+    void onRenameCurrentItem();
+    void onDiscardChanges();
     void showBookContextMenu(const QPoint& pos);
     void showOpenBookContextMenu(const QPoint& pos);
-    void showChatTreeContextMenu(const QPoint& pos);
+    void showVfsContextMenu(const QPoint& pos);
     void showInputSettingsMenu();
     void updateInputBehavior();
     void exportChatSession();
     void importChatSession();
-    void showDocumentsContextMenu(const QPoint& pos);
-    void showNotesContextMenu(const QPoint& pos);
     void onOpenBooksSelectionChanged(const QItemSelection& selected, const QItemSelection& deselected);
 
    protected:
@@ -82,10 +84,13 @@ class MainWindow : public KXmlGuiWindow {
     void populateTree(QStandardItem* parentItem, int parentId, const QList<MessageNode>& allMessages);
     void populateChatFolders(QStandardItem* parentItem, int parentId, const QList<MessageNode>& allMessages);
     void populateDocumentFolders(QStandardItem* parentItem, int parentId, const QList<DocumentNode>& allDocs, const QString& type = "document");
+    void addPhantomItem(QStandardItem* folderItem, const QString& type);
     QStandardItem* findItem(QStandardItem* parent, int id);
     void updateLinearChatView(int tailNodeId, const QList<MessageNode>& allMessages);
     void getPathToRoot(int nodeId, const QList<MessageNode>& allMessages, QList<MessageNode>& path);
     void loadDocumentsAndNotes();
+    QStandardItem* findItemInTree(int id, const QString& type);
+    QStandardItem* findItemRecursive(QStandardItem* parent, int id, const QString& type);
 
     QSplitter* splitter;
     QSplitter* leftSplitter;
@@ -94,13 +99,8 @@ class MainWindow : public KXmlGuiWindow {
     QListWidget* bookList;             // Closed books
     QStackedWidget* mainContentStack;  // To switch between main views
     QWidget* emptyView;
-    QListView* dbDirectView;
-    QStandardItemModel* dbDirectModel;
-    QTreeView* chatsFolderView;  // Replaces chatTree functionality directly or wraps it
-    QTreeView* documentsFolderView;
-    QStandardItemModel* documentsModel;
-    QTreeView* notesFolderView;
-    QStandardItemModel* notesModel;
+    QListView* vfsExplorer;
+    QStandardItemModel* vfsModel;
     QWidget* chatWindowView;
     QSplitter* chatSplitter;
     QListView* chatForkExplorer;
@@ -120,6 +120,9 @@ class MainWindow : public KXmlGuiWindow {
     QPushButton* toggleInputModeBtn;
 
     QStackedWidget* chatStackWidget;  // To switch between them
+    
+    QWidget* breadcrumbWidget;
+    QHBoxLayout* breadcrumbLayout;
 
     // Drag & Drop helpers
     bool eventFilter(QObject* obj, QEvent* event) override;
@@ -128,7 +131,7 @@ class MainWindow : public KXmlGuiWindow {
     QStandardItemModel* chatModel;
     ChatInputWidget* inputField;  // Using HEAD's custom input field
     QPushButton* sendButton;
-    QPushButton* saveEditsBtn;
+    QPushButton* discardChangesBtn;
     QPushButton* modelSelectButton;
     QStringList m_availableModels;
     QString m_selectedModel;
@@ -143,6 +146,10 @@ class MainWindow : public KXmlGuiWindow {
 
     int currentDocumentId = 0;
     int currentNoteId = 0;
+    
+    bool isCreatingNewChat = false;
+    bool isCreatingNewDoc = false;
+    bool isCreatingNewNote = false;
 
     bool m_isGenerating = false;
     int m_generationId = 0;
