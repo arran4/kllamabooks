@@ -8,6 +8,7 @@
 struct MessageNode {
     int id;
     int parentId;  // 0 if root
+    int folderId;  // 0 if root (only relevant for root messages)
     QString content;
     QString role;  // "user" or "assistant"
     QDateTime timestamp;
@@ -54,7 +55,7 @@ class BookDatabase {
     bool initSchema();
 
     // Messages
-    int addMessage(int parentId, const QString& content, const QString& role);
+    int addMessage(int parentId, const QString& content, const QString& role, int folderId = 0);
     bool updateMessage(int id, const QString& newContent);
     bool deleteMessage(int id);
     QList<MessageNode> getMessages() const;

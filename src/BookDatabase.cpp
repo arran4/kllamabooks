@@ -8,7 +8,7 @@
 #include <QVariant>
 
 namespace {
-constexpr int CURRENT_SCHEMA_VERSION = 3;
+constexpr int CURRENT_SCHEMA_VERSION = 4;
 }
 
 BookDatabase::BookDatabase(const QString& filepath) : m_filepath(filepath), m_db(nullptr), m_isOpen(false) {}
@@ -108,6 +108,7 @@ bool BookDatabase::initSchema() {
             "CREATE TABLE IF NOT EXISTS messages ("
             "id INTEGER PRIMARY KEY AUTOINCREMENT, "
             "parent_id INTEGER, "
+            "folder_id INTEGER DEFAULT 0, "
             "role TEXT, "
             "content TEXT, "
             "timestamp DATETIME DEFAULT CURRENT_TIMESTAMP"
@@ -189,31 +190,17 @@ bool BookDatabase::initSchema() {
         // Add folder_id columns if they don't exist
         sqlite3_exec((sqlite3*)m_db, "ALTER TABLE documents ADD COLUMN folder_id INTEGER DEFAULT 0;", nullptr, nullptr, nullptr);
         sqlite3_exec((sqlite3*)m_db, "ALTER TABLE notes ADD COLUMN folder_id INTEGER DEFAULT 0;", nullptr, nullptr, nullptr);
-        // Note: templates and drafts were created with folder_id already above
-
-        // Migrate Old folders (if any existed in documents table)
-        // Check for is_folder column first
-        bool hasIsFolder = false;
-        if (sqlite3_prepare_v2((sqlite3*)m_db, "PRAGMA table_info(documents);", -1, &stmt, nullptr) == SQLITE_OK) {
-            while (sqlite3_step(stmt) == SQLITE_ROW) {
-                if (QString::fromUtf8((const char*)sqlite3_column_text(stmt, 1)) == "is_folder") {
-                    hasIsFolder = true;
-                    break;
-                }
-            }
-            sqlite3_finalize(stmt);
-        }
-
-        if (hasIsFolder) {
-            // Migrate documents.is_folder to folders table
-            sqlite3_exec((sqlite3*)m_db, "INSERT INTO folders (name, type, parent_id) SELECT title, 'documents', parent_id FROM documents WHERE is_folder = 1;", nullptr, nullptr, nullptr);
-            // This is a bit complex for a simple script as I'd need to map former document IDs to new folder IDs.
-            // For now, let's just ensure the schema is correct. Real migration would need more steps.
-        }
 
         sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (3);", nullptr, nullptr, nullptr);
         sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 3;", nullptr, nullptr, nullptr);
         userVersion = 3;
+    }
+
+    if (userVersion < 4) {
+        sqlite3_exec((sqlite3*)m_db, "ALTER TABLE messages ADD COLUMN folder_id INTEGER DEFAULT 0;", nullptr, nullptr, nullptr);
+        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (4);", nullptr, nullptr, nullptr);
+        sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 4;", nullptr, nullptr, nullptr);
+        userVersion = 4;
     }
 
     return true;
@@ -258,17 +245,18 @@ QString BookDatabase::getSetting(const QString& scope, int targetId, const QStri
     return result;
 }
 
-int BookDatabase::addMessage(int parentId, const QString& content, const QString& role) {
+int BookDatabase::addMessage(int parentId, const QString& content, const QString& role, int folderId) {
     if (!m_isOpen) return -1;
 
-    const char* sql = "INSERT INTO messages (parent_id, role, content) VALUES (?, ?, ?);";
+    const char* sql = "INSERT INTO messages (parent_id, folder_id, role, content) VALUES (?, ?, ?, ?);";
     sqlite3_stmt* stmt;
     int rc = sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return -1;
 
     sqlite3_bind_int(stmt, 1, parentId);
-    sqlite3_bind_text(stmt, 2, role.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 3, content.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 2, folderId);
+    sqlite3_bind_text(stmt, 3, role.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 4, content.toUtf8().constData(), -1, SQLITE_TRANSIENT);
 
     rc = sqlite3_step(stmt);
     if (rc != SQLITE_DONE) {
@@ -317,7 +305,7 @@ QList<MessageNode> BookDatabase::getMessages() const {
     QList<MessageNode> nodes;
     if (!m_isOpen) return nodes;
 
-    const char* sql = "SELECT id, parent_id, role, content, timestamp FROM messages ORDER BY id;";
+    const char* sql = "SELECT id, parent_id, folder_id, role, content, timestamp FROM messages ORDER BY id;";
     sqlite3_stmt* stmt;
     int rc = sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return nodes;
@@ -326,9 +314,10 @@ QList<MessageNode> BookDatabase::getMessages() const {
         MessageNode node;
         node.id = sqlite3_column_int(stmt, 0);
         node.parentId = sqlite3_column_int(stmt, 1);
-        node.role = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 2));
-        node.content = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 3));
-        QString ts = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 4));
+        node.folderId = sqlite3_column_int(stmt, 2);
+        node.role = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 3));
+        node.content = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 4));
+        QString ts = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 5));
         node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
         nodes.append(node);
     }

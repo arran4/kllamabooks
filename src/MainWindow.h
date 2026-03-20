@@ -82,7 +82,8 @@ class MainWindow : public KXmlGuiWindow {
     void setupWindow();
     void loadSession(int rootId);
     void populateTree(QStandardItem* parentItem, int parentId, const QList<MessageNode>& allMessages);
-    void populateChatFolders(QStandardItem* parentItem, int parentId, const QList<MessageNode>& allMessages);
+    void populateChatFolders(QStandardItem* parentItem, int folderId, const QList<MessageNode>& allMessages);
+    void populateMessageForks(QStandardItem* parentItem, int parentId, const QList<MessageNode>& allMessages);
     void populateDocumentFolders(QStandardItem* parentItem, int folderId, const QString& type);
     void addPhantomItem(QStandardItem* folderItem, const QString& type);
     QStandardItem* findItem(QStandardItem* parent, int id);
@@ -146,6 +147,7 @@ class MainWindow : public KXmlGuiWindow {
 
     int currentDocumentId = 0;
     int currentNoteId = 0;
+    int currentChatFolderId = 0;
     
     bool isCreatingNewChat = false;
     bool isCreatingNewDoc = false;

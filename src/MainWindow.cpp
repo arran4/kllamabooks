@@ -1171,6 +1171,7 @@ void MainWindow::showVfsContextMenu(const QPoint& pos) {
             if (currentFolderType == "templates_folder") fType = "templates";
             else if (currentFolderType == "drafts_folder") fType = "drafts";
             else if (currentFolderType == "notes_folder") fType = "notes";
+            else if (currentFolderType == "chats_folder") fType = "chats";
             
             currentDb->addFolder(parentId, name, fType);
             loadDocumentsAndNotes();
@@ -1378,7 +1379,60 @@ void MainWindow::getPathToRoot(int nodeId, const QList<MessageNode>& allMessages
     }
 }
 
-void MainWindow::populateChatFolders(QStandardItem* parentItem, int parentId, const QList<MessageNode>& allMessages) {
+void MainWindow::populateChatFolders(QStandardItem* parentItem, int folderId, const QList<MessageNode>& allMessages) {
+    if (!currentDb) return;
+
+    // 1. Add subfolders of type 'chats'
+    QList<FolderNode> folders = currentDb->getFolders("chats");
+    for (const auto& folder : folders) {
+        if (folder.parentId == folderId) {
+            QStandardItem* folderItem = new QStandardItem(QIcon::fromTheme("folder-open"), folder.name);
+            folderItem->setData(folder.id, Qt::UserRole);
+            folderItem->setData("chats_folder", Qt::UserRole + 1);
+            parentItem->appendRow(folderItem);
+            
+            // Recurse into subfolders
+            populateChatFolders(folderItem, folder.id, allMessages);
+        }
+    }
+
+    // 2. Add root messages (sessions) that belong to this folder
+    for (const auto& msg : allMessages) {
+        if (msg.parentId == 0 && msg.folderId == folderId) {
+            // Determine children to show the correct icon/label
+            QList<MessageNode> children;
+            for (const auto& childMsg : allMessages) {
+                if (childMsg.parentId == msg.id) {
+                    children.append(childMsg);
+                }
+            }
+
+            QString displayTitle = msg.content.simplified();
+            if (displayTitle.length() > 30) {
+                displayTitle = displayTitle.left(27) + "...";
+            }
+            if (displayTitle.isEmpty()) {
+                displayTitle = "New Chat";
+            }
+
+            QStandardItem* item = nullptr;
+            if (children.size() > 1) {
+                item = new QStandardItem(QIcon::fromTheme("vcs-branch", QIcon::fromTheme("folder-open")), "Fork: " + displayTitle);
+            } else {
+                item = new QStandardItem(QIcon::fromTheme("text-x-generic"), "Path: " + displayTitle);
+            }
+            
+            item->setData(msg.id, Qt::UserRole);
+            item->setData("chat_node", Qt::UserRole + 1);
+            parentItem->appendRow(item);
+
+            // Populate the rest of the branch under this root message
+            populateMessageForks(item, msg.id, allMessages);
+        }
+    }
+}
+
+void MainWindow::populateMessageForks(QStandardItem* parentItem, int parentId, const QList<MessageNode>& allMessages) {
     for (const auto& msg : allMessages) {
         if (msg.parentId == parentId) {
             // Find all children of this message
@@ -1398,21 +1452,18 @@ void MainWindow::populateChatFolders(QStandardItem* parentItem, int parentId, co
             }
 
             QStandardItem* item = nullptr;
-
             if (children.size() > 1) {
-                // It's a fork point, show it as a folder using a branch/fork icon
                 item = new QStandardItem(QIcon::fromTheme("vcs-branch", QIcon::fromTheme("folder-open")), "Fork: " + displayTitle);
-                item->setData(msg.id, Qt::UserRole);
             } else if (children.size() == 0) {
-                // It's a leaf node (the end of a chat branch)
                 item = new QStandardItem(QIcon::fromTheme("text-x-generic"), "Path: " + displayTitle);
-                item->setData(msg.id, Qt::UserRole);
             }
 
             if (item) {
+                item->setData(msg.id, Qt::UserRole);
+                item->setData("chat_node", Qt::UserRole + 1);
                 parentItem->appendRow(item);
                 // Recursively populate under this item.
-                populateChatFolders(item, msg.id, allMessages);
+                populateMessageForks(item, msg.id, allMessages);
             }
         }
     }
@@ -1723,8 +1774,9 @@ void MainWindow::onSendMessage() {
     }
 
     int parentId = isCreatingNewChat ? 0 : currentLastNodeId;
+    int folderId = isCreatingNewChat ? currentChatFolderId : 0;
     isCreatingNewChat = false;
-    int newId = currentDb->addMessage(parentId, text, "user");
+    int newId = currentDb->addMessage(parentId, text, "user", folderId);
 
     // Add user message to in-memory path to keep parser synced
     MessageNode userNode;
@@ -2124,6 +2176,9 @@ void MainWindow::onOpenBooksSelectionChanged(const QItemSelection& selected, con
             // It's a chat leaf or fork point
             currentLastNodeId = nodeId;
             isCreatingNewChat = (nodeId == 0);
+            if (isCreatingNewChat && item->parent()) {
+                currentChatFolderId = item->parent()->data(Qt::UserRole).toInt();
+            }
             if (currentDb) {
                 updateLinearChatView(currentLastNodeId, currentDb->getMessages());
                 mainContentStack->setCurrentWidget(chatWindowView);
@@ -2243,7 +2298,7 @@ void MainWindow::showOpenBookContextMenu(const QPoint& pos) {
         QAction* newAction = menu.addAction(actionName);
         
         QAction* createFolderAction = nullptr;
-        if (type == "docs_folder" || type == "templates_folder" || type == "drafts_folder" || type == "notes_folder") {
+        if (type == "docs_folder" || type == "templates_folder" || type == "drafts_folder" || type == "notes_folder" || type == "chats_folder") {
             createFolderAction = menu.addAction(QIcon::fromTheme("folder-new"), "Create Folder");
         }
 
@@ -2264,6 +2319,7 @@ void MainWindow::showOpenBookContextMenu(const QPoint& pos) {
                 if (type == "templates_folder") fType = "templates";
                 else if (type == "drafts_folder") fType = "drafts";
                 else if (type == "notes_folder") fType = "notes";
+                else if (type == "chats_folder") fType = "chats";
                 
                 currentDb->addFolder(parentId, name, fType);
                 loadDocumentsAndNotes();
