@@ -87,10 +87,34 @@ void MainWindow::setupUi() {
         QStandardItem* item = openBooksModel->itemFromIndex(index);
         if (item) {
             QString type = item->data(Qt::UserRole + 1).toString();
-            if (type == "chats_folder") {
-                mainContentStack->setCurrentWidget(chatsFolderView);
-            } else if (type == "book") {
-                mainContentStack->setCurrentWidget(dbDirectView);
+            if (type == "document" || type == "template" || type == "draft") {
+                int docId = item->data(Qt::UserRole).toInt();
+                if (currentDb) {
+                    QList<DocumentNode> docs;
+                    if (type == "document")
+                        docs = currentDb->getDocuments();
+                    else if (type == "template")
+                        docs = currentDb->getTemplates();
+                    else if (type == "draft")
+                        docs = currentDb->getDrafts();
+
+                    for (const auto& doc : docs) {
+                        if (doc.id == docId) {
+                            currentDocumentId = docId;
+                            documentEditorView->setPlainText(doc.content);
+                            mainContentStack->setCurrentWidget(docContainer);
+                            break;
+                        }
+                    }
+                }
+            } else if (item->data(Qt::UserRole).toInt() > 0 && type != "doc_folder" && type != "templates_folder" &&
+                       type != "drafts_folder") {
+                // It's a chat node. Single clicking displays the chat.
+                currentLastNodeId = item->data(Qt::UserRole).toInt();
+                if (currentDb) {
+                    updateLinearChatView(currentLastNodeId, currentDb->getMessages());
+                    mainContentStack->setCurrentWidget(chatWindowView);
+                }
             }
         }
     });
@@ -1462,16 +1486,12 @@ void MainWindow::onOpenBooksSelectionChanged(const QItemSelection& selected, con
 
     QString type = item->data(Qt::UserRole + 1).toString();
     if (type == "book") {
-        mainContentStack->setCurrentWidget(dbDirectView);
-    } else if (type == "chats_folder") {
-        mainContentStack->setCurrentWidget(chatsFolderView);
-    } else if (type == "docs_folder") {
-        mainContentStack->setCurrentWidget(documentsFolderView);
-    } else if (type == "notes_folder") {
-        mainContentStack->setCurrentWidget(notesFolderView);
+        mainContentStack->setCurrentWidget(emptyView);
+    } else if (type == "chats_folder" || type == "docs_folder" || type == "notes_folder" ||
+               type == "templates_folder" || type == "drafts_folder") {
+        mainContentStack->setCurrentWidget(emptyView);
     } else {
-        // If it's none of the above, it's a specific chat node or otherwise unknown
-        mainContentStack->setCurrentWidget(chatWindowView);
+        // Double click will handle opening specific nodes/documents
     }
 }
 
