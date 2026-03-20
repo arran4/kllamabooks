@@ -108,6 +108,8 @@ class BookDatabase {
     bool updateFolder(int id, const QString& newName);
     bool deleteFolder(int id);
     QList<FolderNode> getFolders(const QString& type) const;
+    bool moveItem(const QString& table, int id, int newFolderId);
+    bool moveFolder(int id, int newParentId);
 
     // Queue
     int enqueuePrompt(int messageId, const QString& model, const QString& prompt, int priority = 0);

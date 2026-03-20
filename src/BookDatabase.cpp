@@ -269,6 +269,40 @@ QString BookDatabase::getSetting(const QString& scope, int targetId, const QStri
     return result;
 }
 
+bool BookDatabase::moveItem(const QString& table, int id, int newFolderId) {
+    if (!m_isOpen) return false;
+    // Map of safe table names to prevent injection
+    QString safeTable = table;
+    if (table != "messages" && table != "documents" && table != "templates" && table != "drafts" && table != "notes") {
+        return false;
+    }
+
+    QString sql = QString("UPDATE %1 SET folder_id = ? WHERE id = ?;").arg(safeTable);
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2((sqlite3*)m_db, sql.toUtf8().constData(), -1, &stmt, nullptr) != SQLITE_OK) return false;
+
+    sqlite3_bind_int(stmt, 1, newFolderId);
+    sqlite3_bind_int(stmt, 2, id);
+
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return (rc == SQLITE_DONE);
+}
+
+bool BookDatabase::moveFolder(int id, int newParentId) {
+    if (!m_isOpen) return false;
+    const char* sql = "UPDATE folders SET parent_id = ? WHERE id = ?;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+
+    sqlite3_bind_int(stmt, 1, newParentId);
+    sqlite3_bind_int(stmt, 2, id);
+
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return (rc == SQLITE_DONE);
+}
+
 int BookDatabase::addMessage(int parentId, const QString& content, const QString& role, int folderId) {
     if (!m_isOpen) return -1;
 

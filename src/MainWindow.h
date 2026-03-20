@@ -79,6 +79,7 @@ class MainWindow : public KXmlGuiWindow {
     void onQueueItemClicked(std::shared_ptr<BookDatabase> db, int messageId);
     void updateTreeMarkersRecursive(QStandardItem* parent, const QList<Notification>& notifications);
     void updateVfsMarkers(const QList<Notification>& notifications);
+    bool moveItemToFolder(QStandardItem* draggedItem, QStandardItem* targetItem);
     void onQueueChunk(std::shared_ptr<BookDatabase> db, int messageId, const QString& chunk);
     void onProcessingStarted(std::shared_ptr<BookDatabase> db, int messageId);
     void onProcessingFinished(std::shared_ptr<BookDatabase> db, int messageId, bool success);
@@ -92,9 +93,9 @@ class MainWindow : public KXmlGuiWindow {
     void setupWindow();
     void loadSession(int rootId);
     void populateTree(QStandardItem* parentItem, int parentId, const QList<MessageNode>& allMessages);
-    void populateChatFolders(QStandardItem* parentItem, int folderId, const QList<MessageNode>& allMessages);
+    void populateChatFolders(QStandardItem* parentItem, int folderId, const QList<MessageNode>& allMessages, BookDatabase* db);
     void populateMessageForks(QStandardItem* parentItem, int parentId, const QList<MessageNode>& allMessages);
-    void populateDocumentFolders(QStandardItem* parentItem, int folderId, const QString& type);
+    void populateDocumentFolders(QStandardItem* parentItem, int folderId, const QString& type, BookDatabase* db);
     void addPhantomItem(QStandardItem* folderItem, const QString& type);
     QStandardItem* findItem(QStandardItem* parent, int id);
     void updateLinearChatView(int tailNodeId, const QList<MessageNode>& allMessages);

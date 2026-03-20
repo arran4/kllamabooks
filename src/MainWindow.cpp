@@ -91,6 +91,8 @@ void MainWindow::setupUi() {
     openBooksTree->setHeaderHidden(true);
     openBooksTree->setAcceptDrops(true);
     openBooksTree->setDragEnabled(true);
+    openBooksTree->setDragDropMode(QAbstractItemView::DragDrop);
+    openBooksTree->setDefaultDropAction(Qt::MoveAction);
     openBooksTree->setEditTriggers(QAbstractItemView::NoEditTriggers);
     openBooksTree->setDropIndicatorShown(true);
     openBooksTree->installEventFilter(this);
@@ -159,8 +161,13 @@ void MainWindow::setupUi() {
     vfsModel = new QStandardItemModel(this);
     vfsExplorer->setModel(vfsModel);
     vfsExplorer->setViewMode(QListView::IconMode);
+    vfsExplorer->setAcceptDrops(true);
+    vfsExplorer->setDragEnabled(true);
+    vfsExplorer->setDragDropMode(QAbstractItemView::DragDrop);
+    vfsExplorer->setDefaultDropAction(Qt::MoveAction);
     vfsExplorer->setEditTriggers(QAbstractItemView::NoEditTriggers);
     vfsExplorer->setContextMenuPolicy(Qt::CustomContextMenu);
+    vfsExplorer->installEventFilter(this);
     mainContentStack->addWidget(vfsExplorer);
 
     connect(vfsExplorer, &QListView::doubleClicked, this, [this](const QModelIndex& index) {
@@ -1281,12 +1288,12 @@ void MainWindow::onBookSelected(const QModelIndex& index) {
     // Populate actual chats from database directly into the tree
     auto dbPtr = currentDb; // Keep shared_ptr to avoid issues during iteration
     QList<MessageNode> msgs = dbPtr->getMessages();
-    populateChatFolders(chatsItem, 0, msgs);
+    populateChatFolders(chatsItem, 0, msgs, dbPtr.get());
 
-    populateDocumentFolders(docsItem, 0, "documents");
-    populateDocumentFolders(templatesItem, 0, "templates");
-    populateDocumentFolders(draftsItem, 0, "drafts");
-    populateDocumentFolders(notesItem, 0, "notes");
+    populateDocumentFolders(docsItem, 0, "documents", dbPtr.get());
+    populateDocumentFolders(templatesItem, 0, "templates", dbPtr.get());
+    populateDocumentFolders(draftsItem, 0, "drafts", dbPtr.get());
+    populateDocumentFolders(notesItem, 0, "notes", dbPtr.get());
 
     bookItem->appendRow(chatsItem);
     bookItem->appendRow(docsItem);
@@ -1305,11 +1312,11 @@ void MainWindow::onBookSelected(const QModelIndex& index) {
     openBooksTree->setCurrentIndex(bookItem->index());
 }
 
-void MainWindow::populateDocumentFolders(QStandardItem* parentItem, int folderId, const QString& type) {
-    if (!currentDb) return;
+void MainWindow::populateDocumentFolders(QStandardItem* parentItem, int folderId, const QString& type, BookDatabase* db) {
+    if (!db) return;
 
     // First, add subfolders
-    QList<FolderNode> folders = currentDb->getFolders(type);
+    QList<FolderNode> folders = db->getFolders(type);
     for (const auto& folder : folders) {
         if (folder.parentId == folderId) {
             QStandardItem* item = new QStandardItem(QIcon::fromTheme("folder-open"), folder.name);
@@ -1321,16 +1328,16 @@ void MainWindow::populateDocumentFolders(QStandardItem* parentItem, int folderId
             else if (type == "notes") item->setData("notes_folder", Qt::UserRole + 1);
             
             parentItem->appendRow(item);
-            populateDocumentFolders(item, folder.id, type);
+            populateDocumentFolders(item, folder.id, type, db);
         }
     }
 
     // Then, add items in this folder
     if (type == "documents" || type == "templates" || type == "drafts") {
         QList<DocumentNode> docs;
-        if (type == "documents") docs = currentDb->getDocuments(folderId);
-        else if (type == "templates") docs = currentDb->getTemplates(folderId);
-        else if (type == "drafts") docs = currentDb->getDrafts(folderId);
+        if (type == "documents") docs = db->getDocuments(folderId);
+        else if (type == "templates") docs = db->getTemplates(folderId);
+        else if (type == "drafts") docs = db->getDrafts(folderId);
 
         for (const auto& doc : docs) {
             QString itemType = (type == "documents") ? "document" : ((type == "templates") ? "template" : "draft");
@@ -1340,7 +1347,7 @@ void MainWindow::populateDocumentFolders(QStandardItem* parentItem, int folderId
             parentItem->appendRow(item);
         }
     } else if (type == "notes") {
-        QList<NoteNode> notes = currentDb->getNotes(folderId);
+        QList<NoteNode> notes = db->getNotes(folderId);
         for (const auto& note : notes) {
             QStandardItem* item = new QStandardItem(QIcon::fromTheme("text-x-generic"), note.title);
             item->setData(note.id, Qt::UserRole);
@@ -1391,7 +1398,7 @@ void MainWindow::loadSession(int rootId) {
 
     QList<MessageNode> msgs = currentDb->getMessages();
     QStandardItem* rootItem = chatModel->invisibleRootItem();
-    populateChatFolders(rootItem, 0, msgs);
+    populateChatFolders(rootItem, 0, msgs, currentDb.get());
     chatTree->expandAll();
 
     if (!msgs.isEmpty()) {
@@ -1416,11 +1423,11 @@ void MainWindow::getPathToRoot(int nodeId, const QList<MessageNode>& allMessages
     }
 }
 
-void MainWindow::populateChatFolders(QStandardItem* parentItem, int folderId, const QList<MessageNode>& allMessages) {
-    if (!currentDb) return;
+void MainWindow::populateChatFolders(QStandardItem* parentItem, int folderId, const QList<MessageNode>& allMessages, BookDatabase* db) {
+    if (!db) return;
 
     // 1. Add subfolders of type 'chats'
-    QList<FolderNode> folders = currentDb->getFolders("chats");
+    QList<FolderNode> folders = db->getFolders("chats");
     for (const auto& folder : folders) {
         if (folder.parentId == folderId) {
             QStandardItem* folderItem = new QStandardItem(QIcon::fromTheme("folder-open"), folder.name);
@@ -1429,7 +1436,7 @@ void MainWindow::populateChatFolders(QStandardItem* parentItem, int folderId, co
             parentItem->appendRow(folderItem);
             
             // Recurse into subfolders
-            populateChatFolders(folderItem, folder.id, allMessages);
+            populateChatFolders(folderItem, folder.id, allMessages, db);
         }
     }
 
@@ -1845,7 +1852,7 @@ void MainWindow::onSendMessage() {
     }
     if (chatsFolder) {
         chatsFolder->removeRows(0, chatsFolder->rowCount());
-        populateChatFolders(chatsFolder, 0, currentDb->getMessages());
+        populateChatFolders(chatsFolder, 0, currentDb->getMessages(), currentDb.get());
         openBooksTree->expandAll();
     }
 
@@ -1951,6 +1958,23 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
             dragEvent->acceptProposedAction();
             return true;
         }
+        if (dragEvent->source() == openBooksTree || dragEvent->source() == vfsExplorer) {
+            dragEvent->acceptProposedAction();
+            return true;
+        }
+    } else if (event->type() == QEvent::DragMove) {
+        QDragMoveEvent* dragEvent = static_cast<QDragMoveEvent*>(event);
+        if (obj == openBooksTree) {
+            QModelIndex index = openBooksTree->indexAt(dragEvent->pos());
+            if (index.isValid()) {
+                QStandardItem* targetItem = openBooksModel->itemFromIndex(index);
+                QString targetType = targetItem->data(Qt::UserRole + 1).toString();
+                if (targetType.endsWith("_folder")) {
+                    dragEvent->acceptProposedAction();
+                    return true;
+                }
+            }
+        }
     } else if (event->type() == QEvent::Drop) {
         QDropEvent* dropEvent = static_cast<QDropEvent*>(event);
         if (dropEvent->mimeData()->hasUrls()) {
@@ -1963,6 +1987,35 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
                     handleBookDrop(fileInfo.fileName());
                     dropEvent->acceptProposedAction();
                     return true;
+                }
+            }
+        } else if ((obj == openBooksTree || obj == vfsExplorer) && 
+                   (dropEvent->source() == openBooksTree || dropEvent->source() == vfsExplorer)) {
+            
+            QAbstractItemView* targetView = qobject_cast<QAbstractItemView*>(obj);
+            QAbstractItemView* sourceView = qobject_cast<QAbstractItemView*>(dropEvent->source());
+            
+            QModelIndex targetIndex = targetView->indexAt(dropEvent->pos());
+            QStandardItem* targetItem = nullptr;
+            
+            if (targetIndex.isValid()) {
+                targetItem = (obj == openBooksTree) ? openBooksModel->itemFromIndex(targetIndex) : vfsModel->itemFromIndex(targetIndex);
+            } else if (obj == vfsExplorer) {
+                // Background drop in VFS explorer - move to current viewing folder
+                QModelIndex treeIndex = openBooksTree->currentIndex();
+                if (treeIndex.isValid()) targetItem = openBooksModel->itemFromIndex(treeIndex);
+            }
+
+            if (targetItem) {
+                QModelIndex sourceIndex = sourceView->currentIndex();
+                if (sourceIndex.isValid()) {
+                    QStandardItem* draggedItem = (dropEvent->source() == openBooksTree) ? 
+                        openBooksModel->itemFromIndex(sourceIndex) : vfsModel->itemFromIndex(sourceIndex);
+                    
+                    if (moveItemToFolder(draggedItem, targetItem)) {
+                        dropEvent->acceptProposedAction();
+                        return true;
+                    }
                 }
             }
         } else if (obj == openBooksTree && dropEvent->source() == bookList) {
@@ -2166,39 +2219,48 @@ void MainWindow::onOpenBooksSelectionChanged(const QItemSelection& selected, con
 }
 
 void MainWindow::loadDocumentsAndNotes() {
-    if (!currentDb || !openBooksModel) return;
+    if (!openBooksModel) return;
 
-    QStandardItem* docsFolder = nullptr;
-    QStandardItem* templatesFolder = nullptr;
-    QStandardItem* draftsFolder = nullptr;
-    QStandardItem* notesFolder = nullptr;
+    for (int i = 0; i < openBooksModel->rowCount(); ++i) {
+        QStandardItem* bookItem = openBooksModel->item(i);
+        auto db = m_openDatabases.value(bookItem->text());
+        if (!db || !db->isOpen()) continue;
 
-    if (openBooksModel->rowCount() > 0) {
-        QStandardItem* bookItem = openBooksModel->item(0);
+        QStandardItem* docsFolder = nullptr;
+        QStandardItem* templatesFolder = nullptr;
+        QStandardItem* draftsFolder = nullptr;
+        QStandardItem* notesFolder = nullptr;
+        QStandardItem* chatsFolder = nullptr;
+
         for (int j = 0; j < bookItem->rowCount(); ++j) {
             QString type = bookItem->child(j)->data(Qt::UserRole + 1).toString();
             if (type == "docs_folder") docsFolder = bookItem->child(j);
             else if (type == "templates_folder") templatesFolder = bookItem->child(j);
             else if (type == "drafts_folder") draftsFolder = bookItem->child(j);
             else if (type == "notes_folder") notesFolder = bookItem->child(j);
+            else if (type == "chats_folder") chatsFolder = bookItem->child(j);
         }
-    }
 
-    if (docsFolder) {
-        docsFolder->removeRows(0, docsFolder->rowCount());
-        populateDocumentFolders(docsFolder, 0, "documents");
-    }
-    if (templatesFolder) {
-        templatesFolder->removeRows(0, templatesFolder->rowCount());
-        populateDocumentFolders(templatesFolder, 0, "templates");
-    }
-    if (draftsFolder) {
-        draftsFolder->removeRows(0, draftsFolder->rowCount());
-        populateDocumentFolders(draftsFolder, 0, "drafts");
-    }
-    if (notesFolder) {
-        notesFolder->removeRows(0, notesFolder->rowCount());
-        populateDocumentFolders(notesFolder, 0, "notes");
+        if (docsFolder) {
+            docsFolder->removeRows(0, docsFolder->rowCount());
+            populateDocumentFolders(docsFolder, 0, "documents", db.get());
+        }
+        if (templatesFolder) {
+            templatesFolder->removeRows(0, templatesFolder->rowCount());
+            populateDocumentFolders(templatesFolder, 0, "templates", db.get());
+        }
+        if (draftsFolder) {
+            draftsFolder->removeRows(0, draftsFolder->rowCount());
+            populateDocumentFolders(draftsFolder, 0, "drafts", db.get());
+        }
+        if (notesFolder) {
+            notesFolder->removeRows(0, notesFolder->rowCount());
+            populateDocumentFolders(notesFolder, 0, "notes", db.get());
+        }
+        if (chatsFolder) {
+            chatsFolder->removeRows(0, chatsFolder->rowCount());
+            populateChatFolders(chatsFolder, 0, db->getMessages(), db.get());
+        }
     }
 
     QModelIndex currentIndex = openBooksTree->currentIndex();
@@ -2206,7 +2268,7 @@ void MainWindow::loadDocumentsAndNotes() {
         QStandardItem* currentItem = openBooksModel->itemFromIndex(currentIndex);
         if (currentItem) {
             QString type = currentItem->data(Qt::UserRole + 1).toString();
-            if (type == "docs_folder" || type == "templates_folder" || type == "drafts_folder" || type == "notes_folder") {
+            if (type == "docs_folder" || type == "templates_folder" || type == "drafts_folder" || type == "notes_folder" || type == "chats_folder") {
                 emit openBooksTree->selectionModel()->selectionChanged(QItemSelection(currentIndex, currentIndex), QItemSelection());
             }
         }
@@ -2552,4 +2614,67 @@ void MainWindow::updateTreeMarkersRecursive(QStandardItem* parent, const QList<N
         child->setData(notifyType, Qt::UserRole + 10);
         updateTreeMarkersRecursive(child, notifications);
     }
+}
+
+bool MainWindow::moveItemToFolder(QStandardItem* draggedItem, QStandardItem* targetItem) {
+    if (!draggedItem || !targetItem) return false;
+    
+    // Find root book items
+    QStandardItem* sourceBook = draggedItem;
+    while (sourceBook && sourceBook->parent()) sourceBook = sourceBook->parent();
+    QStandardItem* targetBook = targetItem;
+    while (targetBook && targetBook->parent()) targetBook = targetBook->parent();
+
+    if (!sourceBook || !targetBook || sourceBook != targetBook) return false;
+
+    // Find database
+    auto db = m_openDatabases.value(targetBook->text());
+    if (!db) return false;
+
+    QString itemType = draggedItem->data(Qt::UserRole + 1).toString();
+    int itemId = draggedItem->data(Qt::UserRole).toInt();
+    QString targetType = targetItem->data(Qt::UserRole + 1).toString();
+    int targetFolderId = targetItem->data(Qt::UserRole).toInt();
+
+    if (draggedItem == targetItem) return false;
+
+    // Cycle detection for folder moves
+    if (itemType.endsWith("_folder")) {
+        QStandardItem* temp = targetItem;
+        while (temp) {
+            if (temp == draggedItem) return false;
+            temp = temp->parent();
+        }
+    }
+
+    // Handle dropping on an item (non-folder)
+    if (!targetType.endsWith("_folder")) {
+        if (targetItem->parent()) {
+            targetItem = targetItem->parent();
+            targetType = targetItem->data(Qt::UserRole + 1).toString();
+            targetFolderId = targetItem->data(Qt::UserRole).toInt();
+        } else {
+            return false;
+        }
+    }
+
+    bool compatible = false;
+    QString table;
+    if (itemType == "chat_session" && targetType == "chats_folder") { table = "messages"; compatible = true; }
+    else if (itemType == "document" && targetType == "docs_folder") { table = "documents"; compatible = true; }
+    else if (itemType == "template" && targetType == "templates_folder") { table = "templates"; compatible = true; }
+    else if (itemType == "draft" && targetType == "drafts_folder") { table = "drafts"; compatible = true; }
+    else if (itemType == "note" && targetType == "notes_folder") { table = "notes"; compatible = true; }
+    else if (itemType.endsWith("_folder") && targetType == itemType) {
+        if (db->moveFolder(itemId, targetFolderId)) {
+            loadDocumentsAndNotes();
+            return true;
+        }
+    }
+
+    if (compatible && db->moveItem(table, itemId, targetFolderId)) {
+        loadDocumentsAndNotes(); // This should be updated for the specific book if needed, but for now it's okay
+        return true;
+    }
+    return false;
 }
