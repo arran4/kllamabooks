@@ -281,10 +281,10 @@ QList<MessageNode> BookDatabase::getMessages() const {
     return nodes;
 }
 
-int BookDatabase::addDocument(int parentId, const QString& title, const QString& content) {
+int BookDatabase::addDocument(int parentId, const QString& title, const QString& content, bool isFolder) {
     if (!m_isOpen) return -1;
 
-    const char* sql = "INSERT INTO documents (parent_id, title, content) VALUES (?, ?, ?);";
+    const char* sql = "INSERT INTO documents (parent_id, title, content, is_folder) VALUES (?, ?, ?, ?);";
     sqlite3_stmt* stmt;
     int rc = sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return -1;
@@ -292,6 +292,7 @@ int BookDatabase::addDocument(int parentId, const QString& title, const QString&
     sqlite3_bind_int(stmt, 1, parentId);
     sqlite3_bind_text(stmt, 2, title.toUtf8().constData(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 3, content.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 4, isFolder ? 1 : 0);
 
     rc = sqlite3_step(stmt);
     if (rc != SQLITE_DONE) {
@@ -325,7 +326,7 @@ QList<DocumentNode> BookDatabase::getDocuments() const {
     QList<DocumentNode> nodes;
     if (!m_isOpen) return nodes;
 
-    const char* sql = "SELECT id, parent_id, title, content, timestamp FROM documents ORDER BY id;";
+    const char* sql = "SELECT id, parent_id, title, content, timestamp, is_folder FROM documents ORDER BY timestamp ASC;";
     sqlite3_stmt* stmt;
     int rc = sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return nodes;
@@ -338,6 +339,7 @@ QList<DocumentNode> BookDatabase::getDocuments() const {
         node.content = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 3));
         QString ts = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 4));
         node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
+        node.isFolder = sqlite3_column_int(stmt, 5) > 0;
         nodes.append(node);
     }
     sqlite3_finalize(stmt);
