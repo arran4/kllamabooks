@@ -1,0 +1,10 @@
+--- src/MainWindow.h
++++ src/MainWindow.h
+@@ -100,6 +100,7 @@
+     QStandardItem* findItem(QStandardItem* parent, int id);
+     void updateLinearChatView(int tailNodeId, const QList<MessageNode>& allMessages);
+     void getPathToRoot(int nodeId, const QList<MessageNode>& allMessages, QList<MessageNode>& path);
++    int getEndOfLinearPath(int startId, const QList<MessageNode>& allMessages, QList<MessageNode>& outChildren);
+     void loadDocumentsAndNotes();
+     QStandardItem* findItemInTree(int id, const QString& type);
+     QStandardItem* findItemRecursive(QStandardItem* parent, int id, const QString& type);

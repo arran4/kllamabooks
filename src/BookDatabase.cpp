@@ -68,7 +68,7 @@ bool BookDatabase::initSchema() {
 
     sqlite3_stmt* stmt = nullptr;
     int userVersion = 0;
-    
+
     // Get existing PRAGMA version for legacy support
     if (sqlite3_prepare_v2((sqlite3*)m_db, "PRAGMA user_version;", -1, &stmt, nullptr) == SQLITE_OK) {
         if (sqlite3_step(stmt) == SQLITE_ROW) {
@@ -78,7 +78,9 @@ bool BookDatabase::initSchema() {
     }
 
     bool hasSchemaTable = false;
-    if (sqlite3_prepare_v2((sqlite3*)m_db, "SELECT name FROM sqlite_master WHERE type='table' AND name='schema_version';", -1, &stmt, nullptr) == SQLITE_OK) {
+    if (sqlite3_prepare_v2((sqlite3*)m_db,
+                           "SELECT name FROM sqlite_master WHERE type='table' AND name='schema_version';", -1, &stmt,
+                           nullptr) == SQLITE_OK) {
         if (sqlite3_step(stmt) == SQLITE_ROW) {
             hasSchemaTable = true;
         }
@@ -86,7 +88,9 @@ bool BookDatabase::initSchema() {
     }
 
     if (!hasSchemaTable) {
-        const char* createSchemaTable = "CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at DATETIME DEFAULT CURRENT_TIMESTAMP);";
+        const char* createSchemaTable =
+            "CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at DATETIME DEFAULT "
+            "CURRENT_TIMESTAMP);";
         sqlite3_exec((sqlite3*)m_db, createSchemaTable, nullptr, nullptr, nullptr);
         // Sync PRAGMA version to table if table was just created
         if (userVersion > 0) {
@@ -94,7 +98,8 @@ bool BookDatabase::initSchema() {
             sqlite3_exec((sqlite3*)m_db, syncSql.toUtf8().constData(), nullptr, nullptr, nullptr);
         }
     } else {
-        if (sqlite3_prepare_v2((sqlite3*)m_db, "SELECT MAX(version) FROM schema_version;", -1, &stmt, nullptr) == SQLITE_OK) {
+        if (sqlite3_prepare_v2((sqlite3*)m_db, "SELECT MAX(version) FROM schema_version;", -1, &stmt, nullptr) ==
+            SQLITE_OK) {
             if (sqlite3_step(stmt) == SQLITE_ROW) {
                 int tableVersion = sqlite3_column_int(stmt, 0);
                 if (tableVersion > userVersion) userVersion = tableVersion;
@@ -172,8 +177,12 @@ bool BookDatabase::initSchema() {
 
     if (userVersion < 2) {
         // upgrade to version 2 - Ensure settings table exists (redundant but safe)
-        sqlite3_exec((sqlite3*)m_db, "CREATE TABLE IF NOT EXISTS settings (scope TEXT, target_id INTEGER, key TEXT, value TEXT, PRIMARY KEY(scope, target_id, key));", nullptr, nullptr, nullptr);
-        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (2);", nullptr, nullptr, nullptr);
+        sqlite3_exec((sqlite3*)m_db,
+                     "CREATE TABLE IF NOT EXISTS settings (scope TEXT, target_id INTEGER, key TEXT, value TEXT, "
+                     "PRIMARY KEY(scope, target_id, key));",
+                     nullptr, nullptr, nullptr);
+        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (2);", nullptr, nullptr,
+                     nullptr);
         sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 2;", nullptr, nullptr, nullptr);
         userVersion = 2;
     }
@@ -181,24 +190,32 @@ bool BookDatabase::initSchema() {
     if (userVersion < 3) {
         // upgrade to version 3: folders, templates, drafts, folder_id columns
         const char* sql =
-            "CREATE TABLE IF NOT EXISTS templates (id INTEGER PRIMARY KEY AUTOINCREMENT, folder_id INTEGER DEFAULT 0, title TEXT, content TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP);"
-            "CREATE TABLE IF NOT EXISTS drafts (id INTEGER PRIMARY KEY AUTOINCREMENT, folder_id INTEGER DEFAULT 0, title TEXT, content TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP);"
-            "CREATE TABLE IF NOT EXISTS folders (id INTEGER PRIMARY KEY AUTOINCREMENT, parent_id INTEGER DEFAULT 0, name TEXT, type TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, position INTEGER DEFAULT 0);";
-        
+            "CREATE TABLE IF NOT EXISTS templates (id INTEGER PRIMARY KEY AUTOINCREMENT, folder_id INTEGER DEFAULT 0, "
+            "title TEXT, content TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP);"
+            "CREATE TABLE IF NOT EXISTS drafts (id INTEGER PRIMARY KEY AUTOINCREMENT, folder_id INTEGER DEFAULT 0, "
+            "title TEXT, content TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP);"
+            "CREATE TABLE IF NOT EXISTS folders (id INTEGER PRIMARY KEY AUTOINCREMENT, parent_id INTEGER DEFAULT 0, "
+            "name TEXT, type TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, position INTEGER DEFAULT 0);";
+
         sqlite3_exec((sqlite3*)m_db, sql, nullptr, nullptr, nullptr);
 
         // Add folder_id columns if they don't exist
-        sqlite3_exec((sqlite3*)m_db, "ALTER TABLE documents ADD COLUMN folder_id INTEGER DEFAULT 0;", nullptr, nullptr, nullptr);
-        sqlite3_exec((sqlite3*)m_db, "ALTER TABLE notes ADD COLUMN folder_id INTEGER DEFAULT 0;", nullptr, nullptr, nullptr);
+        sqlite3_exec((sqlite3*)m_db, "ALTER TABLE documents ADD COLUMN folder_id INTEGER DEFAULT 0;", nullptr, nullptr,
+                     nullptr);
+        sqlite3_exec((sqlite3*)m_db, "ALTER TABLE notes ADD COLUMN folder_id INTEGER DEFAULT 0;", nullptr, nullptr,
+                     nullptr);
 
-        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (3);", nullptr, nullptr, nullptr);
+        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (3);", nullptr, nullptr,
+                     nullptr);
         sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 3;", nullptr, nullptr, nullptr);
         userVersion = 3;
     }
 
     if (userVersion < 4) {
-        sqlite3_exec((sqlite3*)m_db, "ALTER TABLE messages ADD COLUMN folder_id INTEGER DEFAULT 0;", nullptr, nullptr, nullptr);
-        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (4);", nullptr, nullptr, nullptr);
+        sqlite3_exec((sqlite3*)m_db, "ALTER TABLE messages ADD COLUMN folder_id INTEGER DEFAULT 0;", nullptr, nullptr,
+                     nullptr);
+        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (4);", nullptr, nullptr,
+                     nullptr);
         sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 4;", nullptr, nullptr, nullptr);
         userVersion = 4;
     }
@@ -210,19 +227,20 @@ bool BookDatabase::initSchema() {
             "message_id INTEGER, "
             "model TEXT, "
             "prompt TEXT, "
-            "status TEXT, " // pending, processing, completed, error, paused
+            "status TEXT, "  // pending, processing, completed, error, paused
             "priority INTEGER DEFAULT 0, "
             "created_at DATETIME DEFAULT CURRENT_TIMESTAMP"
             ");"
             "CREATE TABLE IF NOT EXISTS notifications ("
             "id INTEGER PRIMARY KEY AUTOINCREMENT, "
             "message_id INTEGER, "
-            "type TEXT, " // responded_to, error
+            "type TEXT, "  // responded_to, error
             "is_dismissed BOOLEAN DEFAULT 0, "
             "created_at DATETIME DEFAULT CURRENT_TIMESTAMP"
             ");";
         sqlite3_exec((sqlite3*)m_db, sql, nullptr, nullptr, nullptr);
-        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (5);", nullptr, nullptr, nullptr);
+        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (5);", nullptr, nullptr,
+                     nullptr);
         sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 5;", nullptr, nullptr, nullptr);
         userVersion = 5;
     }
@@ -452,6 +470,17 @@ QList<DocumentNode> BookDatabase::getDocuments(int folderId) const {
     return nodes;
 }
 
+bool BookDatabase::deleteDocument(int id) {
+    if (!m_isOpen) return false;
+    const char* sql = "DELETE FROM documents WHERE id = ?;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_int(stmt, 1, id);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
+}
+
 int BookDatabase::addNote(int folderId, const QString& title, const QString& content) {
     if (!m_isOpen) return -1;
 
@@ -518,6 +547,17 @@ QList<NoteNode> BookDatabase::getNotes(int folderId) const {
     }
     sqlite3_finalize(stmt);
     return nodes;
+}
+
+bool BookDatabase::deleteNote(int id) {
+    if (!m_isOpen) return false;
+    const char* sql = "DELETE FROM notes WHERE id = ?;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_int(stmt, 1, id);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
 }
 
 int BookDatabase::addTemplate(int folderId, const QString& title, const QString& content) {
@@ -658,6 +698,17 @@ QList<DocumentNode> BookDatabase::getDrafts(int folderId) const {
     return nodes;
 }
 
+bool BookDatabase::deleteDraft(int id) {
+    if (!m_isOpen) return false;
+    const char* sql = "DELETE FROM drafts WHERE id = ?;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_int(stmt, 1, id);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
+}
+
 int BookDatabase::addFolder(int parentId, const QString& name, const QString& type) {
     if (!m_isOpen) return -1;
 
@@ -716,7 +767,9 @@ QList<FolderNode> BookDatabase::getFolders(const QString& type) const {
     QList<FolderNode> folderNodes;
     if (!m_isOpen) return folderNodes;
 
-    const char* sql = "SELECT id, parent_id, name, type, timestamp, position FROM folders WHERE type = ? ORDER BY position ASC, name ASC;";
+    const char* sql =
+        "SELECT id, parent_id, name, type, timestamp, position FROM folders WHERE type = ? ORDER BY position ASC, name "
+        "ASC;";
     sqlite3_stmt* stmt;
     int rc = sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return folderNodes;
@@ -766,7 +819,9 @@ QList<QueueItem> BookDatabase::getQueue() const {
     QList<QueueItem> items;
     if (!m_isOpen) return items;
 
-    const char* sql = "SELECT id, message_id, model, prompt, status, priority, created_at FROM queue ORDER BY priority DESC, created_at ASC;";
+    const char* sql =
+        "SELECT id, message_id, model, prompt, status, priority, created_at FROM queue ORDER BY priority DESC, "
+        "created_at ASC;";
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return items;
 
@@ -778,7 +833,8 @@ QList<QueueItem> BookDatabase::getQueue() const {
         item.prompt = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 3));
         item.status = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 4));
         item.priority = sqlite3_column_int(stmt, 5);
-        item.timestamp = QDateTime::fromString(QString::fromUtf8((const char*)sqlite3_column_text(stmt, 6)), Qt::ISODate);
+        item.timestamp =
+            QDateTime::fromString(QString::fromUtf8((const char*)sqlite3_column_text(stmt, 6)), Qt::ISODate);
         items.append(item);
     }
     sqlite3_finalize(stmt);
@@ -838,7 +894,8 @@ QList<Notification> BookDatabase::getNotifications(bool includeDismissed) const 
     if (!includeDismissed) sql += " WHERE is_dismissed = 0";
     sql += " ORDER BY created_at DESC;";
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2((sqlite3*)m_db, sql.toUtf8().constData(), -1, &stmt, nullptr) != SQLITE_OK) return notifications;
+    if (sqlite3_prepare_v2((sqlite3*)m_db, sql.toUtf8().constData(), -1, &stmt, nullptr) != SQLITE_OK)
+        return notifications;
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         Notification n;
         n.id = sqlite3_column_int(stmt, 0);
@@ -889,7 +946,8 @@ QString BookDatabase::getDatabaseDebugInfo() const {
     info += QString("Schema Version: %1\n\n").arg(userVersion);
 
     info += "Tables:\n";
-    if (sqlite3_prepare_v2((sqlite3*)m_db, "SELECT name, sql FROM sqlite_master WHERE type='table';", -1, &stmt, nullptr) == SQLITE_OK) {
+    if (sqlite3_prepare_v2((sqlite3*)m_db, "SELECT name, sql FROM sqlite_master WHERE type='table';", -1, &stmt,
+                           nullptr) == SQLITE_OK) {
         while (sqlite3_step(stmt) == SQLITE_ROW) {
             const unsigned char* namePtr = sqlite3_column_text(stmt, 0);
             QString name = namePtr ? QString::fromUtf8((const char*)namePtr) : "";

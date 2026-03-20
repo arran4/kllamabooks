@@ -1,0 +1,79 @@
+--- src/BookDatabase.h
++++ src/BookDatabase.h
+@@ -53,6 +53,7 @@
+     int addDocument(int folderId, const QString& title, const QString& content);
+     bool updateDocument(int id, const QString& newTitle, const QString& newContent);
+     QList<DocumentNode> getDocuments(int folderId = -1) const; // -1 for all, 0 for root
++    bool deleteDocument(int id);
+
+     // Templates
+     int addTemplate(int folderId, const QString& title, const QString& content);
+@@ -64,11 +65,13 @@
+     int addDraft(int folderId, const QString& title, const QString& content);
+     bool updateDraft(int id, const QString& newTitle, const QString& newContent);
+     QList<DocumentNode> getDrafts(int folderId = -1) const;
++    bool deleteDraft(int id);
+
+     // Notes
+     int addNote(int folderId, const QString& title, const QString& content);
+     bool updateNote(int id, const QString& newTitle, const QString& newContent);
+     QList<NoteNode> getNotes(int folderId = -1) const;
++    bool deleteNote(int id);
+
+     // Folders
+     int addFolder(int parentId, const QString& name, const QString& type);
+--- src/BookDatabase.cpp
++++ src/BookDatabase.cpp
+@@ -370,6 +370,16 @@
+     return nodes;
+ }
+
++bool BookDatabase::deleteDocument(int id) {
++    if (!m_isOpen) return false;
++    const char* sql = "DELETE FROM documents WHERE id = ?;";
++    sqlite3_stmt* stmt;
++    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
++    sqlite3_bind_int(stmt, 1, id);
++    int rc = sqlite3_step(stmt);
++    sqlite3_finalize(stmt);
++    return rc == SQLITE_DONE;
++}
++
+ int BookDatabase::addNote(int folderId, const QString& title, const QString& content) {
+     if (!m_isOpen) return -1;
+
+@@ -419,6 +429,16 @@
+     return nodes;
+ }
+
++bool BookDatabase::deleteNote(int id) {
++    if (!m_isOpen) return false;
++    const char* sql = "DELETE FROM notes WHERE id = ?;";
++    sqlite3_stmt* stmt;
++    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
++    sqlite3_bind_int(stmt, 1, id);
++    int rc = sqlite3_step(stmt);
++    sqlite3_finalize(stmt);
++    return rc == SQLITE_DONE;
++}
++
+ int BookDatabase::addTemplate(int folderId, const QString& title, const QString& content) {
+     if (!m_isOpen) return -1;
+
+@@ -511,6 +531,16 @@
+     return nodes;
+ }
+
++bool BookDatabase::deleteDraft(int id) {
++    if (!m_isOpen) return false;
++    const char* sql = "DELETE FROM drafts WHERE id = ?;";
++    sqlite3_stmt* stmt;
++    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
++    sqlite3_bind_int(stmt, 1, id);
++    int rc = sqlite3_step(stmt);
++    sqlite3_finalize(stmt);
++    return rc == SQLITE_DONE;
++}
++
+ int BookDatabase::addFolder(int parentId, const QString& name, const QString& type) {
+     if (!m_isOpen) return -1;
