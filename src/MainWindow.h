@@ -61,6 +61,7 @@ class MainWindow : public KXmlGuiWindow {
     void onConnectionStatusChanged(bool isOk);
     void updateEndpointsList();
     void updateBreadcrumbs();
+    void refreshVfsExplorer();
     void onBreadcrumbClicked(const QString& type, int id);
     void onRenameCurrentItem();
     void onDiscardChanges();

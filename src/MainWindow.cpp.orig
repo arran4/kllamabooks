@@ -2319,29 +2319,6 @@ void MainWindow::showBookContextMenu(const QPoint& pos) {
     }
 }
 
-void MainWindow::refreshVfsExplorer() {
-    QModelIndex index = openBooksTree->currentIndex();
-    if (!index.isValid()) return;
-    QStandardItem* item = openBooksModel->itemFromIndex(index);
-    if (!item) return;
-
-    QString type = item->data(Qt::UserRole + 1).toString();
-    vfsModel->clear();
-
-    if (type != "book") {
-        QStandardItem* upItem = new QStandardItem(QIcon::fromTheme("go-up"), "..");
-        vfsModel->appendRow(upItem);
-    }
-
-    for (int i = 0; i < item->rowCount(); ++i) {
-        QStandardItem* childTreeItem = item->child(i);
-        QStandardItem* childItem = new QStandardItem(childTreeItem->icon(), childTreeItem->text());
-        childItem->setData(childTreeItem->data(Qt::UserRole), Qt::UserRole);
-        childItem->setData(childTreeItem->data(Qt::UserRole + 1), Qt::UserRole + 1);
-        vfsModel->appendRow(childItem);
-    }
-}
-
 void MainWindow::onOpenBooksSelectionChanged(const QItemSelection& selected, const QItemSelection& deselected) {
     if (selected.indexes().isEmpty()) {
         mainContentStack->setCurrentWidget(emptyView);
