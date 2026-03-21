@@ -164,6 +164,8 @@ class MainWindow : public KXmlGuiWindow {
     int currentAutoDraftId = 0;
     int currentChatFolderId = 0;
 
+    QMap<int, QString> m_chatInputDrafts;
+
     bool isCreatingNewChat = false;
     bool isCreatingNewDoc = false;
     bool isCreatingNewNote = false;

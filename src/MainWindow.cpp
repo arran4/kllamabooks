@@ -217,18 +217,30 @@ void MainWindow::setupUi() {
 
     docContainer = new QWidget(this);
     QVBoxLayout* docLayout = new QVBoxLayout(docContainer);
+    docLayout->setContentsMargins(0, 0, 0, 0);
+
+    QToolBar* docToolbar = new QToolBar(this);
+    saveDocBtn = new QPushButton(QIcon::fromTheme("document-save"), "Save Document", this);
+    QPushButton* backToDocsBtn = new QPushButton(QIcon::fromTheme("go-previous"), "Back to Documents", this);
+    docToolbar->addWidget(backToDocsBtn);
+    docToolbar->addWidget(saveDocBtn);
+    docLayout->addWidget(docToolbar);
+
     documentEditorView = new QTextEdit(this);
-    saveDocBtn = new QPushButton("Save Document", this);
-    QPushButton* backToDocsBtn = new QPushButton("Back to Documents", this);
-    QHBoxLayout* docBtnLayout = new QHBoxLayout();
-    docBtnLayout->addWidget(backToDocsBtn);
-    docBtnLayout->addWidget(saveDocBtn);
     docLayout->addWidget(documentEditorView);
-    docLayout->addLayout(docBtnLayout);
     mainContentStack->addWidget(docContainer);
 
     noteContainer = new QWidget(this);
     QVBoxLayout* noteLayout = new QVBoxLayout(noteContainer);
+    noteLayout->setContentsMargins(0, 0, 0, 0);
+
+    QToolBar* noteToolbar = new QToolBar(this);
+    saveNoteBtn = new QPushButton(QIcon::fromTheme("document-save"), "Save Note", this);
+    QPushButton* backToNotesBtn = new QPushButton(QIcon::fromTheme("go-previous"), "Back to Notes", this);
+    noteToolbar->addWidget(backToNotesBtn);
+    noteToolbar->addWidget(saveNoteBtn);
+    noteLayout->addWidget(noteToolbar);
+
     noteEditorView = new QTextEdit(this);
 
     QTimer* draftTimer = new QTimer(this);
@@ -240,13 +252,8 @@ void MainWindow::setupUi() {
     connect(noteEditorView, &QTextEdit::textChanged, this, [draftTimer, this]() {
         if (noteEditorView->hasFocus()) draftTimer->start();
     });
-    saveNoteBtn = new QPushButton("Save Note", this);
-    QPushButton* backToNotesBtn = new QPushButton("Back to Notes", this);
-    QHBoxLayout* noteBtnLayout = new QHBoxLayout();
-    noteBtnLayout->addWidget(backToNotesBtn);
-    noteBtnLayout->addWidget(saveNoteBtn);
+
     noteLayout->addWidget(noteEditorView);
-    noteLayout->addLayout(noteBtnLayout);
     mainContentStack->addWidget(noteContainer);
 
     connect(backToDocsBtn, &QPushButton::clicked, this, [this]() { mainContentStack->setCurrentWidget(emptyView); });
@@ -301,17 +308,15 @@ void MainWindow::setupUi() {
                 newId = currentDb->addDocument(folderId, currentTitle, documentEditorView->toPlainText());
 
             statusBar->showMessage(tr("Document saved."), 3000);
-            isCreatingNewDoc = false;
             if (currentAutoDraftId != 0) {
                 currentDb->deleteDraft(currentAutoDraftId);
                 currentAutoDraftId = 0;
             }
-            loadDocumentsAndNotes();
-            // Restore selection to the new item
-            QStandardItem* newItem = findItemInTree(newId, type);
-            if (newItem) {
-                openBooksTree->setCurrentIndex(newItem->index());
-            }
+            item->setData(newId, Qt::UserRole);
+            item->setData(type, Qt::UserRole + 1);
+            item->setText(currentTitle);
+            QFont f = item->font(); f.setItalic(false); item->setFont(f);
+            isCreatingNewDoc = false;
             return;
         }
         if (currentDocumentId == 0) return;
@@ -328,7 +333,7 @@ void MainWindow::setupUi() {
             currentAutoDraftId = 0;
         }
         statusBar->showMessage(tr("Document saved."), 3000);
-        loadDocumentsAndNotes();  // Refresh tree to show new title
+        if (item) item->setText(currentTitle);
     });
 
     connect(saveNoteBtn, &QPushButton::clicked, this, [this]() {
@@ -345,19 +350,19 @@ void MainWindow::setupUi() {
             }
             int newId = currentDb->addNote(folderId, currentTitle, noteEditorView->toPlainText());
             statusBar->showMessage(tr("Note saved."), 3000);
+            if (currentAutoDraftId != 0) { currentDb->deleteDraft(currentAutoDraftId); currentAutoDraftId = 0; }
+            item->setData(newId, Qt::UserRole);
+            item->setData("note", Qt::UserRole + 1);
+            item->setText(currentTitle);
+            QFont f = item->font(); f.setItalic(false); item->setFont(f);
             isCreatingNewNote = false;
-            loadDocumentsAndNotes();
-            // Restore selection to the new item
-            QStandardItem* newItem = findItemInTree(newId, "note");
-            if (newItem) {
-                openBooksTree->setCurrentIndex(newItem->index());
-            }
             return;
         }
         if (currentNoteId == 0) return;
         currentDb->updateNote(currentNoteId, currentTitle, noteEditorView->toPlainText());
+        if (currentAutoDraftId != 0) { currentDb->deleteDraft(currentAutoDraftId); currentAutoDraftId = 0; }
         statusBar->showMessage(tr("Note saved."), 3000);
-        loadDocumentsAndNotes();  // Refresh tree to show new title
+        if (item) item->setText(currentTitle);
     });
 
     chatWindowView = new QWidget(this);
@@ -477,13 +482,11 @@ void MainWindow::setupUi() {
     chatLayout->addWidget(chatSplitter);
 
     QHBoxLayout* inputLayout = new QHBoxLayout();
-    modelSelectButton = new QPushButton(QIcon::fromTheme("system-search"), "Select Model", this);
-    inputLayout->addWidget(modelSelectButton);
 
+    modelSelectButton = new QPushButton(QIcon::fromTheme("system-search"), "Select Model", this);
     toggleInputModeBtn = new QPushButton(QIcon::fromTheme("format-text-strikethrough"), "", this);
     toggleInputModeBtn->setToolTip(tr("Toggle Multi-line Input"));
     toggleInputModeBtn->setCheckable(true);
-    inputLayout->addWidget(toggleInputModeBtn);
 
     inputModeStack = new QStackedWidget(this);
     inputField = new ChatInputWidget(this);
@@ -675,7 +678,7 @@ void MainWindow::setupUi() {
         if (m_selectedModel.isEmpty() && !m_availableModels.isEmpty()) {
             m_selectedModel = m_availableModels.first();
             modelSelectButton->setText(m_selectedModel);
-            modelLabel->setText(tr("Model: %1").arg(m_selectedModel));
+            modelLabel->setText(tr("Model: %1 (Default)").arg(m_selectedModel));
         }
     });
 
@@ -686,7 +689,7 @@ void MainWindow::setupUi() {
             if (!selected.isEmpty()) {
                 m_selectedModel = selected;
                 modelSelectButton->setText(m_selectedModel);
-                modelLabel->setText(tr("Model: %1").arg(m_selectedModel));
+                modelLabel->setText(tr("Model: %1 (User Switch)").arg(m_selectedModel));
             }
         }
     });
@@ -735,6 +738,9 @@ void MainWindow::setupUi() {
 
     statusLabel = new QLabel(tr("Ready"), this);
     statusBar->addWidget(statusLabel);
+
+    statusBar->addPermanentWidget(modelSelectButton);
+    statusBar->addPermanentWidget(toggleInputModeBtn);
 
     modelLabel = new QLabel(tr("Model: Not Selected"), this);
     statusBar->addPermanentWidget(modelLabel);
@@ -839,6 +845,13 @@ void MainWindow::showInputSettingsMenu() {
     bookGroup->addAction(bDef);
     bookGroup->addAction(bEnter);
     bookGroup->addAction(bCtrl);
+
+    QAction* toggleMultiLineAction = menu.addAction(tr("Toggle Multi-line Mode"));
+    toggleMultiLineAction->setCheckable(true);
+    toggleMultiLineAction->setChecked(toggleInputModeBtn->isChecked());
+    connect(toggleMultiLineAction, &QAction::triggered, this, [this](bool checked) {
+        toggleInputModeBtn->setChecked(checked);
+    });
 
     QString currentBookSetting = "default";
     if (currentDb && currentDb->isOpen()) {
@@ -1205,6 +1218,10 @@ void MainWindow::showVfsContextMenu(const QPoint& pos) {
         item = vfsModel->itemFromIndex(index);
         if (item && item->text() != "..") {
             QString itemType = item->data(Qt::UserRole + 1).toString();
+            if (itemType == "chat_node") {
+                newChatAction = menu.addAction(QIcon::fromTheme("chat-message-new"), "New Chat");
+                menu.addSeparator();
+            }
             if (itemType == "template") {
                 QAction* loadTemplateAction = menu.addAction(QIcon::fromTheme("document-import"), "Load Template");
                 QAction* sel = menu.exec(vfsExplorer->viewport()->mapToGlobal(pos));
@@ -1612,6 +1629,10 @@ void MainWindow::populateMessageForks(QStandardItem* parentItem, int parentId, c
 }
 
 void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& allMessages) {
+    if (currentLastNodeId != 0) {
+        m_chatInputDrafts[currentLastNodeId] = inputModeStack->currentIndex() == 0 ? inputField->toPlainText() : multiLineInput->toPlainText();
+    }
+
     if (currentDb) {
         currentDb->dismissNotificationByMessageId(tailNodeId);
         updateNotificationStatus();
@@ -1713,6 +1734,14 @@ void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& 
 
     chatTextArea->blockSignals(false);
     if (discardChangesBtn) discardChangesBtn->hide();
+
+    QString savedDraft = m_chatInputDrafts.value(tailNodeId);
+    if (inputModeStack->currentIndex() == 0) {
+        inputField->setPlainText(savedDraft);
+    } else {
+        multiLineInput->setPlainText(savedDraft);
+    }
+
     updateBreadcrumbs();
 }
 
@@ -1943,23 +1972,32 @@ void MainWindow::onSendMessage() {
     QueueManager::instance().enqueuePrompt(aiId, m_selectedModel, text);
 
     // 4. Refresh tree if needed (especially for new chats)
-    QStandardItem* chatsFolder = nullptr;
-    if (openBooksModel && openBooksModel->rowCount() > 0) {
-        QStandardItem* bookItem = openBooksModel->item(0);  // Assume first for now or find correct one
-        for (int j = 0; j < bookItem->rowCount(); ++j) {
-            if (bookItem->child(j)->data(Qt::UserRole + 1).toString() == "chats_folder") {
-                chatsFolder = bookItem->child(j);
-                break;
+    if (isCreatingNewChat) {
+        QModelIndex idx = openBooksTree->currentIndex();
+        QStandardItem* item = openBooksModel->itemFromIndex(idx);
+        if (item && item->data(Qt::UserRole+1).toString() == "chat_session") {
+            item->setData(aiId, Qt::UserRole);
+            item->setData("chat_node", Qt::UserRole+1);
+            item->setText(text.left(30));
+            QFont f = item->font(); f.setItalic(false); item->setFont(f);
+        }
+    } else {
+        QStandardItem* item = findItemInTree(parentId, "chat_node");
+        if (item) {
+            if (item->rowCount() > 0) {
+                QStandardItem* branchItem = new QStandardItem(QIcon::fromTheme("text-x-generic"), text.left(30));
+                branchItem->setData(aiId, Qt::UserRole);
+                branchItem->setData("chat_node", Qt::UserRole+1);
+                item->appendRow(branchItem);
+            } else {
+                item->setData(aiId, Qt::UserRole);
+                item->setText(text.left(30));
             }
         }
     }
-    if (chatsFolder) {
-        chatsFolder->removeRows(0, chatsFolder->rowCount());
-        populateChatFolders(chatsFolder, 0, currentDb->getMessages(), currentDb.get());
-        openBooksTree->expandAll();
-    }
 
     // 5. Update view
+    m_chatInputDrafts.remove(currentLastNodeId); // clear the draft after sending
     updateLinearChatView(currentLastNodeId, currentDb->getMessages());
     statusBar->showMessage(tr("Request queued."), 3000);
 }
@@ -2468,9 +2506,10 @@ void MainWindow::showOpenBookContextMenu(const QPoint& pos) {
             }
         }
     } else if (type == "chats_folder" || type == "docs_folder" || type == "notes_folder" ||
-               type == "templates_folder" || type == "drafts_folder") {
+               type == "templates_folder" || type == "drafts_folder" || (type == "chat_node" && item->rowCount() > 0)) {
         QMenu menu(this);
         QString actionName = "New Item";
+        if (type == "chat_node") actionName = "New Chat";
         if (type == "chats_folder")
             actionName = "New Chat";
         else if (type == "docs_folder")
