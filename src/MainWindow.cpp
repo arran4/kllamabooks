@@ -1799,25 +1799,27 @@ void MainWindow::updateBreadcrumbs() {
     if (!treeItem) return;
 
     QString type = treeItem->data(Qt::UserRole + 1).toString();
-    QStringList parts;
-    if (type == "book") {
-        parts << treeItem->text();
-    } else {
-        parts << openBooksModel->item(0)->text();  // Book name
-        if (type.contains("folder")) {
-            parts << treeItem->text();
-        } else {
-            parts << treeItem->parent()->text() << treeItem->text();
-        }
+
+    QList<QStandardItem*> pathItems;
+    QStandardItem* curr = treeItem;
+    while (curr) {
+        pathItems.prepend(curr);
+        curr = curr->parent();
     }
 
-    for (int i = 0; i < parts.size(); ++i) {
-        if (i < parts.size() - 1) {
-            QLabel* label = new QLabel(parts[i], this);
-            breadcrumbLayout->addWidget(label);
+    for (int i = 0; i < pathItems.size(); ++i) {
+        QStandardItem* nodeItem = pathItems[i];
+        if (i < pathItems.size() - 1) {
+            QPushButton* btn = new QPushButton(nodeItem->text(), this);
+            btn->setFlat(true);
+            btn->setCursor(Qt::PointingHandCursor);
+            connect(btn, &QPushButton::clicked, this, [this, nodeItem]() {
+                openBooksTree->setCurrentIndex(nodeItem->index());
+            });
+            breadcrumbLayout->addWidget(btn);
             breadcrumbLayout->addWidget(new QLabel(">", this));
         } else {
-            QLineEdit* edit = new QLineEdit(parts[i], this);
+            QLineEdit* edit = new QLineEdit(nodeItem->text(), this);
             edit->setFrame(false);
             edit->setStyleSheet("QLineEdit { background: transparent; }");
             QFont f = edit->font();
@@ -2978,13 +2980,21 @@ bool MainWindow::moveItemToFolder(QStandardItem* draggedItem, QStandardItem* tar
         compatible = true;
     } else if (itemType.endsWith("_folder") && targetType == itemType) {
         if (db->moveFolder(itemId, targetFolderId)) {
-            loadDocumentsAndNotes();
+            QStandardItem* parent = draggedItem->parent();
+            if (parent) {
+                QList<QStandardItem*> taken = parent->takeRow(draggedItem->row());
+                targetItem->appendRow(taken);
+            }
             return true;
         }
     }
 
     if (compatible && db->moveItem(table, itemId, targetFolderId)) {
-        loadDocumentsAndNotes();  // This should be updated for the specific book if needed, but for now it's okay
+        QStandardItem* parent = draggedItem->parent();
+        if (parent) {
+            QList<QStandardItem*> taken = parent->takeRow(draggedItem->row());
+            targetItem->appendRow(taken);
+        }
         return true;
     }
     return false;
