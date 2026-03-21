@@ -2069,7 +2069,7 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
     } else if (event->type() == QEvent::DragMove) {
         QDragMoveEvent* dragEvent = static_cast<QDragMoveEvent*>(event);
         if (obj == openBooksTree) {
-            QModelIndex index = openBooksTree->indexAt(dragEvent->position().toPoint());
+            QModelIndex index = openBooksTree->indexAt(dragEvent->pos());
             if (index.isValid()) {
                 QStandardItem* targetItem = openBooksModel->itemFromIndex(index);
                 QString targetType = targetItem->data(Qt::UserRole + 1).toString();
@@ -2079,7 +2079,7 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
                 }
             }
         } else if (obj == vfsExplorer) {
-            QModelIndex index = vfsExplorer->indexAt(dragEvent->position().toPoint());
+            QModelIndex index = vfsExplorer->indexAt(dragEvent->pos());
             if (index.isValid()) {
                 QStandardItem* targetItem = vfsModel->itemFromIndex(index);
                 QString targetType = targetItem->data(Qt::UserRole + 1).toString();
@@ -2111,7 +2111,7 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
             QAbstractItemView* targetView = qobject_cast<QAbstractItemView*>(obj);
             QAbstractItemView* sourceView = qobject_cast<QAbstractItemView*>(dropEvent->source());
 
-            QModelIndex targetIndex = targetView->indexAt(dropEvent->position().toPoint());
+            QModelIndex targetIndex = targetView->indexAt(dropEvent->pos());
             QStandardItem* targetItem = nullptr;
 
             if (targetIndex.isValid()) {
