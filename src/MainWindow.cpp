@@ -2168,6 +2168,13 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
         }
     } else if (event->type() == QEvent::Drop) {
         QDropEvent* dropEvent = static_cast<QDropEvent*>(event);
+
+        QWidget* sourceWidget = qobject_cast<QWidget*>(dropEvent->source());
+        QAbstractItemView* sourceView = qobject_cast<QAbstractItemView*>(sourceWidget);
+        if (!sourceView && sourceWidget && sourceWidget->parentWidget()) {
+            sourceView = qobject_cast<QAbstractItemView*>(sourceWidget->parentWidget());
+        }
+
         if (dropEvent->mimeData()->hasUrls()) {
             // external files
             QList<QUrl> urls = dropEvent->mimeData()->urls();
@@ -2180,16 +2187,9 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
                     return true;
                 }
             }
-
-            QWidget* sourceWidget = qobject_cast<QWidget*>(dropEvent->source());
-            QAbstractItemView* sourceView = qobject_cast<QAbstractItemView*>(sourceWidget);
-            if (!sourceView && sourceWidget && sourceWidget->parentWidget()) {
-                sourceView = qobject_cast<QAbstractItemView*>(sourceWidget->parentWidget());
-            }
-
         } else if ((obj == openBooksTree || obj == openBooksTree->viewport() || obj == vfsExplorer || obj == vfsExplorer->viewport()) &&
                    (sourceView == openBooksTree || sourceView == vfsExplorer)) {
-            QAbstractItemView* targetView = (obj == openBooksTree || obj == openBooksTree->viewport()) ? openBooksTree : vfsExplorer;
+            QAbstractItemView* targetView = (obj == openBooksTree || obj == openBooksTree->viewport()) ? static_cast<QAbstractItemView*>(openBooksTree) : static_cast<QAbstractItemView*>(vfsExplorer);
 
             QModelIndex targetIndex = targetView->indexAt(dropEvent->position().toPoint());
             QStandardItem* targetItem = nullptr;
