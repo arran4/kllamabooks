@@ -2176,8 +2176,27 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
             QStandardItem* targetItem = nullptr;
 
             if (targetIndex.isValid()) {
-                targetItem = (obj == openBooksTree) ? openBooksModel->itemFromIndex(targetIndex)
-                                                    : vfsModel->itemFromIndex(targetIndex);
+                if (obj == openBooksTree) {
+                    targetItem = openBooksModel->itemFromIndex(targetIndex);
+                } else {
+                    QStandardItem* vfsItem = vfsModel->itemFromIndex(targetIndex);
+                    if (vfsItem && vfsItem->text() == "..") {
+                        QModelIndex treeIndex = openBooksTree->currentIndex();
+                        if (treeIndex.isValid()) {
+                            QStandardItem* currentFolder = openBooksModel->itemFromIndex(treeIndex);
+                            if (currentFolder && currentFolder->parent()) targetItem = currentFolder->parent();
+                        }
+                    } else if (vfsItem) {
+                        int id = vfsItem->data(Qt::UserRole).toInt();
+                        QString type = vfsItem->data(Qt::UserRole + 1).toString();
+                        QModelIndex treeIndex = openBooksTree->currentIndex();
+                        if (treeIndex.isValid()) {
+                            QStandardItem* book = openBooksModel->itemFromIndex(treeIndex);
+                            while (book && book->parent()) book = book->parent();
+                            targetItem = findItemRecursive(book, id, type);
+                        }
+                    }
+                }
             } else if (obj == vfsExplorer) {
                 // Background drop in VFS explorer - move to current viewing folder
                 QModelIndex treeIndex = openBooksTree->currentIndex();
