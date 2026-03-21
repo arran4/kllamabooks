@@ -96,6 +96,7 @@ void MainWindow::setupUi() {
     openBooksTree->setEditTriggers(QAbstractItemView::NoEditTriggers);
     openBooksTree->setDropIndicatorShown(true);
     openBooksTree->installEventFilter(this);
+    openBooksTree->viewport()->installEventFilter(this);
     openBooksTree->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(openBooksTree, &QWidget::customContextMenuRequested, this, &MainWindow::showOpenBookContextMenu);
 
@@ -141,6 +142,7 @@ void MainWindow::setupUi() {
     bookList->setEditTriggers(QAbstractItemView::NoEditTriggers);
     bookList->setDragDropMode(QAbstractItemView::DragDrop);
     bookList->installEventFilter(this);
+    bookList->viewport()->installEventFilter(this);
     bookList->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(bookList, &QWidget::customContextMenuRequested, this, &MainWindow::showBookContextMenu);
 
@@ -168,6 +170,7 @@ void MainWindow::setupUi() {
     vfsExplorer->setEditTriggers(QAbstractItemView::NoEditTriggers);
     vfsExplorer->setContextMenuPolicy(Qt::CustomContextMenu);
     vfsExplorer->installEventFilter(this);
+    vfsExplorer->viewport()->installEventFilter(this);
     mainContentStack->addWidget(vfsExplorer);
 
     connect(vfsExplorer, &QListView::doubleClicked, this, [this](const QModelIndex& index) {
@@ -2115,11 +2118,11 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
             dragEvent->acceptProposedAction();
             return true;
         }
-        if (obj == openBooksTree && dragEvent->source() == bookList) {
+        if ((obj == openBooksTree || obj == openBooksTree->viewport()) && dragEvent->source() == bookList) {
             dragEvent->acceptProposedAction();
             return true;
         }
-        if (obj == bookList && dragEvent->source() == openBooksTree) {
+        if ((obj == bookList || obj == bookList->viewport()) && dragEvent->source() == openBooksTree) {
             dragEvent->acceptProposedAction();
             return true;
         }
@@ -2129,7 +2132,7 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
         }
     } else if (event->type() == QEvent::DragMove) {
         QDragMoveEvent* dragEvent = static_cast<QDragMoveEvent*>(event);
-        if (obj == openBooksTree) {
+        if (obj == openBooksTree || obj == openBooksTree->viewport()) {
             QModelIndex index = openBooksTree->indexAt(dragEvent->position().toPoint());
             if (index.isValid()) {
                 QStandardItem* targetItem = openBooksModel->itemFromIndex(index);
@@ -2139,7 +2142,7 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
                     return true;
                 }
             }
-        } else if (obj == vfsExplorer) {
+        } else if (obj == vfsExplorer || obj == vfsExplorer->viewport()) {
             QModelIndex index = vfsExplorer->indexAt(dragEvent->position().toPoint());
             if (index.isValid()) {
                 QStandardItem* targetItem = vfsModel->itemFromIndex(index);

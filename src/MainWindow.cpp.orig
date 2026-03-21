@@ -2144,8 +2144,11 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
             if (index.isValid()) {
                 QStandardItem* targetItem = vfsModel->itemFromIndex(index);
                 QString targetType = targetItem->data(Qt::UserRole + 1).toString();
-                if (targetType.endsWith("_folder")) {
+                if (targetType.endsWith("_folder") || targetItem->text() == "..") {
                     dragEvent->acceptProposedAction();
+                    return true;
+                } else {
+                    dragEvent->ignore();
                     return true;
                 }
             } else {
@@ -2176,8 +2179,27 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
             QStandardItem* targetItem = nullptr;
 
             if (targetIndex.isValid()) {
-                targetItem = (obj == openBooksTree) ? openBooksModel->itemFromIndex(targetIndex)
-                                                    : vfsModel->itemFromIndex(targetIndex);
+                if (obj == openBooksTree) {
+                    targetItem = openBooksModel->itemFromIndex(targetIndex);
+                } else {
+                    QStandardItem* vfsItem = vfsModel->itemFromIndex(targetIndex);
+                    if (vfsItem && vfsItem->text() == "..") {
+                        QModelIndex treeIndex = openBooksTree->currentIndex();
+                        if (treeIndex.isValid()) {
+                            QStandardItem* currentFolder = openBooksModel->itemFromIndex(treeIndex);
+                            if (currentFolder && currentFolder->parent()) targetItem = currentFolder->parent();
+                        }
+                    } else if (vfsItem) {
+                        int id = vfsItem->data(Qt::UserRole).toInt();
+                        QString type = vfsItem->data(Qt::UserRole + 1).toString();
+                        QModelIndex treeIndex = openBooksTree->currentIndex();
+                        if (treeIndex.isValid()) {
+                            QStandardItem* book = openBooksModel->itemFromIndex(treeIndex);
+                            while (book && book->parent()) book = book->parent();
+                            targetItem = findItemRecursive(book, id, type);
+                        }
+                    }
+                }
             } else if (obj == vfsExplorer) {
                 // Background drop in VFS explorer - move to current viewing folder
                 QModelIndex treeIndex = openBooksTree->currentIndex();
@@ -2208,8 +2230,10 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
                     if (draggedItem &&
                         moveItemToFolder(draggedItem, targetItem, dropEvent->dropAction() == Qt::CopyAction)) {
                         dropEvent->acceptProposedAction();
-                        return true;
+                    } else {
+                        dropEvent->ignore();
                     }
+                    return true;
                 }
             }
         } else if (obj == openBooksTree && dropEvent->source() == bookList) {
@@ -2316,6 +2340,29 @@ void MainWindow::showBookContextMenu(const QPoint& pos) {
         settings.setValue("favorites", favorites);
         // Re-sort or reload list to show favorites at top
         loadBooks();
+    }
+}
+
+void MainWindow::refreshVfsExplorer() {
+    QModelIndex index = openBooksTree->currentIndex();
+    if (!index.isValid()) return;
+    QStandardItem* item = openBooksModel->itemFromIndex(index);
+    if (!item) return;
+
+    QString type = item->data(Qt::UserRole + 1).toString();
+    vfsModel->clear();
+
+    if (type != "book") {
+        QStandardItem* upItem = new QStandardItem(QIcon::fromTheme("go-up"), "..");
+        vfsModel->appendRow(upItem);
+    }
+
+    for (int i = 0; i < item->rowCount(); ++i) {
+        QStandardItem* childTreeItem = item->child(i);
+        QStandardItem* childItem = new QStandardItem(childTreeItem->icon(), childTreeItem->text());
+        childItem->setData(childTreeItem->data(Qt::UserRole), Qt::UserRole);
+        childItem->setData(childTreeItem->data(Qt::UserRole + 1), Qt::UserRole + 1);
+        vfsModel->appendRow(childItem);
     }
 }
 
