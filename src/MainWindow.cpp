@@ -2144,8 +2144,11 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
             if (index.isValid()) {
                 QStandardItem* targetItem = vfsModel->itemFromIndex(index);
                 QString targetType = targetItem->data(Qt::UserRole + 1).toString();
-                if (targetType.endsWith("_folder")) {
+                if (targetType.endsWith("_folder") || targetItem->text() == "..") {
                     dragEvent->acceptProposedAction();
+                    return true;
+                } else {
+                    dragEvent->ignore();
                     return true;
                 }
             } else {
@@ -2227,8 +2230,10 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
                     if (draggedItem &&
                         moveItemToFolder(draggedItem, targetItem, dropEvent->dropAction() == Qt::CopyAction)) {
                         dropEvent->acceptProposedAction();
-                        return true;
+                    } else {
+                        dropEvent->ignore();
                     }
+                    return true;
                 }
             }
         } else if (obj == openBooksTree && dropEvent->source() == bookList) {
