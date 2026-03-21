@@ -267,13 +267,14 @@ void MainWindow::setupUi() {
         else
             title = "Draft of: " + title;
 
-        QString textToSave = (mainContentStack->currentWidget() == docContainer) ? documentEditorView->toPlainText() : noteEditorView->toPlainText();
         if (currentAutoDraftId == 0) {
             currentAutoDraftId = currentDb->addDraft(
-                0, title, textToSave);
+                0, title,
+                documentEditorView->hasFocus() ? documentEditorView->toPlainText() : noteEditorView->toPlainText());
         } else {
             currentDb->updateDraft(
-                currentAutoDraftId, title, textToSave);
+                currentAutoDraftId, title,
+                documentEditorView->hasFocus() ? documentEditorView->toPlainText() : noteEditorView->toPlainText());
         }
     });
 
