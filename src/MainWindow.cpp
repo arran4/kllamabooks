@@ -2252,6 +2252,8 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
                     return true;
                 }
             }
+            dropEvent->ignore();
+            return true;
         } else if ((obj == openBooksTree || obj == openBooksTree->viewport()) && dropEvent->source() == bookList) {
             QListWidgetItem* item = bookList->currentItem();
             if (item) {
