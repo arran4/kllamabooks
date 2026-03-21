@@ -227,6 +227,10 @@ void MainWindow::setupUi() {
     docLayout->addLayout(docBtnLayout);
     mainContentStack->addWidget(docContainer);
 
+    noteContainer = new QWidget(this);
+    QVBoxLayout* noteLayout = new QVBoxLayout(noteContainer);
+    noteEditorView = new QTextEdit(this);
+
     QTimer* draftTimer = new QTimer(this);
     draftTimer->setSingleShot(true);
     draftTimer->setInterval(2000);
@@ -236,10 +240,6 @@ void MainWindow::setupUi() {
     connect(noteEditorView, &QTextEdit::textChanged, this, [draftTimer, this]() {
         if (noteEditorView->hasFocus()) draftTimer->start();
     });
-
-    noteContainer = new QWidget(this);
-    QVBoxLayout* noteLayout = new QVBoxLayout(noteContainer);
-    noteEditorView = new QTextEdit(this);
     saveNoteBtn = new QPushButton("Save Note", this);
     QPushButton* backToNotesBtn = new QPushButton("Back to Notes", this);
     QHBoxLayout* noteBtnLayout = new QHBoxLayout();
