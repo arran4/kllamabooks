@@ -1,1 +1,0 @@
-g++ -fsyntax-only -Isrc src/*.cpp -std=c++17 -I/usr/include/qt6 -I/usr/include/qt6/QtCore -I/usr/include/qt6/QtWidgets -I/usr/include/qt6/QtGui -fPIC
