@@ -2114,6 +2114,13 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
 
     if (event->type() == QEvent::DragEnter) {
         QDragEnterEvent* dragEvent = static_cast<QDragEnterEvent*>(event);
+
+        QWidget* sourceWidget = qobject_cast<QWidget*>(dragEvent->source());
+        QAbstractItemView* sourceView = qobject_cast<QAbstractItemView*>(sourceWidget);
+        if (!sourceView && sourceWidget && sourceWidget->parentWidget()) {
+            sourceView = qobject_cast<QAbstractItemView*>(sourceWidget->parentWidget());
+        }
+
         if (dragEvent->mimeData()->hasUrls()) {
             dragEvent->acceptProposedAction();
             return true;
@@ -2122,11 +2129,11 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
             dragEvent->acceptProposedAction();
             return true;
         }
-        if ((obj == bookList || obj == bookList->viewport()) && dragEvent->source() == openBooksTree) {
+        if ((obj == bookList || obj == bookList->viewport()) && sourceView == openBooksTree) {
             dragEvent->acceptProposedAction();
             return true;
         }
-        if (dragEvent->source() == openBooksTree || dragEvent->source() == vfsExplorer) {
+        if (sourceView == openBooksTree || sourceView == vfsExplorer) {
             dragEvent->acceptProposedAction();
             return true;
         }
@@ -2173,10 +2180,16 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
                     return true;
                 }
             }
-        } else if ((obj == openBooksTree || obj == vfsExplorer) &&
-                   (dropEvent->source() == openBooksTree || dropEvent->source() == vfsExplorer)) {
-            QAbstractItemView* targetView = qobject_cast<QAbstractItemView*>(obj);
-            QAbstractItemView* sourceView = qobject_cast<QAbstractItemView*>(dropEvent->source());
+
+            QWidget* sourceWidget = qobject_cast<QWidget*>(dropEvent->source());
+            QAbstractItemView* sourceView = qobject_cast<QAbstractItemView*>(sourceWidget);
+            if (!sourceView && sourceWidget && sourceWidget->parentWidget()) {
+                sourceView = qobject_cast<QAbstractItemView*>(sourceWidget->parentWidget());
+            }
+
+        } else if ((obj == openBooksTree || obj == openBooksTree->viewport() || obj == vfsExplorer || obj == vfsExplorer->viewport()) &&
+                   (sourceView == openBooksTree || sourceView == vfsExplorer)) {
+            QAbstractItemView* targetView = (obj == openBooksTree || obj == openBooksTree->viewport()) ? openBooksTree : vfsExplorer;
 
             QModelIndex targetIndex = targetView->indexAt(dropEvent->position().toPoint());
             QStandardItem* targetItem = nullptr;
@@ -2213,9 +2226,9 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
                 QModelIndex sourceIndex = sourceView->currentIndex();
                 if (sourceIndex.isValid()) {
                     QStandardItem* draggedItem = nullptr;
-                    if (dropEvent->source() == openBooksTree) {
+                    if (sourceView == openBooksTree) {
                         draggedItem = openBooksModel->itemFromIndex(sourceIndex);
-                    } else if (dropEvent->source() == vfsExplorer) {
+                    } else if (sourceView == vfsExplorer) {
                         QStandardItem* vfsItem = vfsModel->itemFromIndex(sourceIndex);
                         if (vfsItem && vfsItem->text() != "..") {
                             int id = vfsItem->data(Qt::UserRole).toInt();
@@ -2239,7 +2252,7 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
                     return true;
                 }
             }
-        } else if (obj == openBooksTree && dropEvent->source() == bookList) {
+        } else if ((obj == openBooksTree || obj == openBooksTree->viewport()) && dropEvent->source() == bookList) {
             QListWidgetItem* item = bookList->currentItem();
             if (item) {
                 QString fileName = item->text();
@@ -2247,7 +2260,7 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
                 dropEvent->acceptProposedAction();
                 return true;
             }
-        } else if (obj == bookList && dropEvent->source() == openBooksTree) {
+        } else if ((obj == bookList || obj == bookList->viewport()) && sourceView == openBooksTree) {
             QModelIndex index = openBooksTree->currentIndex();
             if (index.isValid()) {
                 QStandardItem* item = openBooksModel->itemFromIndex(index);
