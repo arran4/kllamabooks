@@ -8,3 +8,5 @@ cmake_install.cmake
 Makefile
 kllamabooks
 *.db
+build_test/
+build_real/
