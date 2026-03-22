@@ -86,6 +86,7 @@ void MainWindow::setupUi() {
     leftSplitter = new QSplitter(Qt::Vertical, this);
 
     openBooksTree = new QTreeView(this);
+    openBooksTree->setMinimumSize(0, 0);
     openBooksModel = new QStandardItemModel(this);
     openBooksTree->setModel(openBooksModel);
     openBooksTree->setHeaderHidden(true);
@@ -137,6 +138,7 @@ void MainWindow::setupUi() {
     });
 
     bookList = new QListWidget(this);
+    bookList->setMinimumSize(0, 0);
     bookList->setAcceptDrops(true);
     bookList->setDragEnabled(true);
     bookList->setEditTriggers(QAbstractItemView::NoEditTriggers);
