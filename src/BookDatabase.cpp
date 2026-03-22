@@ -404,7 +404,7 @@ int BookDatabase::getRootMessageId(int messageId) const {
     return currentId;
 }
 
-QString BookDatabase::getInheritedSystemPrompt(int messageId) const {
+QString BookDatabase::getInheritedSetting(int messageId, const QString& key) const {
     if (!m_isOpen) return QString();
 
     int currentId = messageId;
@@ -414,11 +414,11 @@ QString BookDatabase::getInheritedSystemPrompt(int messageId) const {
         return QString();
     }
 
-    QString inheritedPrompt;
+    QString inheritedValue;
     while (currentId > 0) {
-        QString currentPrompt = getSetting("chat", currentId, "systemPrompt", "");
-        if (!currentPrompt.isEmpty()) {
-            inheritedPrompt = currentPrompt;
+        QString currentValue = getSetting("chat", currentId, key, "");
+        if (!currentValue.isEmpty() && currentValue != "default") {
+            inheritedValue = currentValue;
             break;
         }
 
@@ -435,7 +435,7 @@ QString BookDatabase::getInheritedSystemPrompt(int messageId) const {
         currentId = parentId;
     }
     sqlite3_finalize(stmt);
-    return inheritedPrompt;
+    return inheritedValue;
 }
 
 QList<MessageNode> BookDatabase::getMessages() const {

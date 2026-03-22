@@ -78,7 +78,7 @@ class BookDatabase {
     bool deleteMessage(int id);
     QList<MessageNode> getMessages() const;
     int getRootMessageId(int messageId) const;
-    QString getInheritedSystemPrompt(int messageId) const;
+    QString getInheritedSetting(int messageId, const QString& key) const;
 
     // Settings
     void setSetting(const QString& scope, int targetId, const QString& key, const QString& value);

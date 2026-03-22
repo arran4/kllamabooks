@@ -920,22 +920,16 @@ void MainWindow::showInputSettingsMenu() {
 
     QString currentChatSetting = "default";
 
-    // Determine the root ID of the current chat path
-    int rootId = 0;
-    if (currentDb && currentDb->isOpen() && currentLastNodeId != 0) {
-        QList<MessageNode> msgs = currentDb->getMessages();
-        QList<MessageNode> path;
-        getPathToRoot(currentLastNodeId, msgs, path);
-        if (!path.isEmpty()) {
-            rootId = path.first().id;  // The root node of this chat
+    if (currentDb && currentDb->isOpen()) {
+        if (currentLastNodeId != 0) {
+            currentChatSetting = currentDb->getSetting("chat", currentLastNodeId, "sendBehavior", "default");
+        } else {
+            currentChatSetting = m_newChatSendBehavior;
         }
-    }
-
-    if (currentDb && currentDb->isOpen() && rootId != 0) {
-        currentChatSetting = currentDb->getSetting("chat", rootId, "sendBehavior", "default");
     } else if (!currentDb || !currentDb->isOpen()) {
         chatMenu->setEnabled(false);
     }
+
     if (currentChatSetting == "EnterToSend")
         cEnter->setChecked(true);
     else if (currentChatSetting == "CtrlEnterToSend")
@@ -943,16 +937,21 @@ void MainWindow::showInputSettingsMenu() {
     else
         cDef->setChecked(true);
 
-    connect(chatGroup, &QActionGroup::triggered, this, [this, rootId](QAction* action) {
+    connect(chatGroup, &QActionGroup::triggered, this, [this](QAction* action) {
         if (currentDb && currentDb->isOpen()) {
-            currentDb->setSetting("chat", rootId, "sendBehavior", action->data().toString());
+            QString newBehavior = action->data().toString();
+            if (currentLastNodeId == 0) {
+                m_newChatSendBehavior = newBehavior;
+            } else {
+                currentDb->setSetting("chat", currentLastNodeId, "sendBehavior", newBehavior);
+            }
             updateInputBehavior();
         }
     });
 
     QAction* editSystemPromptAction = chatMenu->addAction(tr("Chat Settings..."));
-    connect(editSystemPromptAction, &QAction::triggered, this, [this, rootId]() {
-        showChatSettingsDialog(rootId);
+    connect(editSystemPromptAction, &QAction::triggered, this, [this]() {
+        showChatSettingsDialog(currentLastNodeId);
     });
 
     menu.addSeparator();
@@ -1043,20 +1042,27 @@ void MainWindow::showChatSettingsDialog(int messageId) {
     if (!currentDb || !currentDb->isOpen()) return;
 
     QString currentPrompt;
+    QString currentBehavior = "default";
     if (messageId == 0) {
         currentPrompt = m_newChatSystemPrompt;
+        currentBehavior = m_newChatSendBehavior;
     } else {
         currentPrompt = currentDb->getSetting("chat", messageId, "systemPrompt", "");
+        currentBehavior = currentDb->getSetting("chat", messageId, "sendBehavior", "default");
     }
 
-    ChatSettingsDialog dlg(currentPrompt, this);
+    ChatSettingsDialog dlg(currentPrompt, currentBehavior, this);
     if (dlg.exec() == QDialog::Accepted) {
         QString newPrompt = dlg.getSystemPrompt();
+        QString newBehavior = dlg.getSendBehavior();
         if (messageId == 0) {
             m_newChatSystemPrompt = newPrompt;
+            m_newChatSendBehavior = newBehavior;
         } else {
             currentDb->setSetting("chat", messageId, "systemPrompt", newPrompt);
+            currentDb->setSetting("chat", messageId, "sendBehavior", newBehavior);
         }
+        updateInputBehavior();
     }
 }
 
@@ -1071,17 +1077,11 @@ void MainWindow::updateInputBehavior() {
 
     if (currentDb && currentDb->isOpen()) {
         bookSetting = currentDb->getSetting("book", 0, "sendBehavior", "default");
-        int rootId = 0;
         if (currentLastNodeId != 0) {
-            QList<MessageNode> msgs = currentDb->getMessages();
-            QList<MessageNode> path;
-            getPathToRoot(currentLastNodeId, msgs, path);
-            if (!path.isEmpty()) {
-                rootId = path.first().id;
+            chatSetting = currentDb->getInheritedSetting(currentLastNodeId, "sendBehavior");
+            if (chatSetting.isEmpty()) {
+                chatSetting = "default";
             }
-        }
-        if (rootId != 0) {
-            chatSetting = currentDb->getSetting("chat", rootId, "sendBehavior", "default");
         }
     }
 
@@ -1691,6 +1691,7 @@ void MainWindow::populateMessageForks(QStandardItem* parentItem, int parentId, c
 
 void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& allMessages) {
     m_newChatSystemPrompt.clear();
+    m_newChatSendBehavior = "default";
 
     if (currentLastNodeId != 0) {
         m_chatInputDrafts[currentLastNodeId] = inputModeStack->currentIndex() == 0 ? inputField->toPlainText() : multiLineInput->toPlainText();
@@ -2029,9 +2030,15 @@ void MainWindow::onSendMessage() {
     // 1. Add User message
     int userMsgId = currentDb->addMessage(parentId, text, "user", folderId);
 
-    if (parentId == 0 && !m_newChatSystemPrompt.isEmpty()) {
-        currentDb->setSetting("chat", userMsgId, "systemPrompt", m_newChatSystemPrompt);
-        m_newChatSystemPrompt.clear();
+    if (parentId == 0) {
+        if (!m_newChatSystemPrompt.isEmpty()) {
+            currentDb->setSetting("chat", userMsgId, "systemPrompt", m_newChatSystemPrompt);
+            m_newChatSystemPrompt.clear();
+        }
+        if (m_newChatSendBehavior != "default") {
+            currentDb->setSetting("chat", userMsgId, "sendBehavior", m_newChatSendBehavior);
+            m_newChatSendBehavior = "default";
+        }
     }
 
     // 2. Add Assistant placeholder

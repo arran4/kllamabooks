@@ -168,6 +168,7 @@ class MainWindow : public KXmlGuiWindow {
 
     QMap<int, QString> m_chatInputDrafts;
     QString m_newChatSystemPrompt;
+    QString m_newChatSendBehavior = "default";
 
     bool isCreatingNewChat = false;
     bool isCreatingNewDoc = false;

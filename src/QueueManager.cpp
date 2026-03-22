@@ -158,7 +158,7 @@ found:
     emit processingStarted(m_currentDb, m_currentItem.messageId);
     emit queueChanged();
 
-    QString sysPrompt = m_currentDb->getInheritedSystemPrompt(m_currentItem.messageId);
+    QString sysPrompt = m_currentDb->getInheritedSetting(m_currentItem.messageId, "systemPrompt");
     if (sysPrompt.isEmpty()) {
         sysPrompt = m_currentDb->getSetting("book", 0, "systemPrompt", "");
     }
