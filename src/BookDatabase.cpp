@@ -377,6 +377,33 @@ bool BookDatabase::deleteMessage(int id) {
     return rc == SQLITE_DONE;
 }
 
+int BookDatabase::getRootMessageId(int messageId) const {
+    if (!m_isOpen || messageId <= 0) return messageId;
+
+    int currentId = messageId;
+    const char* sql = "SELECT parent_id FROM messages WHERE id = ?;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        return currentId;
+    }
+
+    while (currentId > 0) {
+        int parentId = 0;
+        sqlite3_bind_int(stmt, 1, currentId);
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            parentId = sqlite3_column_int(stmt, 0);
+        }
+        sqlite3_reset(stmt);
+
+        if (parentId <= 0) {
+            break;
+        }
+        currentId = parentId;
+    }
+    sqlite3_finalize(stmt);
+    return currentId;
+}
+
 QList<MessageNode> BookDatabase::getMessages() const {
     QList<MessageNode> nodes;
     if (!m_isOpen) return nodes;

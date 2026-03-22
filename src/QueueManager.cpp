@@ -158,6 +158,10 @@ found:
     emit processingStarted(m_currentDb, m_currentItem.messageId);
     emit queueChanged();
 
+    int rootId = m_currentDb->getRootMessageId(m_currentItem.messageId);
+    QString sysPrompt = m_currentDb->getSetting("chat", rootId, "systemPrompt", "");
+    m_client->setSystemPrompt(sysPrompt);
+
     m_client->generate(m_currentItem.model, m_currentItem.prompt,
                        [this](const QString& chunk){ onChunk(chunk); },
                        [this](const QString& response){ onComplete(response); },
