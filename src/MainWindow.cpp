@@ -382,11 +382,40 @@ void MainWindow::setupUi() {
 
     chatTextArea = new QTextEdit(this);
     chatTextArea->setReadOnly(true);
-    chatTextArea->setMouseTracking(true);
-    chatTextArea->viewport()->installEventFilter(this);
     chatTextArea->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(chatTextArea, &QWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
         QMenu* menu = chatTextArea->createStandardContextMenu();
+
+        // Find which message was clicked based on cursor position
+        QTextCursor cursor = chatTextArea->cursorForPosition(pos);
+        QTextBlock block = cursor.block();
+
+        QString expectedUserBlock = QString("[%1]").arg(currentDb ? currentDb->getSetting("book", 0, "userName", "User") : "User");
+        QString expectedAssistantBlock = QString("[%1]").arg(currentDb ? currentDb->getSetting("book", 0, "assistantName", "Assistant") : "Assistant");
+
+        int msgIndex = -1;
+        QTextDocument* doc = chatTextArea->document();
+        int currentIndex = -1;
+
+        for (QTextBlock b = doc->begin(); b.isValid(); b = b.next()) {
+            QString bText = b.text().trimmed();
+            if (bText == expectedUserBlock || bText == expectedAssistantBlock) {
+                currentIndex++;
+            }
+            if (b == block) {
+                msgIndex = currentIndex;
+            }
+        }
+
+        QAction* forkAction = nullptr;
+        QAction* copyAction = nullptr;
+
+        if (msgIndex >= 0 && msgIndex < currentChatPath.size()) {
+            menu->addSeparator();
+            forkAction = menu->addAction(QIcon::fromTheme("call-start"), "Reply to this and fork here");
+            copyAction = menu->addAction(QIcon::fromTheme("edit-copy"), "Copy message");
+        }
+
         menu->addSeparator();
         QAction* saveDraftAction = menu->addAction(QIcon::fromTheme("document-save-as"), "Save chat as draft");
         QAction* saveTemplateAction = menu->addAction(QIcon::fromTheme("document-save-as"), "Save chat as template");
@@ -408,6 +437,18 @@ void MainWindow::setupUi() {
                 currentDb->addTemplate(0, name, chatTextArea->toPlainText());
                 loadDocumentsAndNotes();
             }
+        } else if (selectedAction == forkAction && forkAction) {
+            int nodeId = currentChatPath[msgIndex].id;
+            currentLastNodeId = nodeId;
+            if (currentDb) updateLinearChatView(currentLastNodeId, currentDb->getMessages());
+            if (inputModeStack->currentIndex() == 0) {
+                inputField->setFocus();
+            } else {
+                multiLineInput->setFocus();
+            }
+        } else if (selectedAction == copyAction && copyAction) {
+            QApplication::clipboard()->setText(currentChatPath[msgIndex].content);
+            statusBar->showMessage(tr("Message copied to clipboard."), 3000);
         }
         delete menu;
     });
@@ -1766,10 +1807,7 @@ void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& 
         cursor.movePosition(QTextCursor::End);
         chatTextArea->setTextCursor(cursor);
 
-        chatTextArea->insertHtml(QString("<div style='font-weight: bold;'>[%1] &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href='msg:%2' style='text-decoration:none;' title='%3'>...</a></div>")
-            .arg(roleName.toHtmlEscaped())
-            .arg(node.id)
-            .arg(node.timestamp.toString(Qt::ISODate)));
+        chatTextArea->insertHtml(QString("<div style='font-weight: bold;'>[%1]</div>").arg(roleName.toHtmlEscaped()));
         chatTextArea->insertPlainText(node.content + "\n\n");
     }
 
@@ -1961,17 +1999,7 @@ void MainWindow::onSendMessage() {
 
         for (QTextBlock block = doc->begin(); block.isValid(); block = block.next()) {
             QString blockText = block.text();
-            QString headerText = blockText;
-            int ellipsisIndex = headerText.indexOf(QString::fromUtf8("..."));
-            if (ellipsisIndex != -1) {
-                headerText = headerText.left(ellipsisIndex);
-            }
-            int nbspIndex = headerText.indexOf(QChar(0x00A0));
-            if (nbspIndex != -1) {
-                headerText = headerText.left(nbspIndex);
-            }
-
-            if (headerText.trimmed() == expectedUserBlock || headerText.trimmed() == expectedAssistantBlock) {
+            if (blockText.trimmed() == expectedUserBlock || blockText.trimmed() == expectedAssistantBlock) {
                 if (!currentRole.isEmpty() && msgIndex < currentChatPath.size()) {
                     if (currentRole == currentChatPath[msgIndex].role &&
                         currentContent.trimmed() != currentChatPath[msgIndex].content.trimmed()) {
@@ -1983,7 +2011,7 @@ void MainWindow::onSendMessage() {
                     }
                     msgIndex++;
                 }
-                currentRole = headerText.trimmed() == expectedUserBlock ? "user" : "assistant";
+                currentRole = blockText.trimmed() == expectedUserBlock ? "user" : "assistant";
                 currentContent = "";
                 continue;
             }
@@ -2126,47 +2154,6 @@ void MainWindow::onChatNodeSelected(const QModelIndex& current, const QModelInde
 }
 
 bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
-    if (chatTextArea && obj == chatTextArea->viewport()) {
-        if (event->type() == QEvent::MouseMove) {
-            QMouseEvent* mouseEvent = static_cast<QMouseEvent*>(event);
-            QString anchor = chatTextArea->anchorAt(mouseEvent->pos());
-            if (anchor.startsWith("msg:")) {
-                chatTextArea->viewport()->setCursor(Qt::PointingHandCursor);
-            } else {
-                chatTextArea->viewport()->setCursor(Qt::IBeamCursor);
-            }
-        } else if (event->type() == QEvent::MouseButtonRelease) {
-            QMouseEvent* mouseEvent = static_cast<QMouseEvent*>(event);
-            QString anchor = chatTextArea->anchorAt(mouseEvent->pos());
-            if (anchor.startsWith("msg:")) {
-                int nodeId = anchor.mid(4).toInt();
-                QMenu menu(this);
-                QAction* replyAction = menu.addAction("Reply to this and fork here");
-                QAction* copyAction = menu.addAction("Copy message");
-
-                QAction* selected = menu.exec(mouseEvent->globalPosition().toPoint());
-                if (selected == replyAction) {
-                    currentLastNodeId = nodeId;
-                    if (currentDb) updateLinearChatView(currentLastNodeId, currentDb->getMessages());
-                    if (inputModeStack->currentIndex() == 0) {
-                        inputField->setFocus();
-                    } else {
-                        multiLineInput->setFocus();
-                    }
-                } else if (selected == copyAction) {
-                    for (const auto& msg : currentChatPath) {
-                        if (msg.id == nodeId) {
-                            QApplication::clipboard()->setText(msg.content);
-                            statusBar->showMessage(tr("Message copied to clipboard."), 3000);
-                            break;
-                        }
-                    }
-                }
-                return true;
-            }
-        }
-    }
-
     if (obj->property("is_breadcrumb_edit").toBool()) {
         if (event->type() == QEvent::MouseButtonDblClick) {
             QLineEdit* edit = qobject_cast<QLineEdit*>(obj);
