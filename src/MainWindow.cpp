@@ -2193,13 +2193,17 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
                 if (targetItem) {
                     QString targetType = targetItem->data(Qt::UserRole + 1).toString();
                     if (targetType.endsWith("_folder")) {
-                        dragEvent->acceptProposedAction();
+                        // let native handling show drop indicator over valid folder items
+                        return false;
+                    } else {
+                        // explicitly reject the drag over files (non-folders) to prevent any indicator
+                        dragEvent->ignore();
                         return true;
                     }
                 }
             } else if (obj == vfsExplorer || obj == vfsExplorer->viewport()) {
-                dragEvent->acceptProposedAction();
-                return true;
+                // background drop in explorer
+                return false;
             }
         }
 

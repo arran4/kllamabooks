@@ -1,0 +1,2 @@
+set(__QT_DEPLOY_TARGET_kllamabooks_FILE /app/build_real/kllamabooks)
+set(__QT_DEPLOY_TARGET_kllamabooks_TYPE EXECUTABLE)

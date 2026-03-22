@@ -1,0 +1,2 @@
+set(__QT_DEPLOY_TARGET_test_list_view_FILE /app/build_test/test_list_view)
+set(__QT_DEPLOY_TARGET_test_list_view_TYPE EXECUTABLE)
