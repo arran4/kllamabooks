@@ -69,6 +69,7 @@ void MainWindow::closeEvent(QCloseEvent* event) {
     settings.setValue("geometry", saveGeometry());
     settings.setValue("splitterState", splitter->saveState());
     settings.setValue("leftSplitterState", leftSplitter->saveState());
+    settings.setValue("chatSplitterState", chatSplitter->saveState());
 
     QStringList openBooks;
     for (int i = 0; i < openBooksModel->rowCount(); ++i) {
@@ -81,9 +82,11 @@ void MainWindow::closeEvent(QCloseEvent* event) {
 
 void MainWindow::setupUi() {
     splitter = new QSplitter(this);
+    splitter->setObjectName("mainSplitter");
     setCentralWidget(splitter);
 
     leftSplitter = new QSplitter(Qt::Vertical, this);
+    leftSplitter->setObjectName("leftSplitter");
 
     openBooksTree = new QTreeView(this);
     openBooksModel = new QStandardItemModel(this);
@@ -375,6 +378,7 @@ void MainWindow::setupUi() {
     chatLayout->setContentsMargins(0, 0, 0, 0);
 
     chatSplitter = new QSplitter(Qt::Vertical, this);
+    chatSplitter->setObjectName("chatSplitter");
 
     chatInputContainer = new QWidget(this);
     QVBoxLayout* chatInputLayout = new QVBoxLayout(chatInputContainer);
@@ -1081,17 +1085,21 @@ void MainWindow::setupWindow() {
     if (settings.contains("geometry")) {
         restoreGeometry(settings.value("geometry").toByteArray());
     }
+
+    // Defer loading open books slightly so everything is initialized, or do it directly if safe
+    QStringList openBooks = settings.value("openBooks").toStringList();
+    for (const QString& book : openBooks) {
+        handleBookDrop(book);
+    }
+
     if (settings.contains("splitterState")) {
         splitter->restoreState(settings.value("splitterState").toByteArray());
     }
     if (settings.contains("leftSplitterState")) {
         leftSplitter->restoreState(settings.value("leftSplitterState").toByteArray());
     }
-
-    // Defer loading open books slightly so everything is initialized, or do it directly if safe
-    QStringList openBooks = settings.value("openBooks").toStringList();
-    for (const QString& book : openBooks) {
-        handleBookDrop(book);
+    if (settings.contains("chatSplitterState")) {
+        chatSplitter->restoreState(settings.value("chatSplitterState").toByteArray());
     }
 }
 
