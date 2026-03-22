@@ -18,12 +18,24 @@ void NotificationDelegate::paint(QPainter* painter, const QStyleOptionViewItem& 
     QStyledItemDelegate::paint(painter, opt, index);
 
     if (option.state & QStyle::State_Selected || option.state & QStyle::State_MouseOver) {
-        painter->save();
-        QPen pen(option.palette.highlight().color(), 2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
-        painter->setPen(pen);
-        painter->setBrush(Qt::NoBrush);
-        painter->drawRect(option.rect.adjusted(1, 1, -1, -1));
-        painter->restore();
+        if (!(index.flags() & Qt::ItemIsDropEnabled) && (option.state & QStyle::State_MouseOver || option.state & QStyle::State_Selected)) {
+            painter->save();
+            QPen pen(Qt::red, 2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+            painter->setPen(pen);
+            painter->setBrush(Qt::NoBrush);
+            painter->drawRect(option.rect.adjusted(1, 1, -1, -1));
+            // Draw a cross or some "can't drop" symbol
+            painter->drawLine(option.rect.topLeft() + QPoint(2, 2), option.rect.bottomRight() - QPoint(2, 2));
+            painter->drawLine(option.rect.bottomLeft() + QPoint(2, -2), option.rect.topRight() - QPoint(2, -2));
+            painter->restore();
+        } else {
+            painter->save();
+            QPen pen(option.palette.highlight().color(), 2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+            painter->setPen(pen);
+            painter->setBrush(Qt::NoBrush);
+            painter->drawRect(option.rect.adjusted(1, 1, -1, -1));
+            painter->restore();
+        }
     }
 
     if (notifyType == 0) return;
