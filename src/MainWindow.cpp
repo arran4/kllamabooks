@@ -489,7 +489,7 @@ void MainWindow::setupUi() {
     QHBoxLayout* inputLayout = new QHBoxLayout();
 
     modelSelectButton = new QPushButton(QIcon::fromTheme("system-search"), "Select Model", this);
-    toggleInputModeBtn = new QPushButton(QIcon::fromTheme("format-text-strikethrough"), "", this);
+    toggleInputModeBtn = new QPushButton(QIcon::fromTheme("view-list-details"), "", this);
     toggleInputModeBtn->setToolTip(tr("Toggle Multi-line Input"));
     toggleInputModeBtn->setCheckable(true);
 
@@ -579,6 +579,10 @@ void MainWindow::setupUi() {
     });
     connect(toggleInputModeBtn, &QPushButton::toggled, this,
             [this](bool checked) { inputModeStack->setCurrentIndex(checked ? 1 : 0); });
+
+    connect(mainContentStack, &QStackedWidget::currentChanged, this, [this](int index) {
+        toggleInputModeBtn->setVisible(mainContentStack->widget(index) == chatWindowView);
+    });
 
     // Initial sizes
     int totalWidth = width();
@@ -770,6 +774,9 @@ void MainWindow::setupUi() {
 
     statusBar->addPermanentWidget(modelSelectButton);
     statusBar->addPermanentWidget(toggleInputModeBtn);
+
+    // Initially hide toggleInputModeBtn since emptyView is default
+    toggleInputModeBtn->hide();
 
     modelLabel = new QLabel(tr("Model: Not Selected"), this);
     statusBar->addPermanentWidget(modelLabel);
