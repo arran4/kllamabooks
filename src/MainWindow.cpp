@@ -2687,9 +2687,17 @@ void MainWindow::showOpenBookContextMenu(const QPoint& pos) {
             importAction = menu.addAction("Import Chat Session");
         }
 
+        QAction* settingsAction = nullptr;
+        if (type == "chat_node") {
+            menu.addSeparator();
+            settingsAction = menu.addAction(QIcon::fromTheme("configure"), "Chat Settings...");
+        }
+
         QAction* selectedAction = menu.exec(openBooksTree->viewport()->mapToGlobal(pos));
         if (selectedAction == newAction) {
             addPhantomItem(item, type);
+        } else if (settingsAction && selectedAction == settingsAction) {
+            showChatSettingsDialog(item->data(Qt::UserRole).toInt());
         } else if (createFolderAction && selectedAction == createFolderAction) {
             bool ok;
             QString name = QInputDialog::getText(this, "Create Folder", "Enter folder name:", QLineEdit::Normal,
@@ -2712,13 +2720,22 @@ void MainWindow::showOpenBookContextMenu(const QPoint& pos) {
         } else if (importAction && selectedAction == importAction) {
             importChatSession();
         }
-    } else if (type == "chat_session") {
+    } else if (type == "chat_session" || type == "chat_node") {
         QMenu menu(this);
-        QAction* exportAction = menu.addAction("Export Chat Session");
+        QAction* exportAction = nullptr;
+
+        if (type == "chat_session") {
+            exportAction = menu.addAction("Export Chat Session");
+            menu.addSeparator();
+        }
+
+        QAction* settingsAction = menu.addAction(QIcon::fromTheme("configure"), "Chat Settings...");
 
         QAction* selectedAction = menu.exec(openBooksTree->viewport()->mapToGlobal(pos));
-        if (selectedAction == exportAction) {
+        if (exportAction && selectedAction == exportAction) {
             exportChatSession();
+        } else if (selectedAction == settingsAction) {
+            showChatSettingsDialog(item->data(Qt::UserRole).toInt());
         }
     }
 }
