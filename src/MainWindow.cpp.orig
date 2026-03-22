@@ -163,7 +163,7 @@ void MainWindow::setupUi() {
     vfsModel = new QStandardItemModel(this);
     vfsExplorer->setModel(vfsModel);
     vfsExplorer->setViewMode(QListView::IconMode);
-    vfsExplorer->setDragDropOverwriteMode(true);
+    vfsExplorer->setMovement(QListView::Static);
     vfsExplorer->setAcceptDrops(true);
     vfsExplorer->setDragEnabled(true);
     vfsExplorer->setDragDropMode(QAbstractItemView::DragDrop);
@@ -2992,17 +2992,13 @@ bool MainWindow::moveItemToFolder(QStandardItem* draggedItem, QStandardItem* tar
         compatible = true;
     } else if (itemType.endsWith("_folder") && targetType == itemType) {
         if (db->moveFolder(itemId, targetFolderId)) {
-            QTimer::singleShot(0, this, [this]() {
-                loadDocumentsAndNotes();
-            });
+            loadDocumentsAndNotes();
             return true;
         }
     }
 
     if (compatible && db->moveItem(table, itemId, targetFolderId)) {
-        QTimer::singleShot(0, this, [this]() {
-            loadDocumentsAndNotes();
-        });
+        loadDocumentsAndNotes();
         return true;
     }
     return false;
