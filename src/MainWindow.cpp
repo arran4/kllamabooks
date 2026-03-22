@@ -3015,7 +3015,7 @@ bool MainWindow::moveItemToFolder(QStandardItem* draggedItem, QStandardItem* tar
                     db->addNote(targetFolderId, "Copy of " + d.title, d.content);
                     copied = true;
                 }
-        } else if (itemType == "chat_session" && targetType == "chats_folder") {
+        } else if ((itemType == "chat_session" || itemType == "chat_node") && targetType == "chats_folder") {
             // complex copy omitted for now
         }
         if (copied) {
@@ -3026,7 +3026,7 @@ bool MainWindow::moveItemToFolder(QStandardItem* draggedItem, QStandardItem* tar
     }
     bool compatible = false;
     QString table;
-    if (itemType == "chat_session" && targetType == "chats_folder") {
+    if ((itemType == "chat_session" || itemType == "chat_node") && targetType == "chats_folder") {
         table = "messages";
         compatible = true;
     } else if (itemType == "document" && targetType == "docs_folder") {
