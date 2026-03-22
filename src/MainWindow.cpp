@@ -2170,6 +2170,39 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
             return false;  // let native handling show drop indicator
         }
     } else if (event->type() == QEvent::DragMove) {
+        QDragMoveEvent* dragEvent = static_cast<QDragMoveEvent*>(event);
+        QWidget* sourceWidget = qobject_cast<QWidget*>(dragEvent->source());
+        QAbstractItemView* sourceView = qobject_cast<QAbstractItemView*>(sourceWidget);
+        if (!sourceView && sourceWidget && sourceWidget->parentWidget()) {
+            sourceView = qobject_cast<QAbstractItemView*>(sourceWidget->parentWidget());
+        }
+
+        if ((obj == openBooksTree || obj == openBooksTree->viewport() || obj == vfsExplorer || obj == vfsExplorer->viewport()) &&
+            (sourceView == openBooksTree || sourceView == vfsExplorer)) {
+            QAbstractItemView* targetView = (obj == openBooksTree || obj == openBooksTree->viewport()) ? static_cast<QAbstractItemView*>(openBooksTree) : static_cast<QAbstractItemView*>(vfsExplorer);
+            QModelIndex targetIndex = targetView->indexAt(dragEvent->position().toPoint());
+
+            if (targetIndex.isValid()) {
+                QStandardItem* targetItem = nullptr;
+                if (obj == openBooksTree || obj == openBooksTree->viewport()) {
+                    targetItem = openBooksModel->itemFromIndex(targetIndex);
+                } else {
+                    targetItem = vfsModel->itemFromIndex(targetIndex);
+                }
+
+                if (targetItem) {
+                    QString targetType = targetItem->data(Qt::UserRole + 1).toString();
+                    if (targetType.endsWith("_folder")) {
+                        dragEvent->acceptProposedAction();
+                        return true;
+                    }
+                }
+            } else if (obj == vfsExplorer || obj == vfsExplorer->viewport()) {
+                dragEvent->acceptProposedAction();
+                return true;
+            }
+        }
+
         if (obj == openBooksTree || obj == openBooksTree->viewport()) {
             return false;  // let native handling show drop indicator
         } else if (obj == vfsExplorer || obj == vfsExplorer->viewport()) {
