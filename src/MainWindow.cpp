@@ -498,7 +498,7 @@ void MainWindow::setupUi() {
     QHBoxLayout* inputLayout = new QHBoxLayout();
 
     modelSelectButton = new QPushButton(QIcon::fromTheme("system-search"), "Select Model", this);
-    toggleInputModeBtn = new QPushButton(QIcon::fromTheme("format-text-strikethrough"), "", this);
+    toggleInputModeBtn = new QPushButton(QIcon::fromTheme("view-list-details"), "", this);
     toggleInputModeBtn->setToolTip(tr("Toggle Multi-line Input"));
     toggleInputModeBtn->setCheckable(true);
 
@@ -596,6 +596,10 @@ void MainWindow::setupUi() {
             inputField->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
             inputField->show();
         }
+    });
+
+    connect(mainContentStack, &QStackedWidget::currentChanged, this, [this](int index) {
+        toggleInputModeBtn->setVisible(mainContentStack->widget(index) == chatWindowView);
     });
 
     // Initial sizes
@@ -788,6 +792,9 @@ void MainWindow::setupUi() {
 
     statusBar->addPermanentWidget(modelSelectButton);
     statusBar->addPermanentWidget(toggleInputModeBtn);
+
+    // Initially hide toggleInputModeBtn since emptyView is default
+    toggleInputModeBtn->hide();
 
     modelLabel = new QLabel(tr("Model: Not Selected"), this);
     statusBar->addPermanentWidget(modelLabel);
@@ -3021,7 +3028,7 @@ bool MainWindow::moveItemToFolder(QStandardItem* draggedItem, QStandardItem* tar
                     db->addNote(targetFolderId, "Copy of " + d.title, d.content);
                     copied = true;
                 }
-        } else if (itemType == "chat_session" && targetType == "chats_folder") {
+        } else if ((itemType == "chat_session" || itemType == "chat_node") && targetType == "chats_folder") {
             // complex copy omitted for now
         }
         if (copied) {
@@ -3032,7 +3039,21 @@ bool MainWindow::moveItemToFolder(QStandardItem* draggedItem, QStandardItem* tar
     }
     bool compatible = false;
     QString table;
-    if (itemType == "chat_session" && targetType == "chats_folder") {
+    int dbItemId = itemId;
+    if ((itemType == "chat_session" || itemType == "chat_node") && targetType == "chats_folder") {
+        if (itemType == "chat_node") {
+            if (draggedItem->parent() && draggedItem->parent()->data(Qt::UserRole + 1).toString() == "chats_folder") {
+                QList<MessageNode> path;
+                getPathToRoot(itemId, db->getMessages(), path);
+                if (!path.isEmpty()) {
+                    dbItemId = path.first().id;
+                } else {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        }
         table = "messages";
         compatible = true;
     } else if (itemType == "document" && targetType == "docs_folder") {
@@ -3054,7 +3075,7 @@ bool MainWindow::moveItemToFolder(QStandardItem* draggedItem, QStandardItem* tar
         }
     }
 
-    if (compatible && db->moveItem(table, itemId, targetFolderId)) {
+    if (compatible && db->moveItem(table, dbItemId, targetFolderId)) {
         QTimer::singleShot(0, this, [this]() { loadDocumentsAndNotes(); });
         return true;
     }
