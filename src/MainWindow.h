@@ -61,6 +61,7 @@ class MainWindow : public KXmlGuiWindow {
     void onConnectionStatusChanged(bool isOk);
     void updateEndpointsList();
     void updateBreadcrumbs();
+    void refreshVfsExplorer();
     void onBreadcrumbClicked(const QString& type, int id);
     void onRenameCurrentItem();
     void onDiscardChanges();
@@ -79,7 +80,7 @@ class MainWindow : public KXmlGuiWindow {
     void onQueueItemClicked(std::shared_ptr<BookDatabase> db, int messageId);
     void updateTreeMarkersRecursive(QStandardItem* parent, const QList<Notification>& notifications);
     void updateVfsMarkers(const QList<Notification>& notifications);
-    bool moveItemToFolder(QStandardItem* draggedItem, QStandardItem* targetItem);
+    bool moveItemToFolder(QStandardItem* draggedItem, QStandardItem* targetItem, bool isCopy = false);
     void onQueueChunk(std::shared_ptr<BookDatabase> db, int messageId, const QString& chunk);
     void onProcessingStarted(std::shared_ptr<BookDatabase> db, int messageId);
     void onProcessingFinished(std::shared_ptr<BookDatabase> db, int messageId, bool success);
@@ -93,13 +94,15 @@ class MainWindow : public KXmlGuiWindow {
     void setupWindow();
     void loadSession(int rootId);
     void populateTree(QStandardItem* parentItem, int parentId, const QList<MessageNode>& allMessages);
-    void populateChatFolders(QStandardItem* parentItem, int folderId, const QList<MessageNode>& allMessages, BookDatabase* db);
+    void populateChatFolders(QStandardItem* parentItem, int folderId, const QList<MessageNode>& allMessages,
+                             BookDatabase* db);
     void populateMessageForks(QStandardItem* parentItem, int parentId, const QList<MessageNode>& allMessages);
     void populateDocumentFolders(QStandardItem* parentItem, int folderId, const QString& type, BookDatabase* db);
     void addPhantomItem(QStandardItem* folderItem, const QString& type);
     QStandardItem* findItem(QStandardItem* parent, int id);
     void updateLinearChatView(int tailNodeId, const QList<MessageNode>& allMessages);
     void getPathToRoot(int nodeId, const QList<MessageNode>& allMessages, QList<MessageNode>& path);
+    int getEndOfLinearPath(int startId, const QList<MessageNode>& allMessages, QList<MessageNode>& outChildren);
     void loadDocumentsAndNotes();
     QStandardItem* findItemInTree(int id, const QString& type);
     QStandardItem* findItemRecursive(QStandardItem* parent, int id, const QString& type);
@@ -132,7 +135,7 @@ class MainWindow : public KXmlGuiWindow {
     QPushButton* toggleInputModeBtn;
 
     QStackedWidget* chatStackWidget;  // To switch between them
-    
+
     QWidget* breadcrumbWidget;
     QHBoxLayout* breadcrumbLayout;
 
@@ -159,8 +162,11 @@ class MainWindow : public KXmlGuiWindow {
 
     int currentDocumentId = 0;
     int currentNoteId = 0;
+    int currentAutoDraftId = 0;
     int currentChatFolderId = 0;
-    
+
+    QMap<int, QString> m_chatInputDrafts;
+
     bool isCreatingNewChat = false;
     bool isCreatingNewDoc = false;
     bool isCreatingNewNote = false;
