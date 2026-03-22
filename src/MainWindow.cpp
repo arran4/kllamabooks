@@ -2205,7 +2205,7 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
             QStandardItem* targetItem = nullptr;
 
             if (targetIndex.isValid()) {
-                if (obj == openBooksTree) {
+                if (targetView == openBooksTree) {
                     targetItem = openBooksModel->itemFromIndex(targetIndex);
                 } else {
                     QStandardItem* vfsItem = vfsModel->itemFromIndex(targetIndex);
@@ -2226,7 +2226,7 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
                         }
                     }
                 }
-            } else if (obj == vfsExplorer) {
+            } else if (targetView == vfsExplorer) {
                 // Background drop in VFS explorer - move to current viewing folder
                 QModelIndex treeIndex = openBooksTree->currentIndex();
                 if (treeIndex.isValid()) targetItem = openBooksModel->itemFromIndex(treeIndex);
