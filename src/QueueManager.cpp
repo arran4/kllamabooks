@@ -160,6 +160,13 @@ found:
 
     int rootId = m_currentDb->getRootMessageId(m_currentItem.messageId);
     QString sysPrompt = m_currentDb->getSetting("chat", rootId, "systemPrompt", "");
+    if (sysPrompt.isEmpty()) {
+        sysPrompt = m_currentDb->getSetting("book", 0, "systemPrompt", "");
+    }
+    if (sysPrompt.isEmpty()) {
+        QSettings settings;
+        sysPrompt = settings.value("globalSystemPrompt", "").toString();
+    }
     m_client->setSystemPrompt(sysPrompt);
 
     m_client->generate(m_currentItem.model, m_currentItem.prompt,

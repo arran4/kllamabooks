@@ -949,6 +949,28 @@ void MainWindow::showInputSettingsMenu() {
         }
     });
 
+    QAction* editSystemPromptAction = chatMenu->addAction(tr("Edit System Prompt..."));
+    connect(editSystemPromptAction, &QAction::triggered, this, [this, rootId]() {
+        if (!currentDb || !currentDb->isOpen()) return;
+        QString currentPrompt;
+        if (rootId == 0) {
+            currentPrompt = m_newChatSystemPrompt;
+        } else {
+            currentPrompt = currentDb->getSetting("chat", rootId, "systemPrompt", "");
+        }
+
+        bool ok;
+        QString newPrompt = QInputDialog::getMultiLineText(this, tr("Edit System Prompt"),
+                                                           tr("System Prompt:"), currentPrompt, &ok);
+        if (ok) {
+            if (rootId == 0) {
+                m_newChatSystemPrompt = newPrompt;
+            } else {
+                currentDb->setSetting("chat", rootId, "systemPrompt", newPrompt);
+            }
+        }
+    });
+
     menu.addSeparator();
 
     QAction* saveDraftAction = menu.addAction(tr("Save as Draft"));
@@ -1658,6 +1680,8 @@ void MainWindow::populateMessageForks(QStandardItem* parentItem, int parentId, c
 }
 
 void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& allMessages) {
+    m_newChatSystemPrompt.clear();
+
     if (currentLastNodeId != 0) {
         m_chatInputDrafts[currentLastNodeId] = inputModeStack->currentIndex() == 0 ? inputField->toPlainText() : multiLineInput->toPlainText();
     }
@@ -1994,6 +2018,11 @@ void MainWindow::onSendMessage() {
 
     // 1. Add User message
     int userMsgId = currentDb->addMessage(parentId, text, "user", folderId);
+
+    if (parentId == 0 && !m_newChatSystemPrompt.isEmpty()) {
+        currentDb->setSetting("chat", userMsgId, "systemPrompt", m_newChatSystemPrompt);
+        m_newChatSystemPrompt.clear();
+    }
 
     // 2. Add Assistant placeholder
     int aiId = currentDb->addMessage(userMsgId, "...", "assistant");

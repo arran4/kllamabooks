@@ -4,6 +4,7 @@
 #include <QObject>
 #include <QList>
 #include <QTimer>
+#include <QSettings>
 #include "BookDatabase.h"
 #include "OllamaClient.h"
 
