@@ -163,6 +163,7 @@ void MainWindow::setupUi() {
     vfsModel = new QStandardItemModel(this);
     vfsExplorer->setModel(vfsModel);
     vfsExplorer->setViewMode(QListView::IconMode);
+    vfsExplorer->setMovement(QListView::Static);
     vfsExplorer->setAcceptDrops(true);
     vfsExplorer->setDragEnabled(true);
     vfsExplorer->setDragDropMode(QAbstractItemView::DragDrop);
@@ -2961,25 +2962,23 @@ bool MainWindow::moveItemToFolder(QStandardItem* draggedItem, QStandardItem* tar
         compatible = true;
     } else if (itemType.endsWith("_folder") && targetType == itemType) {
         if (db->moveFolder(itemId, targetFolderId)) {
-            QTimer::singleShot(0, this, [draggedItem, targetItem]() {
-                QStandardItem* parent = draggedItem->parent();
-                if (parent) {
-                    QList<QStandardItem*> taken = parent->takeRow(draggedItem->row());
-                    targetItem->appendRow(taken);
-                }
-            });
+            QStandardItem* parent = draggedItem->parent();
+            if (parent) {
+                QList<QStandardItem*> taken = parent->takeRow(draggedItem->row());
+                targetItem->appendRow(taken);
+                openBooksTree->setExpanded(targetItem->index(), true);
+            }
             return true;
         }
     }
 
     if (compatible && db->moveItem(table, itemId, targetFolderId)) {
-        QTimer::singleShot(0, this, [draggedItem, targetItem]() {
-            QStandardItem* parent = draggedItem->parent();
-            if (parent) {
-                QList<QStandardItem*> taken = parent->takeRow(draggedItem->row());
-                targetItem->appendRow(taken);
-            }
-        });
+        QStandardItem* parent = draggedItem->parent();
+        if (parent) {
+            QList<QStandardItem*> taken = parent->takeRow(draggedItem->row());
+            targetItem->appendRow(taken);
+            openBooksTree->setExpanded(targetItem->index(), true);
+        }
         return true;
     }
     return false;
