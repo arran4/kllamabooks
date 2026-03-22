@@ -498,20 +498,19 @@ void MainWindow::setupUi() {
     QHBoxLayout* inputLayout = new QHBoxLayout();
 
     modelSelectButton = new QPushButton(QIcon::fromTheme("system-search"), "Select Model", this);
-    toggleInputModeBtn = new QPushButton(QIcon::fromTheme("format-text-strikethrough"), "", this);
+    toggleInputModeBtn = new QPushButton(QIcon::fromTheme("view-list-details"), "", this);
     toggleInputModeBtn->setToolTip(tr("Toggle Multi-line Input"));
     toggleInputModeBtn->setCheckable(true);
 
-    inputModeStack = new QStackedWidget(this);
     inputField = new ChatInputWidget(this);
-    // HEAD input settings
-    inputModeStack->addWidget(inputField);
 
     multiLineInput = new QTextEdit(this);
     multiLineInput->setMaximumHeight(100);
-    inputModeStack->addWidget(multiLineInput);
+    multiLineInput->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
+    multiLineInput->hide();
 
-    inputLayout->addWidget(inputModeStack);
+    inputLayout->addWidget(inputField);
+    inputLayout->addWidget(multiLineInput);
 
     discardChangesBtn = new QPushButton("Discard Changes", this);
     discardChangesBtn->setToolTip(tr("Discard any pending edits to history."));
@@ -529,22 +528,18 @@ void MainWindow::setupUi() {
     inputSettingsButton->setIcon(QIcon::fromTheme("configure"));
     inputSettingsButton->setToolTip(tr("Input Settings"));
     connect(inputSettingsButton, &QToolButton::clicked, this, &MainWindow::showInputSettingsMenu);
-    inputLayout->addWidget(sendButton);
-    inputLayout->addWidget(inputSettingsButton);
+
+    QHBoxLayout* topBtnLayout = new QHBoxLayout();
+    topBtnLayout->addWidget(sendButton);
+    topBtnLayout->addWidget(inputSettingsButton);
+    inputLayout->addLayout(topBtnLayout);
+    inputLayout->setAlignment(topBtnLayout, Qt::AlignTop);
 
     chatInputLayout->addLayout(inputLayout);
 
     connect(discardChangesBtn, &QPushButton::clicked, this, &MainWindow::onDiscardChanges);
 
     mainContentStack->addWidget(chatWindowView);
-
-    QVBoxLayout* btnLayout = new QVBoxLayout();
-    QHBoxLayout* topBtnLayout = new QHBoxLayout();
-    topBtnLayout->addWidget(sendButton);
-    topBtnLayout->addWidget(inputSettingsButton);
-    btnLayout->addLayout(topBtnLayout);
-    btnLayout->addStretch();  // Push to the top of the container
-    inputLayout->addLayout(btnLayout);
 
     QWidget* rightContainer = new QWidget(this);
     QVBoxLayout* rightLayout = new QVBoxLayout(rightContainer);
@@ -589,8 +584,23 @@ void MainWindow::setupUi() {
                     }
                 }
             });
-    connect(toggleInputModeBtn, &QPushButton::toggled, this,
-            [this](bool checked) { inputModeStack->setCurrentIndex(checked ? 1 : 0); });
+    connect(toggleInputModeBtn, &QPushButton::toggled, this, [this](bool checked) {
+        if (checked) {
+            inputField->hide();
+            inputField->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
+            multiLineInput->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
+            multiLineInput->show();
+        } else {
+            multiLineInput->hide();
+            multiLineInput->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
+            inputField->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
+            inputField->show();
+        }
+    });
+
+    connect(mainContentStack, &QStackedWidget::currentChanged, this, [this](int index) {
+        toggleInputModeBtn->setVisible(mainContentStack->widget(index) == chatWindowView);
+    });
 
     // Initial sizes
     int totalWidth = width();
@@ -742,9 +752,7 @@ void MainWindow::setupUi() {
     actionCollection()->addAction(QStringLiteral("model_explorer"), modelExplorerAction);
     connect(modelExplorerAction, &QAction::triggered, this, &MainWindow::showModelExplorer);
 
-    QAction* settingsAction = new QAction(QIcon::fromTheme("configure"), tr("Configure KLlamaBooks..."), this);
-    actionCollection()->addAction(QStringLiteral("configure_app"), settingsAction);
-    connect(settingsAction, &QAction::triggered, this, &MainWindow::showSettingsDialog);
+    QAction* settingsAction = KStandardAction::preferences(this, &MainWindow::showSettingsDialog, actionCollection());
 
     QAction* debugInfoAction = new QAction(QIcon::fromTheme("tools-report-bug"), tr("Database Debug Info"), this);
     actionCollection()->addAction(QStringLiteral("debug_info"), debugInfoAction);
@@ -782,6 +790,9 @@ void MainWindow::setupUi() {
 
     statusBar->addPermanentWidget(modelSelectButton);
     statusBar->addPermanentWidget(toggleInputModeBtn);
+
+    // Initially hide toggleInputModeBtn since emptyView is default
+    toggleInputModeBtn->hide();
 
     modelLabel = new QLabel(tr("Model: Not Selected"), this);
     statusBar->addPermanentWidget(modelLabel);
@@ -1342,7 +1353,7 @@ void MainWindow::showVfsContextMenu(const QPoint& pos) {
         if (bracketIndex != -1) fullText = fullText.mid(bracketIndex + 2);
         QGuiApplication::clipboard()->setText(fullText);
     } else if (item && selectedAction == pasteAction) {
-        if (inputModeStack->currentIndex() == 0) {
+        if (!toggleInputModeBtn->isChecked()) {
             inputField->setPlainText(inputField->toPlainText() + QGuiApplication::clipboard()->text());
         } else {
             multiLineInput->insertPlainText(QGuiApplication::clipboard()->text());
@@ -1671,7 +1682,7 @@ void MainWindow::populateMessageForks(QStandardItem* parentItem, int parentId, c
 void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& allMessages) {
     if (currentLastNodeId != 0) {
         m_chatInputDrafts[currentLastNodeId] =
-            inputModeStack->currentIndex() == 0 ? inputField->toPlainText() : multiLineInput->toPlainText();
+            !toggleInputModeBtn->isChecked() ? inputField->toPlainText() : multiLineInput->toPlainText();
     }
 
     if (currentDb) {
@@ -1777,7 +1788,7 @@ void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& 
     if (discardChangesBtn) discardChangesBtn->hide();
 
     QString savedDraft = m_chatInputDrafts.value(tailNodeId);
-    if (inputModeStack->currentIndex() == 0) {
+    if (!toggleInputModeBtn->isChecked()) {
         inputField->setPlainText(savedDraft);
     } else {
         multiLineInput->setPlainText(savedDraft);
@@ -1936,7 +1947,7 @@ void MainWindow::onSendMessage() {
     if (!currentDb) return;
 
     QString text;
-    if (inputModeStack->currentIndex() == 0) {
+    if (!toggleInputModeBtn->isChecked()) {
         text = inputField->toPlainText().trimmed();
         if (text.isEmpty()) return;
         inputField->clear();
@@ -3026,7 +3037,21 @@ bool MainWindow::moveItemToFolder(QStandardItem* draggedItem, QStandardItem* tar
     }
     bool compatible = false;
     QString table;
+    int dbItemId = itemId;
     if ((itemType == "chat_session" || itemType == "chat_node") && targetType == "chats_folder") {
+        if (itemType == "chat_node") {
+            if (draggedItem->parent() && draggedItem->parent()->data(Qt::UserRole + 1).toString() == "chats_folder") {
+                QList<MessageNode> path;
+                getPathToRoot(itemId, db->getMessages(), path);
+                if (!path.isEmpty()) {
+                    dbItemId = path.first().id;
+                } else {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        }
         table = "messages";
         compatible = true;
     } else if (itemType == "document" && targetType == "docs_folder") {
@@ -3048,7 +3073,7 @@ bool MainWindow::moveItemToFolder(QStandardItem* draggedItem, QStandardItem* tar
         }
     }
 
-    if (compatible && db->moveItem(table, itemId, targetFolderId)) {
+    if (compatible && db->moveItem(table, dbItemId, targetFolderId)) {
         QTimer::singleShot(0, this, [this]() { loadDocumentsAndNotes(); });
         return true;
     }
