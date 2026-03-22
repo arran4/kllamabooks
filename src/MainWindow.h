@@ -168,6 +168,8 @@ class MainWindow : public KXmlGuiWindow {
     QMap<int, QString> m_chatInputDrafts;
 
     bool isCreatingNewChat = false;
+    bool m_isCreatingNewFork = false;
+    int m_preForkNodeId = 0;
     bool isCreatingNewDoc = false;
     bool isCreatingNewNote = false;
 

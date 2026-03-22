@@ -438,6 +438,8 @@ void MainWindow::setupUi() {
                 loadDocumentsAndNotes();
             }
         } else if (selectedAction == forkAction && forkAction) {
+            m_preForkNodeId = currentLastNodeId;
+            m_isCreatingNewFork = true;
             int nodeId = currentChatPath[msgIndex].id;
             currentLastNodeId = nodeId;
             if (currentDb) updateLinearChatView(currentLastNodeId, currentDb->getMessages());
@@ -472,6 +474,7 @@ void MainWindow::setupUi() {
 
         int nodeId = item->data(Qt::UserRole).toInt();
         if (nodeId != currentLastNodeId) {
+            m_isCreatingNewFork = false;
             currentLastNodeId = nodeId;
             if (currentDb) {
                 updateLinearChatView(currentLastNodeId, currentDb->getMessages());
@@ -520,6 +523,7 @@ void MainWindow::setupUi() {
             QStandardItem* item = forkExplorerModel->itemFromIndex(index);
             if (item) {
                 int nodeId = item->data(Qt::UserRole).toInt();
+                m_isCreatingNewFork = false;
                 currentLastNodeId = nodeId;
                 if (currentDb) updateLinearChatView(currentLastNodeId, currentDb->getMessages());
             }
@@ -1753,7 +1757,7 @@ void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& 
 
         bool hasChildren = foundFolderItem->rowCount() > 0;
 
-        if (isCreatingNewChat) {
+        if (isCreatingNewChat || m_isCreatingNewFork) {
             chatForkExplorer->hide();
             if (chatInputContainer) chatInputContainer->show();
         } else if (!hasChildren && tailNodeId != 0) {
@@ -1812,7 +1816,7 @@ void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& 
     }
 
     chatTextArea->blockSignals(false);
-    if (discardChangesBtn) discardChangesBtn->hide();
+    if (discardChangesBtn) discardChangesBtn->setVisible(isCreatingNewChat || m_isCreatingNewFork);
 
     QString savedDraft = m_chatInputDrafts.value(tailNodeId);
     if (inputModeStack->currentIndex() == 0) {
@@ -1892,6 +1896,11 @@ void MainWindow::updateBreadcrumbs() {
 
             breadcrumbLayout->addWidget(edit);
 
+                if (m_isCreatingNewFork && (type == "chat_node" || type == "chat_session" || type == "chats_folder")) {
+                    breadcrumbLayout->addWidget(new QLabel(">", this));
+                    breadcrumbLayout->addWidget(new QLabel("<i>New Fork</i>", this));
+                }
+
             connect(edit, &QLineEdit::returnPressed, this, [this, edit, treeItem, type]() {
                 QString newName = edit->text().trimmed();
                 if (newName.isEmpty() || newName == treeItem->text()) {
@@ -1942,7 +1951,17 @@ void MainWindow::onRenameCurrentItem() {
 }
 
 void MainWindow::onDiscardChanges() {
-    if (!currentDb || currentLastNodeId == 0) return;
+    if (!currentDb) return;
+    if (m_isCreatingNewFork) {
+        currentLastNodeId = m_preForkNodeId;
+        m_isCreatingNewFork = false;
+        m_preForkNodeId = 0;
+        updateLinearChatView(currentLastNodeId, currentDb->getMessages());
+        statusBar->showMessage(tr("Fork discarded."), 3000);
+        discardChangesBtn->hide();
+        return;
+    }
+    if (currentLastNodeId == 0) return;
     updateLinearChatView(currentLastNodeId, currentDb->getMessages());
     discardChangesBtn->hide();
     statusBar->showMessage(tr("Changes discarded."), 3000);
@@ -2041,6 +2060,11 @@ void MainWindow::onSendMessage() {
     int parentId = isCreatingNewChat ? 0 : currentLastNodeId;
     int folderId = isCreatingNewChat ? currentChatFolderId : 0;
     isCreatingNewChat = false;
+
+    if (m_isCreatingNewFork) {
+        m_isCreatingNewFork = false;
+        m_preForkNodeId = 0;
+    }
 
     // 1. Add User message
     int userMsgId = currentDb->addMessage(parentId, text, "user", folderId);
@@ -2147,6 +2171,7 @@ void MainWindow::onChatNodeSelected(const QModelIndex& current, const QModelInde
     if (item) {
         int previewNodeId = item->data(Qt::UserRole).toInt();
         if (currentDb) {
+            m_isCreatingNewFork = false;
             updateLinearChatView(previewNodeId, currentDb->getMessages());
             updateInputBehavior();  // Keep it updated when selecting nodes/chats
         }
@@ -2487,6 +2512,7 @@ void MainWindow::onOpenBooksSelectionChanged(const QItemSelection& selected, con
             }
         } else {
             // It's a chat leaf or fork point
+            m_isCreatingNewFork = false;
             currentLastNodeId = nodeId;
             isCreatingNewChat = (nodeId == 0);
             if (isCreatingNewChat && item->parent()) {
