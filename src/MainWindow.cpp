@@ -2126,7 +2126,7 @@ void MainWindow::onChatNodeSelected(const QModelIndex& current, const QModelInde
 }
 
 bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
-    if (obj == chatTextArea->viewport()) {
+    if (chatTextArea && obj == chatTextArea->viewport()) {
         if (event->type() == QEvent::MouseMove) {
             QMouseEvent* mouseEvent = static_cast<QMouseEvent*>(event);
             QString anchor = chatTextArea->anchorAt(mouseEvent->pos());
