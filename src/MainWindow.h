@@ -169,6 +169,8 @@ class MainWindow : public KXmlGuiWindow {
     QMap<int, QString> m_chatInputDrafts;
     QString m_newChatSystemPrompt;
     QString m_newChatSendBehavior = "default";
+    QString m_newChatModel = "default";
+    QString m_newChatMultiLine = "default";
 
     bool isCreatingNewChat = false;
     bool isCreatingNewDoc = false;

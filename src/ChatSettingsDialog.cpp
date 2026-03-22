@@ -6,7 +6,9 @@
 #include <QPushButton>
 #include <QVBoxLayout>
 
-ChatSettingsDialog::ChatSettingsDialog(const QString& initialSystemPrompt, const QString& initialSendBehavior, QWidget* parent)
+ChatSettingsDialog::ChatSettingsDialog(const QString& initialSystemPrompt, const QString& initialSendBehavior,
+                                       const QString& initialModel, const QString& initialMultiLine,
+                                       const QStringList& availableModels, QWidget* parent)
     : QDialog(parent) {
     setWindowTitle(tr("Chat Settings"));
     setMinimumWidth(400);
@@ -31,6 +33,31 @@ ChatSettingsDialog::ChatSettingsDialog(const QString& initialSystemPrompt, const
     }
     formLayout->addRow(tr("Send Behavior:"), m_sendBehaviorCombo);
 
+    m_modelCombo = new QComboBox(this);
+    m_modelCombo->addItem(tr("Use Parent Default"), "default");
+    for (const QString& model : availableModels) {
+        m_modelCombo->addItem(model, model);
+    }
+    int modelIndex = m_modelCombo->findData(initialModel);
+    if (modelIndex >= 0) {
+        m_modelCombo->setCurrentIndex(modelIndex);
+    } else {
+        m_modelCombo->setCurrentIndex(0);
+    }
+    formLayout->addRow(tr("Model Selection:"), m_modelCombo);
+
+    m_multiLineCombo = new QComboBox(this);
+    m_multiLineCombo->addItem(tr("Use Parent Default"), "default");
+    m_multiLineCombo->addItem(tr("Single Line"), "Single Line");
+    m_multiLineCombo->addItem(tr("Multi Line"), "Multi Line");
+    int mlIndex = m_multiLineCombo->findData(initialMultiLine);
+    if (mlIndex >= 0) {
+        m_multiLineCombo->setCurrentIndex(mlIndex);
+    } else {
+        m_multiLineCombo->setCurrentIndex(0);
+    }
+    formLayout->addRow(tr("Input Mode:"), m_multiLineCombo);
+
     mainLayout->addLayout(formLayout);
 
     QHBoxLayout* btnLayout = new QHBoxLayout();
@@ -53,4 +80,12 @@ QString ChatSettingsDialog::getSystemPrompt() const {
 
 QString ChatSettingsDialog::getSendBehavior() const {
     return m_sendBehaviorCombo->currentData().toString();
+}
+
+QString ChatSettingsDialog::getModel() const {
+    return m_modelCombo->currentData().toString();
+}
+
+QString ChatSettingsDialog::getMultiLine() const {
+    return m_multiLineCombo->currentData().toString();
 }

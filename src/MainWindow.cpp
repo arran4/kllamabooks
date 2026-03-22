@@ -579,7 +579,17 @@ void MainWindow::setupUi() {
         }
     });
     connect(toggleInputModeBtn, &QPushButton::toggled, this,
-            [this](bool checked) { inputModeStack->setCurrentIndex(checked ? 1 : 0); });
+            [this](bool checked) {
+                inputModeStack->setCurrentIndex(checked ? 1 : 0);
+                if (currentDb && currentDb->isOpen()) {
+                    QString newMultiLine = checked ? "Multi Line" : "Single Line";
+                    if (currentLastNodeId != 0) {
+                        currentDb->setSetting("chat", currentLastNodeId, "multiLine", newMultiLine);
+                    } else {
+                        m_newChatMultiLine = newMultiLine;
+                    }
+                }
+            });
 
     // Initial sizes
     int totalWidth = width();
@@ -717,9 +727,17 @@ void MainWindow::setupUi() {
         if (dlg.exec() == QDialog::Accepted) {
             QString selected = dlg.selectedModel();
             if (!selected.isEmpty()) {
+                if (currentDb && currentDb->isOpen()) {
+                    if (currentLastNodeId != 0) {
+                        currentDb->setSetting("chat", currentLastNodeId, "model", selected);
+                    } else {
+                        m_newChatModel = selected;
+                    }
+                }
                 m_selectedModel = selected;
                 modelSelectButton->setText(m_selectedModel);
                 modelLabel->setText(tr("Model: %1 (User Switch)").arg(m_selectedModel));
+                updateInputBehavior();
             }
         }
     });
@@ -1043,24 +1061,36 @@ void MainWindow::showChatSettingsDialog(int messageId) {
 
     QString currentPrompt;
     QString currentBehavior = "default";
+    QString currentModel = "default";
+    QString currentMultiLine = "default";
     if (messageId == 0) {
         currentPrompt = m_newChatSystemPrompt;
         currentBehavior = m_newChatSendBehavior;
+        currentModel = m_newChatModel;
+        currentMultiLine = m_newChatMultiLine;
     } else {
         currentPrompt = currentDb->getSetting("chat", messageId, "systemPrompt", "");
         currentBehavior = currentDb->getSetting("chat", messageId, "sendBehavior", "default");
+        currentModel = currentDb->getSetting("chat", messageId, "model", "default");
+        currentMultiLine = currentDb->getSetting("chat", messageId, "multiLine", "default");
     }
 
-    ChatSettingsDialog dlg(currentPrompt, currentBehavior, this);
+    ChatSettingsDialog dlg(currentPrompt, currentBehavior, currentModel, currentMultiLine, m_availableModels, this);
     if (dlg.exec() == QDialog::Accepted) {
         QString newPrompt = dlg.getSystemPrompt();
         QString newBehavior = dlg.getSendBehavior();
+        QString newModel = dlg.getModel();
+        QString newMultiLine = dlg.getMultiLine();
         if (messageId == 0) {
             m_newChatSystemPrompt = newPrompt;
             m_newChatSendBehavior = newBehavior;
+            m_newChatModel = newModel;
+            m_newChatMultiLine = newMultiLine;
         } else {
             currentDb->setSetting("chat", messageId, "systemPrompt", newPrompt);
             currentDb->setSetting("chat", messageId, "sendBehavior", newBehavior);
+            currentDb->setSetting("chat", messageId, "model", newModel);
+            currentDb->setSetting("chat", messageId, "multiLine", newMultiLine);
         }
         updateInputBehavior();
     }
@@ -1097,6 +1127,48 @@ void MainWindow::updateInputBehavior() {
         inputField->setSendBehavior(ChatInputWidget::CtrlEnterToSend);
     } else {
         inputField->setSendBehavior(ChatInputWidget::EnterToSend);
+    }
+
+    if (currentDb && currentDb->isOpen()) {
+        QString inheritedModel = "default";
+        if (currentLastNodeId != 0) {
+            inheritedModel = currentDb->getInheritedSetting(currentLastNodeId, "model");
+        } else {
+            inheritedModel = m_newChatModel;
+        }
+
+        if (!inheritedModel.isEmpty() && inheritedModel != "default") {
+            m_selectedModel = inheritedModel;
+            if (modelLabel) modelLabel->setText(tr("Model: %1 (Chat)").arg(m_selectedModel));
+            if (modelSelectButton) modelSelectButton->setText(m_selectedModel);
+        } else {
+            QString dbModel = currentDb->getSetting("book", 0, "defaultModel", "");
+            if (!dbModel.isEmpty()) {
+                m_selectedModel = dbModel;
+                if (modelLabel) modelLabel->setText(tr("Model: %1 (Book Default)").arg(m_selectedModel));
+                if (modelSelectButton) modelSelectButton->setText(m_selectedModel);
+            } else if (!m_availableModels.isEmpty()) {
+                m_selectedModel = m_availableModels.first();
+                if (modelLabel) modelLabel->setText(tr("Model: %1 (Global Fallback)").arg(m_selectedModel));
+                if (modelSelectButton) modelSelectButton->setText(m_selectedModel);
+            }
+        }
+
+        QString inheritedMultiLine = "default";
+        if (currentLastNodeId != 0) {
+            inheritedMultiLine = currentDb->getInheritedSetting(currentLastNodeId, "multiLine");
+        } else {
+            inheritedMultiLine = m_newChatMultiLine;
+        }
+
+        if (toggleInputModeBtn) {
+            bool checked = toggleInputModeBtn->isChecked();
+            if (inheritedMultiLine == "Multi Line" && !checked) {
+                toggleInputModeBtn->setChecked(true);
+            } else if (inheritedMultiLine == "Single Line" && checked) {
+                toggleInputModeBtn->setChecked(false);
+            }
+        }
     }
 }
 
@@ -1692,6 +1764,8 @@ void MainWindow::populateMessageForks(QStandardItem* parentItem, int parentId, c
 void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& allMessages) {
     m_newChatSystemPrompt.clear();
     m_newChatSendBehavior = "default";
+    m_newChatModel = "default";
+    m_newChatMultiLine = "default";
 
     if (currentLastNodeId != 0) {
         m_chatInputDrafts[currentLastNodeId] = inputModeStack->currentIndex() == 0 ? inputField->toPlainText() : multiLineInput->toPlainText();
@@ -2038,6 +2112,14 @@ void MainWindow::onSendMessage() {
         if (m_newChatSendBehavior != "default") {
             currentDb->setSetting("chat", userMsgId, "sendBehavior", m_newChatSendBehavior);
             m_newChatSendBehavior = "default";
+        }
+        if (m_newChatModel != "default") {
+            currentDb->setSetting("chat", userMsgId, "model", m_newChatModel);
+            m_newChatModel = "default";
+        }
+        if (m_newChatMultiLine != "default") {
+            currentDb->setSetting("chat", userMsgId, "multiLine", m_newChatMultiLine);
+            m_newChatMultiLine = "default";
         }
     }
 
