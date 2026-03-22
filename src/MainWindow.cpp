@@ -2451,8 +2451,34 @@ void MainWindow::onOpenBooksSelectionChanged(const QItemSelection& selected, con
     updateBreadcrumbs();
 }
 
+namespace {
+    void saveExpandedState(QTreeView* tree, QStandardItem* item, QSet<QString>& expanded) {
+        if (!item) return;
+        if (tree->isExpanded(item->index())) {
+            QString path = item->text();
+            QStandardItem* p = item->parent();
+            while (p) { path = p->text() + "/" + path; p = p->parent(); }
+            expanded.insert(path);
+        }
+        for (int i = 0; i < item->rowCount(); ++i) saveExpandedState(tree, item->child(i), expanded);
+    }
+    void restoreExpandedState(QTreeView* tree, QStandardItem* item, const QSet<QString>& expanded) {
+        if (!item) return;
+        QString path = item->text();
+        QStandardItem* p = item->parent();
+        while (p) { path = p->text() + "/" + path; p = p->parent(); }
+        if (expanded.contains(path)) tree->setExpanded(item->index(), true);
+        for (int i = 0; i < item->rowCount(); ++i) restoreExpandedState(tree, item->child(i), expanded);
+    }
+}
+
 void MainWindow::loadDocumentsAndNotes() {
     if (!openBooksModel) return;
+
+    QSet<QString> expanded;
+    for (int i = 0; i < openBooksModel->rowCount(); ++i) {
+        saveExpandedState(openBooksTree, openBooksModel->item(i), expanded);
+    }
 
     for (int i = 0; i < openBooksModel->rowCount(); ++i) {
         QStandardItem* bookItem = openBooksModel->item(i);
@@ -2499,6 +2525,10 @@ void MainWindow::loadDocumentsAndNotes() {
             chatsFolder->removeRows(0, chatsFolder->rowCount());
             populateChatFolders(chatsFolder, 0, db->getMessages(), db.get());
         }
+    }
+
+    for (int i = 0; i < openBooksModel->rowCount(); ++i) {
+        restoreExpandedState(openBooksTree, openBooksModel->item(i), expanded);
     }
 
     QModelIndex currentIndex = openBooksTree->currentIndex();
@@ -2962,23 +2992,13 @@ bool MainWindow::moveItemToFolder(QStandardItem* draggedItem, QStandardItem* tar
         compatible = true;
     } else if (itemType.endsWith("_folder") && targetType == itemType) {
         if (db->moveFolder(itemId, targetFolderId)) {
-            QStandardItem* parent = draggedItem->parent();
-            if (parent) {
-                QList<QStandardItem*> taken = parent->takeRow(draggedItem->row());
-                targetItem->appendRow(taken);
-                openBooksTree->setExpanded(targetItem->index(), true);
-            }
+            loadDocumentsAndNotes();
             return true;
         }
     }
 
     if (compatible && db->moveItem(table, itemId, targetFolderId)) {
-        QStandardItem* parent = draggedItem->parent();
-        if (parent) {
-            QList<QStandardItem*> taken = parent->takeRow(draggedItem->row());
-            targetItem->appendRow(taken);
-            openBooksTree->setExpanded(targetItem->index(), true);
-        }
+        loadDocumentsAndNotes();
         return true;
     }
     return false;
