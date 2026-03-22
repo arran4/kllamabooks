@@ -2167,6 +2167,7 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
             return true;
         }
         if (sourceView == openBooksTree || sourceView == vfsExplorer) {
+            dragEvent->acceptProposedAction();
             return false;  // let native handling show drop indicator
         }
     } else if (event->type() == QEvent::DragMove) {
@@ -2192,27 +2193,18 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
 
                 if (targetItem) {
                     QString targetType = targetItem->data(Qt::UserRole + 1).toString();
-                    if (targetType.endsWith("_folder")) {
-                        // let native handling show drop indicator over valid folder items
+                    if (targetType.endsWith("_folder") || targetType == "book") {
                         dragEvent->acceptProposedAction();
                         return false;
                     } else {
-                        // explicitly reject the drag over files (non-folders) to prevent any indicator
                         dragEvent->ignore();
                         return true;
                     }
                 }
             } else if (obj == vfsExplorer || obj == vfsExplorer->viewport()) {
-                // background drop in explorer
                 dragEvent->acceptProposedAction();
                 return false;
             }
-        }
-
-        if (obj == openBooksTree || obj == openBooksTree->viewport()) {
-            return false;  // let native handling show drop indicator
-        } else if (obj == vfsExplorer || obj == vfsExplorer->viewport()) {
-            return false;  // let native handling show drop indicator
         }
     } else if (event->type() == QEvent::DragLeave) {
         if (obj == openBooksTree || obj == openBooksTree->viewport() || obj == vfsExplorer ||
