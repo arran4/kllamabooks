@@ -506,6 +506,7 @@ void MainWindow::setupUi() {
 
     multiLineInput = new QTextEdit(this);
     multiLineInput->setMaximumHeight(100);
+    multiLineInput->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
     multiLineInput->hide();
 
     inputLayout->addWidget(inputField);
@@ -586,9 +587,13 @@ void MainWindow::setupUi() {
     connect(toggleInputModeBtn, &QPushButton::toggled, this, [this](bool checked) {
         if (checked) {
             inputField->hide();
+            inputField->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
+            multiLineInput->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
             multiLineInput->show();
         } else {
             multiLineInput->hide();
+            multiLineInput->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
+            inputField->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
             inputField->show();
         }
     });
