@@ -2365,6 +2365,7 @@ void MainWindow::refreshVfsExplorer() {
 
     if (type != "book") {
         QStandardItem* upItem = new QStandardItem(QIcon::fromTheme("go-up"), "..");
+        upItem->setFlags(upItem->flags() & ~Qt::ItemIsDropEnabled);
         vfsModel->appendRow(upItem);
     }
 
@@ -2372,7 +2373,13 @@ void MainWindow::refreshVfsExplorer() {
         QStandardItem* childTreeItem = item->child(i);
         QStandardItem* childItem = new QStandardItem(childTreeItem->icon(), childTreeItem->text());
         childItem->setData(childTreeItem->data(Qt::UserRole), Qt::UserRole);
-        childItem->setData(childTreeItem->data(Qt::UserRole + 1), Qt::UserRole + 1);
+        QString itemType = childTreeItem->data(Qt::UserRole + 1).toString();
+        childItem->setData(itemType, Qt::UserRole + 1);
+
+        if (itemType != "folder" && itemType != "book") {
+            childItem->setFlags(childItem->flags() & ~Qt::ItemIsDropEnabled);
+        }
+
         vfsModel->appendRow(childItem);
     }
 }
