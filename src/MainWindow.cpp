@@ -967,7 +967,100 @@ void MainWindow::showInputSettingsMenu() {
         }
     });
 
-    QAction* editSystemPromptAction = chatMenu->addAction(tr("Chat Settings..."));
+    QMenu* chatModelMenu = menu.addMenu(tr("Chat Model"));
+    QActionGroup* chatModelGroup = new QActionGroup(&menu);
+    QAction* mDef = chatModelMenu->addAction(tr("Use Parent Default"));
+    mDef->setData("default");
+    mDef->setCheckable(true);
+    chatModelGroup->addAction(mDef);
+
+    for (const QString& modelName : m_availableModels) {
+        QAction* mAction = chatModelMenu->addAction(modelName);
+        mAction->setData(modelName);
+        mAction->setCheckable(true);
+        chatModelGroup->addAction(mAction);
+    }
+
+    QString currentChatModel = "default";
+    if (currentDb && currentDb->isOpen()) {
+        if (currentLastNodeId != 0) {
+            currentChatModel = currentDb->getSetting("chat", currentLastNodeId, "model", "default");
+        } else {
+            currentChatModel = m_newChatModel;
+        }
+    } else if (!currentDb || !currentDb->isOpen()) {
+        chatModelMenu->setEnabled(false);
+    }
+
+    bool modelMatched = false;
+    for (QAction* action : chatModelGroup->actions()) {
+        if (action->data().toString() == currentChatModel) {
+            action->setChecked(true);
+            modelMatched = true;
+            break;
+        }
+    }
+    if (!modelMatched) mDef->setChecked(true);
+
+    connect(chatModelGroup, &QActionGroup::triggered, this, [this](QAction* action) {
+        if (currentDb && currentDb->isOpen()) {
+            QString newModel = action->data().toString();
+            if (currentLastNodeId == 0) {
+                m_newChatModel = newModel;
+            } else {
+                currentDb->setSetting("chat", currentLastNodeId, "model", newModel);
+            }
+            updateInputBehavior();
+        }
+    });
+
+    QMenu* chatInputModeMenu = menu.addMenu(tr("Chat Input Mode"));
+    QActionGroup* inputModeGroup = new QActionGroup(&menu);
+    QAction* imDef = chatInputModeMenu->addAction(tr("Use Parent Default"));
+    imDef->setData("default");
+    imDef->setCheckable(true);
+    QAction* imSingle = chatInputModeMenu->addAction(tr("Single Line"));
+    imSingle->setData("Single Line");
+    imSingle->setCheckable(true);
+    QAction* imMulti = chatInputModeMenu->addAction(tr("Multi Line"));
+    imMulti->setData("Multi Line");
+    imMulti->setCheckable(true);
+
+    inputModeGroup->addAction(imDef);
+    inputModeGroup->addAction(imSingle);
+    inputModeGroup->addAction(imMulti);
+
+    QString currentInputMode = "default";
+    if (currentDb && currentDb->isOpen()) {
+        if (currentLastNodeId != 0) {
+            currentInputMode = currentDb->getSetting("chat", currentLastNodeId, "multiLine", "default");
+        } else {
+            currentInputMode = m_newChatMultiLine;
+        }
+    } else if (!currentDb || !currentDb->isOpen()) {
+        chatInputModeMenu->setEnabled(false);
+    }
+
+    if (currentInputMode == "Single Line")
+        imSingle->setChecked(true);
+    else if (currentInputMode == "Multi Line")
+        imMulti->setChecked(true);
+    else
+        imDef->setChecked(true);
+
+    connect(inputModeGroup, &QActionGroup::triggered, this, [this](QAction* action) {
+        if (currentDb && currentDb->isOpen()) {
+            QString newMode = action->data().toString();
+            if (currentLastNodeId == 0) {
+                m_newChatMultiLine = newMode;
+            } else {
+                currentDb->setSetting("chat", currentLastNodeId, "multiLine", newMode);
+            }
+            updateInputBehavior();
+        }
+    });
+
+    QAction* editSystemPromptAction = menu.addAction(QIcon::fromTheme("configure"), tr("Chat Settings..."));
     connect(editSystemPromptAction, &QAction::triggered, this, [this]() {
         showChatSettingsDialog(currentLastNodeId);
     });
@@ -1164,9 +1257,15 @@ void MainWindow::updateInputBehavior() {
         if (toggleInputModeBtn) {
             bool checked = toggleInputModeBtn->isChecked();
             if (inheritedMultiLine == "Multi Line" && !checked) {
+                toggleInputModeBtn->blockSignals(true);
                 toggleInputModeBtn->setChecked(true);
+                inputModeStack->setCurrentIndex(1);
+                toggleInputModeBtn->blockSignals(false);
             } else if (inheritedMultiLine == "Single Line" && checked) {
+                toggleInputModeBtn->blockSignals(true);
                 toggleInputModeBtn->setChecked(false);
+                inputModeStack->setCurrentIndex(0);
+                toggleInputModeBtn->blockSignals(false);
             }
         }
     }
