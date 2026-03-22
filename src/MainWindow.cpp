@@ -163,6 +163,7 @@ void MainWindow::setupUi() {
     vfsModel = new QStandardItemModel(this);
     vfsExplorer->setModel(vfsModel);
     vfsExplorer->setViewMode(QListView::IconMode);
+    vfsExplorer->setDropIndicatorShown(true);
     vfsExplorer->setDragDropOverwriteMode(true);
     vfsExplorer->setAcceptDrops(true);
     vfsExplorer->setDragEnabled(true);
@@ -2475,6 +2476,14 @@ namespace {
 void MainWindow::loadDocumentsAndNotes() {
     if (!openBooksModel) return;
 
+    QModelIndex currentIndex = openBooksTree->currentIndex();
+    int currId = 0;
+    QString currType;
+    if (currentIndex.isValid()) {
+        QStandardItem* currItem = openBooksModel->itemFromIndex(currentIndex);
+        if (currItem) { currId = currItem->data(Qt::UserRole).toInt(); currType = currItem->data(Qt::UserRole + 1).toString(); }
+    }
+
     QSet<QString> expanded;
     for (int i = 0; i < openBooksModel->rowCount(); ++i) {
         saveExpandedState(openBooksTree, openBooksModel->item(i), expanded);
@@ -2531,16 +2540,33 @@ void MainWindow::loadDocumentsAndNotes() {
         restoreExpandedState(openBooksTree, openBooksModel->item(i), expanded);
     }
 
-    QModelIndex currentIndex = openBooksTree->currentIndex();
-    if (currentIndex.isValid()) {
-        QStandardItem* currentItem = openBooksModel->itemFromIndex(currentIndex);
-        if (currentItem) {
-            QString type = currentItem->data(Qt::UserRole + 1).toString();
-            if (type == "docs_folder" || type == "templates_folder" || type == "drafts_folder" ||
-                type == "notes_folder" || type == "chats_folder") {
-                emit openBooksTree->selectionModel()->selectionChanged(QItemSelection(currentIndex, currentIndex),
-                                                                       QItemSelection());
+    if (currId != 0 || !currType.isEmpty()) {
+        QStandardItem* newItem = nullptr;
+
+        // Recursive lambda to find item
+        std::function<QStandardItem*(QStandardItem*)> findItem = [&](QStandardItem* item) -> QStandardItem* {
+            if (!item) return nullptr;
+            int id = item->data(Qt::UserRole).toInt();
+            QString type = item->data(Qt::UserRole + 1).toString();
+            if (id == currId && type == currType) {
+                return item;
             }
+            for (int i = 0; i < item->rowCount(); ++i) {
+                QStandardItem* found = findItem(item->child(i));
+                if (found) return found;
+            }
+            return nullptr;
+        };
+
+        for (int i = 0; i < openBooksModel->rowCount(); ++i) {
+            newItem = findItem(openBooksModel->item(i));
+            if (newItem) break;
+        }
+
+        if (newItem) {
+            openBooksTree->setCurrentIndex(newItem->index());
+            emit openBooksTree->selectionModel()->selectionChanged(
+                QItemSelection(newItem->index(), newItem->index()), QItemSelection());
         }
     }
 }
