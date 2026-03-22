@@ -2136,17 +2136,14 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
             return true;
         }
         if (sourceView == openBooksTree || sourceView == vfsExplorer) {
-            dragEvent->acceptProposedAction();
-            return true;
+            return false; // let native handling show drop indicator
         }
     } else if (event->type() == QEvent::DragMove) {
         QDragMoveEvent* dragEvent = static_cast<QDragMoveEvent*>(event);
         if (obj == openBooksTree || obj == openBooksTree->viewport()) {
-            dragEvent->acceptProposedAction();
-            return true;
+            return false; // let native handling show drop indicator
         } else if (obj == vfsExplorer || obj == vfsExplorer->viewport()) {
-            dragEvent->acceptProposedAction();
-            return true;
+            return false; // let native handling show drop indicator
         }
     } else if (event->type() == QEvent::Drop) {
         QDropEvent* dropEvent = static_cast<QDropEvent*>(event);
@@ -2206,6 +2203,10 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
 
             if (targetItem) {
                 QModelIndex sourceIndex = sourceView->currentIndex();
+                if (!sourceIndex.isValid() && sourceView->selectionModel()->hasSelection()) {
+                    sourceIndex = sourceView->selectionModel()->selectedIndexes().first();
+                }
+
                 if (sourceIndex.isValid()) {
                     QStandardItem* draggedItem = nullptr;
                     if (sourceView == openBooksTree) {
@@ -2960,21 +2961,25 @@ bool MainWindow::moveItemToFolder(QStandardItem* draggedItem, QStandardItem* tar
         compatible = true;
     } else if (itemType.endsWith("_folder") && targetType == itemType) {
         if (db->moveFolder(itemId, targetFolderId)) {
-            QStandardItem* parent = draggedItem->parent();
-            if (parent) {
-                QList<QStandardItem*> taken = parent->takeRow(draggedItem->row());
-                targetItem->appendRow(taken);
-            }
+            QTimer::singleShot(0, this, [draggedItem, targetItem]() {
+                QStandardItem* parent = draggedItem->parent();
+                if (parent) {
+                    QList<QStandardItem*> taken = parent->takeRow(draggedItem->row());
+                    targetItem->appendRow(taken);
+                }
+            });
             return true;
         }
     }
 
     if (compatible && db->moveItem(table, itemId, targetFolderId)) {
-        QStandardItem* parent = draggedItem->parent();
-        if (parent) {
-            QList<QStandardItem*> taken = parent->takeRow(draggedItem->row());
-            targetItem->appendRow(taken);
-        }
+        QTimer::singleShot(0, this, [draggedItem, targetItem]() {
+            QStandardItem* parent = draggedItem->parent();
+            if (parent) {
+                QList<QStandardItem*> taken = parent->takeRow(draggedItem->row());
+                targetItem->appendRow(taken);
+            }
+        });
         return true;
     }
     return false;
