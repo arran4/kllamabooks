@@ -752,9 +752,7 @@ void MainWindow::setupUi() {
     actionCollection()->addAction(QStringLiteral("model_explorer"), modelExplorerAction);
     connect(modelExplorerAction, &QAction::triggered, this, &MainWindow::showModelExplorer);
 
-    QAction* settingsAction = new QAction(QIcon::fromTheme("configure"), tr("Configure KLlamaBooks..."), this);
-    actionCollection()->addAction(QStringLiteral("configure_app"), settingsAction);
-    connect(settingsAction, &QAction::triggered, this, &MainWindow::showSettingsDialog);
+    QAction* settingsAction = KStandardAction::preferences(this, &MainWindow::showSettingsDialog, actionCollection());
 
     QAction* debugInfoAction = new QAction(QIcon::fromTheme("tools-report-bug"), tr("Database Debug Info"), this);
     actionCollection()->addAction(QStringLiteral("debug_info"), debugInfoAction);
