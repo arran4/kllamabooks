@@ -1,5 +1,6 @@
 #include "MainWindow.h"
 
+#include "ChatSettingsDialog.h"
 #include <KActionCollection>
 #include <KActionMenu>
 #include <KStandardAction>
@@ -949,26 +950,9 @@ void MainWindow::showInputSettingsMenu() {
         }
     });
 
-    QAction* editSystemPromptAction = chatMenu->addAction(tr("Edit System Prompt..."));
+    QAction* editSystemPromptAction = chatMenu->addAction(tr("Chat Settings..."));
     connect(editSystemPromptAction, &QAction::triggered, this, [this, rootId]() {
-        if (!currentDb || !currentDb->isOpen()) return;
-        QString currentPrompt;
-        if (rootId == 0) {
-            currentPrompt = m_newChatSystemPrompt;
-        } else {
-            currentPrompt = currentDb->getSetting("chat", rootId, "systemPrompt", "");
-        }
-
-        bool ok;
-        QString newPrompt = QInputDialog::getMultiLineText(this, tr("Edit System Prompt"),
-                                                           tr("System Prompt:"), currentPrompt, &ok);
-        if (ok) {
-            if (rootId == 0) {
-                m_newChatSystemPrompt = newPrompt;
-            } else {
-                currentDb->setSetting("chat", rootId, "systemPrompt", newPrompt);
-            }
-        }
+        showChatSettingsDialog(rootId);
     });
 
     menu.addSeparator();
@@ -1053,6 +1037,27 @@ void MainWindow::showInputSettingsMenu() {
     connect(globalSettingsAction, &QAction::triggered, this, &MainWindow::showSettingsDialog);
 
     menu.exec(inputSettingsButton->mapToGlobal(QPoint(0, inputSettingsButton->height())));
+}
+
+void MainWindow::showChatSettingsDialog(int messageId) {
+    if (!currentDb || !currentDb->isOpen()) return;
+
+    QString currentPrompt;
+    if (messageId == 0) {
+        currentPrompt = m_newChatSystemPrompt;
+    } else {
+        currentPrompt = currentDb->getSetting("chat", messageId, "systemPrompt", "");
+    }
+
+    ChatSettingsDialog dlg(currentPrompt, this);
+    if (dlg.exec() == QDialog::Accepted) {
+        QString newPrompt = dlg.getSystemPrompt();
+        if (messageId == 0) {
+            m_newChatSystemPrompt = newPrompt;
+        } else {
+            currentDb->setSetting("chat", messageId, "systemPrompt", newPrompt);
+        }
+    }
 }
 
 void MainWindow::updateInputBehavior() {
@@ -1235,6 +1240,7 @@ void MainWindow::showVfsContextMenu(const QPoint& pos) {
     QAction* copyAction = nullptr;
     QAction* pasteAction = nullptr;
     QAction* forkAction = nullptr;
+    QAction* settingsAction = nullptr;
 
     QModelIndex treeIndex = openBooksTree->currentIndex();
     QStandardItem* treeItem = nullptr;
@@ -1307,13 +1313,15 @@ void MainWindow::showVfsContextMenu(const QPoint& pos) {
                 }
                 return;
             }
-            if (itemType.isEmpty() || itemType == "chat_session") {
+            if (itemType.isEmpty() || itemType == "chat_session" || itemType == "chat_node") {
                 copyAction = menu.addAction(QIcon::fromTheme("edit-copy"), "Copy Message");
                 pasteAction = menu.addAction(QIcon::fromTheme("edit-paste"), "Paste to Input");
                 menu.addSeparator();
                 forkAction = menu.addAction(QIcon::fromTheme("call-start"), "Fork from Here");
                 menu.addSeparator();
                 menu.addAction(QIcon::fromTheme("document-export"), "Export Chat Session");
+                menu.addSeparator();
+                settingsAction = menu.addAction(QIcon::fromTheme("configure"), "Chat Settings...");
             }
         }
     } else {
@@ -1365,6 +1373,8 @@ void MainWindow::showVfsContextMenu(const QPoint& pos) {
             mainContentStack->setCurrentWidget(chatWindowView);
             chatTextArea->setFocus();
         }
+    } else if (item && selectedAction == settingsAction) {
+        showChatSettingsDialog(item->data(Qt::UserRole).toInt());
     }
 }
 
@@ -2636,12 +2646,11 @@ void MainWindow::showOpenBookContextMenu(const QPoint& pos) {
                 if (dlg.exec() == QDialog::Accepted) {
                     QString dbModel = currentDb->getSetting("book", 0, "defaultModel", "");
                     if (!dbModel.isEmpty()) {
-                        int idx = modelComboBox->findText(dbModel);
-                        if (idx >= 0) {
-                            modelComboBox->setCurrentIndex(idx);
-                        }
+                        m_selectedModel = dbModel;
+                        modelLabel->setText(tr("Model: %1 (Book Default)").arg(m_selectedModel));
                     } else if (!m_availableModels.isEmpty()) {
-                        modelComboBox->setCurrentIndex(0);  // Revert to global fallback
+                        m_selectedModel = m_availableModels.first();
+                        modelLabel->setText(tr("Model: %1 (Global Fallback)").arg(m_selectedModel));
                     }
                     if (currentLastNodeId != 0 && mainContentStack->currentWidget() == chatWindowView) {
                         updateLinearChatView(currentLastNodeId, currentDb->getMessages());

@@ -69,6 +69,7 @@ class MainWindow : public KXmlGuiWindow {
     void showOpenBookContextMenu(const QPoint& pos);
     void showVfsContextMenu(const QPoint& pos);
     void showInputSettingsMenu();
+    void showChatSettingsDialog(int messageId);
     void updateInputBehavior();
     void exportChatSession();
     void importChatSession();

@@ -158,8 +158,7 @@ found:
     emit processingStarted(m_currentDb, m_currentItem.messageId);
     emit queueChanged();
 
-    int rootId = m_currentDb->getRootMessageId(m_currentItem.messageId);
-    QString sysPrompt = m_currentDb->getSetting("chat", rootId, "systemPrompt", "");
+    QString sysPrompt = m_currentDb->getInheritedSystemPrompt(m_currentItem.messageId);
     if (sysPrompt.isEmpty()) {
         sysPrompt = m_currentDb->getSetting("book", 0, "systemPrompt", "");
     }
