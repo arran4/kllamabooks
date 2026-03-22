@@ -167,6 +167,7 @@ void MainWindow::setupUi() {
     vfsExplorer->setDragDropOverwriteMode(true);
     vfsExplorer->setAcceptDrops(true);
     vfsExplorer->setDragEnabled(true);
+    vfsExplorer->setMovement(QListView::Static);
     vfsExplorer->setDragDropMode(QAbstractItemView::DragDrop);
     vfsExplorer->setDefaultDropAction(Qt::MoveAction);
     vfsExplorer->setEditTriggers(QAbstractItemView::NoEditTriggers);
