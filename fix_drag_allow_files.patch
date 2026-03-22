@@ -1,0 +1,32 @@
+--- src/MainWindow.cpp
++++ src/MainWindow.cpp
+@@ -2147,10 +2147,6 @@
+                 if (targetType.endsWith("_folder")) {
+                     dragEvent->acceptProposedAction();
+                     return true;
+-                } else {
+-                    dragEvent->ignore();
+-                    return true;
+                 }
++                dragEvent->acceptProposedAction();
++                return true;
+             } else {
+                 dragEvent->acceptProposedAction();
+@@ -2158,8 +2154,6 @@
+             }
+         } else if (obj == vfsExplorer || obj == vfsExplorer->viewport()) {
+             QModelIndex index = vfsExplorer->indexAt(dragEvent->position().toPoint());
+             if (index.isValid()) {
+                 QStandardItem* targetItem = vfsModel->itemFromIndex(index);
+                 QString targetType = targetItem->data(Qt::UserRole + 1).toString();
+-                if (targetType.endsWith("_folder") || targetItem->text() == "..") {
+-                    dragEvent->acceptProposedAction();
+-                    return true;
+-                } else {
+-                    dragEvent->ignore();
+-                    return true;
+-                }
++                dragEvent->acceptProposedAction();
++                return true;
+             } else {
+                 dragEvent->acceptProposedAction();

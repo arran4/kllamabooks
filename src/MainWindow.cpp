@@ -2142,31 +2142,11 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
     } else if (event->type() == QEvent::DragMove) {
         QDragMoveEvent* dragEvent = static_cast<QDragMoveEvent*>(event);
         if (obj == openBooksTree || obj == openBooksTree->viewport()) {
-            QModelIndex index = openBooksTree->indexAt(dragEvent->position().toPoint());
-            if (index.isValid()) {
-                QStandardItem* targetItem = openBooksModel->itemFromIndex(index);
-                QString targetType = targetItem->data(Qt::UserRole + 1).toString();
-                if (targetType.endsWith("_folder")) {
-                    dragEvent->acceptProposedAction();
-                    return true;
-                }
-            }
+            dragEvent->acceptProposedAction();
+            return true;
         } else if (obj == vfsExplorer || obj == vfsExplorer->viewport()) {
-            QModelIndex index = vfsExplorer->indexAt(dragEvent->position().toPoint());
-            if (index.isValid()) {
-                QStandardItem* targetItem = vfsModel->itemFromIndex(index);
-                QString targetType = targetItem->data(Qt::UserRole + 1).toString();
-                if (targetType.endsWith("_folder") || targetItem->text() == "..") {
-                    dragEvent->acceptProposedAction();
-                    return true;
-                } else {
-                    dragEvent->ignore();
-                    return true;
-                }
-            } else {
-                dragEvent->acceptProposedAction();
-                return true;
-            }
+            dragEvent->acceptProposedAction();
+            return true;
         }
     } else if (event->type() == QEvent::Drop) {
         QDropEvent* dropEvent = static_cast<QDropEvent*>(event);
