@@ -502,29 +502,14 @@ void MainWindow::setupUi() {
     toggleInputModeBtn->setToolTip(tr("Toggle Multi-line Input"));
     toggleInputModeBtn->setCheckable(true);
 
-    inputModeStack = new QStackedWidget(this);
     inputField = new ChatInputWidget(this);
-    // HEAD input settings
-    inputModeStack->addWidget(inputField);
 
     multiLineInput = new QTextEdit(this);
     multiLineInput->setMaximumHeight(100);
-    inputModeStack->addWidget(multiLineInput);
+    multiLineInput->hide();
 
-    auto updateStackSize = [this](int index) {
-        for (int i = 0; i < inputModeStack->count(); ++i) {
-            QWidget* w = inputModeStack->widget(i);
-            if (i == index) {
-                w->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
-            } else {
-                w->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
-            }
-        }
-    };
-    connect(inputModeStack, &QStackedWidget::currentChanged, this, updateStackSize);
-    updateStackSize(0);
-
-    inputLayout->addWidget(inputModeStack);
+    inputLayout->addWidget(inputField);
+    inputLayout->addWidget(multiLineInput);
 
     discardChangesBtn = new QPushButton("Discard Changes", this);
     discardChangesBtn->setToolTip(tr("Discard any pending edits to history."));
@@ -598,8 +583,15 @@ void MainWindow::setupUi() {
                     }
                 }
             });
-    connect(toggleInputModeBtn, &QPushButton::toggled, this,
-            [this](bool checked) { inputModeStack->setCurrentIndex(checked ? 1 : 0); });
+    connect(toggleInputModeBtn, &QPushButton::toggled, this, [this](bool checked) {
+        if (checked) {
+            inputField->hide();
+            multiLineInput->show();
+        } else {
+            multiLineInput->hide();
+            inputField->show();
+        }
+    });
 
     // Initial sizes
     int totalWidth = width();
@@ -1351,7 +1343,7 @@ void MainWindow::showVfsContextMenu(const QPoint& pos) {
         if (bracketIndex != -1) fullText = fullText.mid(bracketIndex + 2);
         QGuiApplication::clipboard()->setText(fullText);
     } else if (item && selectedAction == pasteAction) {
-        if (inputModeStack->currentIndex() == 0) {
+        if (!toggleInputModeBtn->isChecked()) {
             inputField->setPlainText(inputField->toPlainText() + QGuiApplication::clipboard()->text());
         } else {
             multiLineInput->insertPlainText(QGuiApplication::clipboard()->text());
@@ -1680,7 +1672,7 @@ void MainWindow::populateMessageForks(QStandardItem* parentItem, int parentId, c
 void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& allMessages) {
     if (currentLastNodeId != 0) {
         m_chatInputDrafts[currentLastNodeId] =
-            inputModeStack->currentIndex() == 0 ? inputField->toPlainText() : multiLineInput->toPlainText();
+            !toggleInputModeBtn->isChecked() ? inputField->toPlainText() : multiLineInput->toPlainText();
     }
 
     if (currentDb) {
@@ -1786,7 +1778,7 @@ void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& 
     if (discardChangesBtn) discardChangesBtn->hide();
 
     QString savedDraft = m_chatInputDrafts.value(tailNodeId);
-    if (inputModeStack->currentIndex() == 0) {
+    if (!toggleInputModeBtn->isChecked()) {
         inputField->setPlainText(savedDraft);
     } else {
         multiLineInput->setPlainText(savedDraft);
@@ -1945,7 +1937,7 @@ void MainWindow::onSendMessage() {
     if (!currentDb) return;
 
     QString text;
-    if (inputModeStack->currentIndex() == 0) {
+    if (!toggleInputModeBtn->isChecked()) {
         text = inputField->toPlainText().trimmed();
         if (text.isEmpty()) return;
         inputField->clear();
