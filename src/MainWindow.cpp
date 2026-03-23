@@ -443,6 +443,7 @@ void MainWindow::setupUi() {
             int nodeId = currentChatPath[msgIndex].id;
             currentLastNodeId = nodeId;
             if (currentDb) updateLinearChatView(currentLastNodeId, currentDb->getMessages());
+            mainContentStack->setCurrentWidget(chatWindowView);
             if (inputModeStack->currentIndex() == 0) {
                 inputField->setFocus();
             } else {
