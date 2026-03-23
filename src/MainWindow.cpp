@@ -1757,7 +1757,10 @@ void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& 
 
         bool hasChildren = foundFolderItem->rowCount() > 0;
 
-        if (isCreatingNewChat || m_isCreatingNewFork) {
+        if (isCreatingNewChat) {
+            chatForkExplorer->hide();
+            if (chatInputContainer) chatInputContainer->show();
+        } else if (m_isCreatingNewFork) {
             chatForkExplorer->hide();
             if (chatInputContainer) chatInputContainer->show();
         } else if (!hasChildren && tailNodeId != 0) {
