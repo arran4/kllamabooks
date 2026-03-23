@@ -2483,7 +2483,7 @@ void MainWindow::onOpenBooksSelectionChanged(const QItemSelection& selected, con
 
     QString type = item->data(Qt::UserRole + 1).toString();
     if (type == "book" || type == "chats_folder" || type == "docs_folder" || type == "notes_folder" ||
-        type == "templates_folder" || type == "drafts_folder" || (type == "chat_node" && item->rowCount() > 0)) {
+        type == "templates_folder" || type == "drafts_folder") {
         refreshVfsExplorer();
 
         // If it's the chats_folder, sync currentLastNodeId = 0
