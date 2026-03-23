@@ -131,7 +131,6 @@ class MainWindow : public KXmlGuiWindow {
     QTextEdit* noteEditorView;
     QPushButton* saveNoteBtn;
 
-    QStackedWidget* inputModeStack;
     QTextEdit* multiLineInput;
     QPushButton* toggleInputModeBtn;
 

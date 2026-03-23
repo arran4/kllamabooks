@@ -87,6 +87,7 @@ void MainWindow::setupUi() {
     leftSplitter = new QSplitter(Qt::Vertical, this);
 
     openBooksTree = new QTreeView(this);
+    openBooksTree->setMinimumSize(0, 0);
     openBooksModel = new QStandardItemModel(this);
     openBooksTree->setModel(openBooksModel);
     openBooksTree->setHeaderHidden(true);
@@ -138,6 +139,7 @@ void MainWindow::setupUi() {
     });
 
     bookList = new QListWidget(this);
+    bookList->setMinimumSize(0, 0);
     bookList->setAcceptDrops(true);
     bookList->setDragEnabled(true);
     bookList->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -280,13 +282,12 @@ void MainWindow::setupUi() {
         else
             title = "Draft of: " + title;
 
-        QString textToSave = (mainContentStack->currentWidget() == docContainer) ? documentEditorView->toPlainText() : noteEditorView->toPlainText();
+        QString textToSave = (mainContentStack->currentWidget() == docContainer) ? documentEditorView->toPlainText()
+                                                                                 : noteEditorView->toPlainText();
         if (currentAutoDraftId == 0) {
-            currentAutoDraftId = currentDb->addDraft(
-                0, title, textToSave);
+            currentAutoDraftId = currentDb->addDraft(0, title, textToSave);
         } else {
-            currentDb->updateDraft(
-                currentAutoDraftId, title, textToSave);
+            currentDb->updateDraft(currentAutoDraftId, title, textToSave);
         }
     });
 
@@ -321,7 +322,9 @@ void MainWindow::setupUi() {
             item->setData(newId, Qt::UserRole);
             item->setData(type, Qt::UserRole + 1);
             item->setText(currentTitle);
-            QFont f = item->font(); f.setItalic(false); item->setFont(f);
+            QFont f = item->font();
+            f.setItalic(false);
+            item->setFont(f);
             isCreatingNewDoc = false;
             return;
         }
@@ -356,17 +359,25 @@ void MainWindow::setupUi() {
             }
             int newId = currentDb->addNote(folderId, currentTitle, noteEditorView->toPlainText());
             statusBar->showMessage(tr("Note saved."), 3000);
-            if (currentAutoDraftId != 0) { currentDb->deleteDraft(currentAutoDraftId); currentAutoDraftId = 0; }
+            if (currentAutoDraftId != 0) {
+                currentDb->deleteDraft(currentAutoDraftId);
+                currentAutoDraftId = 0;
+            }
             item->setData(newId, Qt::UserRole);
             item->setData("note", Qt::UserRole + 1);
             item->setText(currentTitle);
-            QFont f = item->font(); f.setItalic(false); item->setFont(f);
+            QFont f = item->font();
+            f.setItalic(false);
+            item->setFont(f);
             isCreatingNewNote = false;
             return;
         }
         if (currentNoteId == 0) return;
         currentDb->updateNote(currentNoteId, currentTitle, noteEditorView->toPlainText());
-        if (currentAutoDraftId != 0) { currentDb->deleteDraft(currentAutoDraftId); currentAutoDraftId = 0; }
+        if (currentAutoDraftId != 0) {
+            currentDb->deleteDraft(currentAutoDraftId);
+            currentAutoDraftId = 0;
+        }
         statusBar->showMessage(tr("Note saved."), 3000);
         if (item) item->setText(currentTitle);
     });
@@ -490,20 +501,19 @@ void MainWindow::setupUi() {
     QHBoxLayout* inputLayout = new QHBoxLayout();
 
     modelSelectButton = new QPushButton(QIcon::fromTheme("system-search"), "Select Model", this);
-    toggleInputModeBtn = new QPushButton(QIcon::fromTheme("format-text-strikethrough"), "", this);
+    toggleInputModeBtn = new QPushButton(QIcon::fromTheme("view-list-details"), "", this);
     toggleInputModeBtn->setToolTip(tr("Toggle Multi-line Input"));
     toggleInputModeBtn->setCheckable(true);
 
-    inputModeStack = new QStackedWidget(this);
     inputField = new ChatInputWidget(this);
-    // HEAD input settings
-    inputModeStack->addWidget(inputField);
 
     multiLineInput = new QTextEdit(this);
     multiLineInput->setMaximumHeight(100);
-    inputModeStack->addWidget(multiLineInput);
+    multiLineInput->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
+    multiLineInput->hide();
 
-    inputLayout->addWidget(inputModeStack);
+    inputLayout->addWidget(inputField);
+    inputLayout->addWidget(multiLineInput);
 
     discardChangesBtn = new QPushButton("Discard Changes", this);
     discardChangesBtn->setToolTip(tr("Discard any pending edits to history."));
@@ -521,22 +531,18 @@ void MainWindow::setupUi() {
     inputSettingsButton->setIcon(QIcon::fromTheme("configure"));
     inputSettingsButton->setToolTip(tr("Input Settings"));
     connect(inputSettingsButton, &QToolButton::clicked, this, &MainWindow::showInputSettingsMenu);
-    inputLayout->addWidget(sendButton);
-    inputLayout->addWidget(inputSettingsButton);
+
+    QHBoxLayout* topBtnLayout = new QHBoxLayout();
+    topBtnLayout->addWidget(sendButton);
+    topBtnLayout->addWidget(inputSettingsButton);
+    inputLayout->addLayout(topBtnLayout);
+    inputLayout->setAlignment(topBtnLayout, Qt::AlignTop);
 
     chatInputLayout->addLayout(inputLayout);
 
     connect(discardChangesBtn, &QPushButton::clicked, this, &MainWindow::onDiscardChanges);
 
     mainContentStack->addWidget(chatWindowView);
-
-    QVBoxLayout* btnLayout = new QVBoxLayout();
-    QHBoxLayout* topBtnLayout = new QHBoxLayout();
-    topBtnLayout->addWidget(sendButton);
-    topBtnLayout->addWidget(inputSettingsButton);
-    btnLayout->addLayout(topBtnLayout);
-    btnLayout->addStretch();  // Push to the top of the container
-    inputLayout->addLayout(btnLayout);
 
     QWidget* rightContainer = new QWidget(this);
     QVBoxLayout* rightLayout = new QVBoxLayout(rightContainer);
@@ -554,29 +560,49 @@ void MainWindow::setupUi() {
 
     connect(openBooksTree->selectionModel(), &QItemSelectionModel::selectionChanged, this,
             &MainWindow::onOpenBooksSelectionChanged);
-    connect(openBooksModel, &QStandardItemModel::dataChanged, this, [this](const QModelIndex& topLeft, const QModelIndex& bottomRight) {
-        if (mainContentStack->currentWidget() == vfsExplorer) {
-            QModelIndex currentIdx = openBooksTree->currentIndex();
-            if (topLeft.parent() == currentIdx) {
-                refreshVfsExplorer();
-            }
+    connect(openBooksModel, &QStandardItemModel::dataChanged, this,
+            [this](const QModelIndex& topLeft, const QModelIndex& bottomRight) {
+                if (mainContentStack->currentWidget() == vfsExplorer) {
+                    QModelIndex currentIdx = openBooksTree->currentIndex();
+                    if (topLeft.parent() == currentIdx) {
+                        refreshVfsExplorer();
+                    }
+                }
+            });
+    connect(openBooksModel, &QStandardItemModel::rowsInserted, this,
+            [this](const QModelIndex& parent, int first, int last) {
+                if (mainContentStack->currentWidget() == vfsExplorer) {
+                    QModelIndex currentIdx = openBooksTree->currentIndex();
+                    if (parent == currentIdx) {
+                        refreshVfsExplorer();
+                    }
+                }
+            });
+    connect(openBooksModel, &QStandardItemModel::rowsRemoved, this,
+            [this](const QModelIndex& parent, int first, int last) {
+                if (mainContentStack->currentWidget() == vfsExplorer) {
+                    QModelIndex currentIdx = openBooksTree->currentIndex();
+                    if (parent == currentIdx) {
+                        refreshVfsExplorer();
+                    }
+                }
+            });
+    connect(toggleInputModeBtn, &QPushButton::toggled, this, [this](bool checked) {
+        if (checked) {
+            inputField->hide();
+            inputField->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
+            multiLineInput->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
+            multiLineInput->show();
+        } else {
+            multiLineInput->hide();
+            multiLineInput->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
+            inputField->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
+            inputField->show();
         }
     });
-    connect(openBooksModel, &QStandardItemModel::rowsInserted, this, [this](const QModelIndex& parent, int first, int last) {
-        if (mainContentStack->currentWidget() == vfsExplorer) {
-            QModelIndex currentIdx = openBooksTree->currentIndex();
-            if (parent == currentIdx) {
-                refreshVfsExplorer();
-            }
-        }
-    });
-    connect(openBooksModel, &QStandardItemModel::rowsRemoved, this, [this](const QModelIndex& parent, int first, int last) {
-        if (mainContentStack->currentWidget() == vfsExplorer) {
-            QModelIndex currentIdx = openBooksTree->currentIndex();
-            if (parent == currentIdx) {
-                refreshVfsExplorer();
-            }
-        }
+
+    connect(mainContentStack, &QStackedWidget::currentChanged, this, [this](int index) {
+        toggleInputModeBtn->setVisible(mainContentStack->widget(index) == chatWindowView);
     });
     connect(toggleInputModeBtn, &QPushButton::toggled, this,
             [this](bool checked) {
@@ -749,9 +775,7 @@ void MainWindow::setupUi() {
     actionCollection()->addAction(QStringLiteral("model_explorer"), modelExplorerAction);
     connect(modelExplorerAction, &QAction::triggered, this, &MainWindow::showModelExplorer);
 
-    QAction* settingsAction = new QAction(QIcon::fromTheme("configure"), tr("Configure KLlamaBooks..."), this);
-    actionCollection()->addAction(QStringLiteral("configure_app"), settingsAction);
-    connect(settingsAction, &QAction::triggered, this, &MainWindow::showSettingsDialog);
+    QAction* settingsAction = KStandardAction::preferences(this, &MainWindow::showSettingsDialog, actionCollection());
 
     QAction* debugInfoAction = new QAction(QIcon::fromTheme("tools-report-bug"), tr("Database Debug Info"), this);
     actionCollection()->addAction(QStringLiteral("debug_info"), debugInfoAction);
@@ -789,6 +813,9 @@ void MainWindow::setupUi() {
 
     statusBar->addPermanentWidget(modelSelectButton);
     statusBar->addPermanentWidget(toggleInputModeBtn);
+
+    // Initially hide toggleInputModeBtn since emptyView is default
+    toggleInputModeBtn->hide();
 
     modelLabel = new QLabel(tr("Model: Not Selected"), this);
     statusBar->addPermanentWidget(modelLabel);
@@ -888,9 +915,8 @@ void MainWindow::showInputSettingsMenu() {
     QAction* toggleMultiLineAction = menu.addAction(tr("Toggle Multi-line Mode"));
     toggleMultiLineAction->setCheckable(true);
     toggleMultiLineAction->setChecked(toggleInputModeBtn->isChecked());
-    connect(toggleMultiLineAction, &QAction::triggered, this, [this](bool checked) {
-        toggleInputModeBtn->setChecked(checked);
-    });
+    connect(toggleMultiLineAction, &QAction::triggered, this,
+            [this](bool checked) { toggleInputModeBtn->setChecked(checked); });
 
     QMenu* chatMenu = menu.addMenu(tr("Chat Behavior"));
     QActionGroup* chatGroup = new QActionGroup(&menu);
@@ -1537,7 +1563,7 @@ void MainWindow::showVfsContextMenu(const QPoint& pos) {
         if (bracketIndex != -1) fullText = fullText.mid(bracketIndex + 2);
         QGuiApplication::clipboard()->setText(fullText);
     } else if (item && selectedAction == pasteAction) {
-        if (inputModeStack->currentIndex() == 0) {
+        if (!toggleInputModeBtn->isChecked()) {
             inputField->setPlainText(inputField->toPlainText() + QGuiApplication::clipboard()->text());
         } else {
             multiLineInput->insertPlainText(QGuiApplication::clipboard()->text());
@@ -1872,7 +1898,8 @@ void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& 
     m_newChatMultiLine = "default";
 
     if (currentLastNodeId != 0) {
-        m_chatInputDrafts[currentLastNodeId] = inputModeStack->currentIndex() == 0 ? inputField->toPlainText() : multiLineInput->toPlainText();
+        m_chatInputDrafts[currentLastNodeId] =
+            !toggleInputModeBtn->isChecked() ? inputField->toPlainText() : multiLineInput->toPlainText();
     }
 
     if (currentDb) {
@@ -1978,7 +2005,7 @@ void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& 
     if (discardChangesBtn) discardChangesBtn->hide();
 
     QString savedDraft = m_chatInputDrafts.value(tailNodeId);
-    if (inputModeStack->currentIndex() == 0) {
+    if (!toggleInputModeBtn->isChecked()) {
         inputField->setPlainText(savedDraft);
     } else {
         multiLineInput->setPlainText(savedDraft);
@@ -2028,9 +2055,8 @@ void MainWindow::updateBreadcrumbs() {
             QPushButton* btn = new QPushButton(nodeItem->text(), this);
             btn->setFlat(true);
             btn->setCursor(Qt::PointingHandCursor);
-            connect(btn, &QPushButton::clicked, this, [this, nodeItem]() {
-                openBooksTree->setCurrentIndex(nodeItem->index());
-            });
+            connect(btn, &QPushButton::clicked, this,
+                    [this, nodeItem]() { openBooksTree->setCurrentIndex(nodeItem->index()); });
             breadcrumbLayout->addWidget(btn);
             breadcrumbLayout->addWidget(new QLabel(">", this));
         } else {
@@ -2138,7 +2164,7 @@ void MainWindow::onSendMessage() {
     if (!currentDb) return;
 
     QString text;
-    if (inputModeStack->currentIndex() == 0) {
+    if (!toggleInputModeBtn->isChecked()) {
         text = inputField->toPlainText().trimmed();
         if (text.isEmpty()) return;
         inputField->clear();
@@ -2238,11 +2264,13 @@ void MainWindow::onSendMessage() {
     if (isCreatingNewChat) {
         QModelIndex idx = openBooksTree->currentIndex();
         QStandardItem* item = openBooksModel->itemFromIndex(idx);
-        if (item && item->data(Qt::UserRole+1).toString() == "chat_session") {
+        if (item && item->data(Qt::UserRole + 1).toString() == "chat_session") {
             item->setData(aiId, Qt::UserRole);
-            item->setData("chat_node", Qt::UserRole+1);
+            item->setData("chat_node", Qt::UserRole + 1);
             item->setText(text.left(30));
-            QFont f = item->font(); f.setItalic(false); item->setFont(f);
+            QFont f = item->font();
+            f.setItalic(false);
+            item->setFont(f);
         }
     } else {
         QStandardItem* item = findItemInTree(parentId, "chat_node");
@@ -2250,7 +2278,7 @@ void MainWindow::onSendMessage() {
             if (item->rowCount() > 0) {
                 QStandardItem* branchItem = new QStandardItem(QIcon::fromTheme("text-x-generic"), text.left(30));
                 branchItem->setData(aiId, Qt::UserRole);
-                branchItem->setData("chat_node", Qt::UserRole+1);
+                branchItem->setData("chat_node", Qt::UserRole + 1);
                 item->appendRow(branchItem);
             } else {
                 item->setData(aiId, Qt::UserRole);
@@ -2260,7 +2288,7 @@ void MainWindow::onSendMessage() {
     }
 
     // 5. Update view
-    m_chatInputDrafts.remove(currentLastNodeId); // clear the draft after sending
+    m_chatInputDrafts.remove(currentLastNodeId);  // clear the draft after sending
     updateLinearChatView(currentLastNodeId, currentDb->getMessages());
     statusBar->showMessage(tr("Request queued."), 3000);
 }
@@ -2370,14 +2398,14 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
             return true;
         }
         if (sourceView == openBooksTree || sourceView == vfsExplorer) {
-            return false; // let native handling show drop indicator
+            return false;  // let native handling show drop indicator
         }
     } else if (event->type() == QEvent::DragMove) {
         QDragMoveEvent* dragEvent = static_cast<QDragMoveEvent*>(event);
         if (obj == openBooksTree || obj == openBooksTree->viewport()) {
-            return false; // let native handling show drop indicator
+            return false;  // let native handling show drop indicator
         } else if (obj == vfsExplorer || obj == vfsExplorer->viewport()) {
-            return false; // let native handling show drop indicator
+            return false;  // let native handling show drop indicator
         }
     } else if (event->type() == QEvent::Drop) {
         QDropEvent* dropEvent = static_cast<QDropEvent*>(event);
@@ -2400,15 +2428,18 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
                     return true;
                 }
             }
-        } else if ((obj == openBooksTree || obj == openBooksTree->viewport() || obj == vfsExplorer || obj == vfsExplorer->viewport()) &&
+        } else if ((obj == openBooksTree || obj == openBooksTree->viewport() || obj == vfsExplorer ||
+                    obj == vfsExplorer->viewport()) &&
                    (sourceView == openBooksTree || sourceView == vfsExplorer)) {
-            QAbstractItemView* targetView = (obj == openBooksTree || obj == openBooksTree->viewport()) ? static_cast<QAbstractItemView*>(openBooksTree) : static_cast<QAbstractItemView*>(vfsExplorer);
+            QAbstractItemView* targetView = (obj == openBooksTree || obj == openBooksTree->viewport())
+                                                ? static_cast<QAbstractItemView*>(openBooksTree)
+                                                : static_cast<QAbstractItemView*>(vfsExplorer);
 
             QModelIndex targetIndex = targetView->indexAt(dropEvent->position().toPoint());
             QStandardItem* targetItem = nullptr;
 
             if (targetIndex.isValid()) {
-                if (obj == openBooksTree) {
+                if (targetView == openBooksTree) {
                     targetItem = openBooksModel->itemFromIndex(targetIndex);
                 } else {
                     QStandardItem* vfsItem = vfsModel->itemFromIndex(targetIndex);
@@ -2429,7 +2460,7 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
                         }
                     }
                 }
-            } else if (obj == vfsExplorer) {
+            } else if (targetView == vfsExplorer) {
                 // Background drop in VFS explorer - move to current viewing folder
                 QModelIndex treeIndex = openBooksTree->currentIndex();
                 if (treeIndex.isValid()) targetItem = openBooksModel->itemFromIndex(treeIndex);
@@ -2685,25 +2716,31 @@ void MainWindow::onOpenBooksSelectionChanged(const QItemSelection& selected, con
 }
 
 namespace {
-    void saveExpandedState(QTreeView* tree, QStandardItem* item, QSet<QString>& expanded) {
-        if (!item) return;
-        if (tree->isExpanded(item->index())) {
-            QString path = item->text();
-            QStandardItem* p = item->parent();
-            while (p) { path = p->text() + "/" + path; p = p->parent(); }
-            expanded.insert(path);
-        }
-        for (int i = 0; i < item->rowCount(); ++i) saveExpandedState(tree, item->child(i), expanded);
-    }
-    void restoreExpandedState(QTreeView* tree, QStandardItem* item, const QSet<QString>& expanded) {
-        if (!item) return;
+void saveExpandedState(QTreeView* tree, QStandardItem* item, QSet<QString>& expanded) {
+    if (!item) return;
+    if (tree->isExpanded(item->index())) {
         QString path = item->text();
         QStandardItem* p = item->parent();
-        while (p) { path = p->text() + "/" + path; p = p->parent(); }
-        if (expanded.contains(path)) tree->setExpanded(item->index(), true);
-        for (int i = 0; i < item->rowCount(); ++i) restoreExpandedState(tree, item->child(i), expanded);
+        while (p) {
+            path = p->text() + "/" + path;
+            p = p->parent();
+        }
+        expanded.insert(path);
     }
+    for (int i = 0; i < item->rowCount(); ++i) saveExpandedState(tree, item->child(i), expanded);
 }
+void restoreExpandedState(QTreeView* tree, QStandardItem* item, const QSet<QString>& expanded) {
+    if (!item) return;
+    QString path = item->text();
+    QStandardItem* p = item->parent();
+    while (p) {
+        path = p->text() + "/" + path;
+        p = p->parent();
+    }
+    if (expanded.contains(path)) tree->setExpanded(item->index(), true);
+    for (int i = 0; i < item->rowCount(); ++i) restoreExpandedState(tree, item->child(i), expanded);
+}
+}  // namespace
 
 void MainWindow::loadDocumentsAndNotes() {
     if (!openBooksModel) return;
@@ -2713,7 +2750,10 @@ void MainWindow::loadDocumentsAndNotes() {
     QString currType;
     if (currentIndex.isValid()) {
         QStandardItem* currItem = openBooksModel->itemFromIndex(currentIndex);
-        if (currItem) { currId = currItem->data(Qt::UserRole).toInt(); currType = currItem->data(Qt::UserRole + 1).toString(); }
+        if (currItem) {
+            currId = currItem->data(Qt::UserRole).toInt();
+            currType = currItem->data(Qt::UserRole + 1).toString();
+        }
     }
 
     QSet<QString> expanded;
@@ -2797,8 +2837,8 @@ void MainWindow::loadDocumentsAndNotes() {
 
         if (newItem) {
             openBooksTree->setCurrentIndex(newItem->index());
-            emit openBooksTree->selectionModel()->selectionChanged(
-                QItemSelection(newItem->index(), newItem->index()), QItemSelection());
+            emit openBooksTree->selectionModel()->selectionChanged(QItemSelection(newItem->index(), newItem->index()),
+                                                                   QItemSelection());
         }
     }
 }
@@ -3238,7 +3278,7 @@ bool MainWindow::moveItemToFolder(QStandardItem* draggedItem, QStandardItem* tar
                     db->addNote(targetFolderId, "Copy of " + d.title, d.content);
                     copied = true;
                 }
-        } else if (itemType == "chat_session" && targetType == "chats_folder") {
+        } else if ((itemType == "chat_session" || itemType == "chat_node") && targetType == "chats_folder") {
             // complex copy omitted for now
         }
         if (copied) {
@@ -3249,7 +3289,21 @@ bool MainWindow::moveItemToFolder(QStandardItem* draggedItem, QStandardItem* tar
     }
     bool compatible = false;
     QString table;
-    if (itemType == "chat_session" && targetType == "chats_folder") {
+    int dbItemId = itemId;
+    if ((itemType == "chat_session" || itemType == "chat_node") && targetType == "chats_folder") {
+        if (itemType == "chat_node") {
+            if (draggedItem->parent() && draggedItem->parent()->data(Qt::UserRole + 1).toString() == "chats_folder") {
+                QList<MessageNode> path;
+                getPathToRoot(itemId, db->getMessages(), path);
+                if (!path.isEmpty()) {
+                    dbItemId = path.first().id;
+                } else {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        }
         table = "messages";
         compatible = true;
     } else if (itemType == "document" && targetType == "docs_folder") {
@@ -3266,17 +3320,13 @@ bool MainWindow::moveItemToFolder(QStandardItem* draggedItem, QStandardItem* tar
         compatible = true;
     } else if (itemType.endsWith("_folder") && targetType == itemType) {
         if (db->moveFolder(itemId, targetFolderId)) {
-            QTimer::singleShot(0, this, [this]() {
-                loadDocumentsAndNotes();
-            });
+            QTimer::singleShot(0, this, [this]() { loadDocumentsAndNotes(); });
             return true;
         }
     }
 
-    if (compatible && db->moveItem(table, itemId, targetFolderId)) {
-        QTimer::singleShot(0, this, [this]() {
-            loadDocumentsAndNotes();
-        });
+    if (compatible && db->moveItem(table, dbItemId, targetFolderId)) {
+        QTimer::singleShot(0, this, [this]() { loadDocumentsAndNotes(); });
         return true;
     }
     return false;
