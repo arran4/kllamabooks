@@ -606,7 +606,7 @@ void MainWindow::setupUi() {
     });
     connect(toggleInputModeBtn, &QPushButton::toggled, this,
             [this](bool checked) {
-                inputModeStack->setCurrentIndex(checked ? 1 : 0);
+                chatStackWidget->setCurrentIndex(checked ? 1 : 0);
                 if (currentDb && currentDb->isOpen()) {
                     QString newMultiLine = checked ? "Multi Line" : "Single Line";
                     if (currentLastNodeId != 0) {
@@ -1262,12 +1262,12 @@ void MainWindow::updateInputBehavior() {
             if (inheritedMultiLine == "Multi Line" && !checked) {
                 toggleInputModeBtn->blockSignals(true);
                 toggleInputModeBtn->setChecked(true);
-                inputModeStack->setCurrentIndex(1);
+                chatStackWidget->setCurrentIndex(1);
                 toggleInputModeBtn->blockSignals(false);
             } else if (inheritedMultiLine == "Single Line" && checked) {
                 toggleInputModeBtn->blockSignals(true);
                 toggleInputModeBtn->setChecked(false);
-                inputModeStack->setCurrentIndex(0);
+                chatStackWidget->setCurrentIndex(0);
                 toggleInputModeBtn->blockSignals(false);
             }
         }

@@ -30,6 +30,23 @@ void QueueManager::removeDatabase(std::shared_ptr<BookDatabase> db) {
     emit queueChanged();
 }
 
+void QueueManager::retryItem(std::shared_ptr<BookDatabase> db, int queueId) {
+    if (db) {
+        db->updateQueueStatus(queueId, "pending");
+        emit queueChanged();
+        QTimer::singleShot(0, this, &QueueManager::checkQueue);
+    }
+}
+
+void QueueManager::modifyItem(std::shared_ptr<BookDatabase> db, int queueId, const QString& newPrompt) {
+    if (db) {
+        db->updateQueueItemPrompt(queueId, newPrompt);
+        db->updateQueueStatus(queueId, "pending");
+        emit queueChanged();
+        QTimer::singleShot(0, this, &QueueManager::checkQueue);
+    }
+}
+
 void QueueManager::setActiveDatabase(std::shared_ptr<BookDatabase> db) {
     if (m_activeDb != db) {
         m_activeDb = db;
@@ -82,10 +99,16 @@ QList<QueueManager::MergedQueueItem> QueueManager::getMergedQueue() const {
             result.append({db, item});
         }
     }
+
+    // Add completed items
+    for (const auto& item : m_completedItems) {
+        result.append(item);
+    }
+
     // Sort merged result by priority then timestamp
     std::sort(result.begin(), result.end(), [](const MergedQueueItem& a, const MergedQueueItem& b){
         if (a.item.priority != b.item.priority) return a.item.priority > b.item.priority;
-        return a.item.timestamp < b.item.timestamp;
+        return a.item.timestamp > b.item.timestamp;
     });
     return result;
 }
@@ -101,9 +124,7 @@ void QueueManager::cancelItem(std::shared_ptr<BookDatabase> db, int queueId) {
 }
 
 void QueueManager::clearCompleted() {
-    for (const auto& db : m_databases) {
-        if (db) db->clearCompletedQueue();
-    }
+    m_completedItems.clear();
     emit queueChanged();
 }
 
@@ -195,7 +216,9 @@ void QueueManager::onComplete(const QString& response) {
     if (!m_isProcessing) return;
     if (m_currentDb && m_currentDb->isOpen()) {
         m_currentDb->updateMessage(m_currentItem.messageId, response);
-        m_currentDb->updateQueueStatus(m_currentItem.id, "completed");
+        m_currentItem.status = "completed";
+        m_completedItems.append({m_currentDb, m_currentItem});
+        m_currentDb->deleteQueueItem(m_currentItem.id);
         m_currentDb->addNotification(m_currentItem.messageId, "responded_to");
     }
     m_isProcessing = false;

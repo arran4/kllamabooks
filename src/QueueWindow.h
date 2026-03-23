@@ -17,6 +17,8 @@ public:
 private slots:
     void refresh();
     void onCancelItem();
+    void onRetryItem();
+    void onModifyItem();
     void onMoveUp();
     void onMoveDown();
     void onClearCompleted();
@@ -24,6 +26,8 @@ private slots:
 private:
     QListWidget* m_queueList;
     QPushButton* m_cancelBtn;
+    QPushButton* m_retryBtn;
+    QPushButton* m_modifyBtn;
     QPushButton* m_upBtn;
     QPushButton* m_downBtn;
     QPushButton* m_clearBtn;
