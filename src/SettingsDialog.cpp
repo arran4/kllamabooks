@@ -106,6 +106,15 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
     sendBehaviorLayout->addStretch();
     mainLayout->addLayout(sendBehaviorLayout);
 
+    QHBoxLayout* sysPromptLayout = new QHBoxLayout();
+    QLabel* sysPromptLabel = new QLabel(tr("Global System Prompt:"), this);
+    m_globalSystemPromptEdit = new QTextEdit(this);
+    m_globalSystemPromptEdit->setAcceptRichText(false);
+    m_globalSystemPromptEdit->setPlainText(m_settings.value("globalSystemPrompt", "").toString());
+    sysPromptLayout->addWidget(sysPromptLabel);
+    sysPromptLayout->addWidget(m_globalSystemPromptEdit);
+    mainLayout->addLayout(sysPromptLayout);
+
     mainLayout->addSpacing(10);
 
     // LLM Section
@@ -275,6 +284,7 @@ void SettingsDialog::onApply() {
 
     QString selectedBehavior = m_sendBehaviorCombo->currentData().toString();
     m_settings.setValue("globalSendBehavior", selectedBehavior);
+    m_settings.setValue("globalSystemPrompt", m_globalSystemPromptEdit->toPlainText().trimmed());
 
     emit settingsApplied();
     accept();

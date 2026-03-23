@@ -69,6 +69,7 @@ class MainWindow : public KXmlGuiWindow {
     void showOpenBookContextMenu(const QPoint& pos);
     void showVfsContextMenu(const QPoint& pos);
     void showInputSettingsMenu();
+    void showChatSettingsDialog(int messageId);
     void updateInputBehavior();
     void exportChatSession();
     void importChatSession();
@@ -165,6 +166,10 @@ class MainWindow : public KXmlGuiWindow {
     int currentChatFolderId = 0;
 
     QMap<int, QString> m_chatInputDrafts;
+    QString m_newChatSystemPrompt;
+    QString m_newChatSendBehavior = "default";
+    QString m_newChatModel = "default";
+    QString m_newChatMultiLine = "default";
 
     bool isCreatingNewChat = false;
     bool isCreatingNewDoc = false;
@@ -182,6 +187,9 @@ class MainWindow : public KXmlGuiWindow {
     QToolButton* queueStatusBtn;
     QToolButton* notificationBtn;
     QMenu* notificationMenu;
+
+    QSystemTrayIcon* trayIcon;
+    QToolButton* settingsStatusBarBtn;
 };
 
 #endif  // MAINWINDOW_H
