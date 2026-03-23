@@ -807,6 +807,12 @@ void MainWindow::setupUi() {
     notificationBtn->setMenu(notificationMenu);
     statusBar->addPermanentWidget(notificationBtn);
 
+    settingsStatusBarBtn = new QToolButton(this);
+    settingsStatusBarBtn->setIcon(QIcon::fromTheme("configure"));
+    settingsStatusBarBtn->setToolTip(tr("Settings"));
+    connect(settingsStatusBarBtn, &QToolButton::clicked, this, &MainWindow::showSettingsDialog);
+    statusBar->addPermanentWidget(settingsStatusBarBtn);
+
     updateEndpointsList();
     loadBooks();
 }
@@ -1264,14 +1270,11 @@ void MainWindow::setupWindow() {
     }
 
     if (QSystemTrayIcon::isSystemTrayAvailable()) {
-        trayIcon = new QSystemTrayIcon(QIcon::fromTheme("kllamabooks"), this);
+        trayIcon = new QSystemTrayIcon(QIcon(":/assets/icon.png"), this);
         QMenu* trayMenu = new QMenu(this);
 
         QAction* showAction = trayMenu->addAction(tr("Show KLlamaBooks"));
         connect(showAction, &QAction::triggered, this, &MainWindow::show);
-
-        QAction* settingsAction = trayMenu->addAction(QIcon::fromTheme("configure"), tr("Settings..."));
-        connect(settingsAction, &QAction::triggered, this, &MainWindow::showSettingsDialog);
 
         trayMenu->addSeparator();
 

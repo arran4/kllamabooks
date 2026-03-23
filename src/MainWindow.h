@@ -190,6 +190,7 @@ class MainWindow : public KXmlGuiWindow {
     QMenu* notificationMenu;
 
     QSystemTrayIcon* trayIcon;
+    QToolButton* settingsStatusBarBtn;
 };
 
 #endif  // MAINWINDOW_H
