@@ -1543,7 +1543,7 @@ void MainWindow::populateDocumentFolders(QStandardItem* parentItem, int folderId
 
 QList<MessageNode> MainWindow::getMessagesWithPhantom() {
     if (!currentDb) return {};
-    QList<MessageNode> msgs = getMessagesWithPhantom();
+    QList<MessageNode> msgs = currentDb->getMessages();
     if (m_isCreatingNewFork) {
         MessageNode phantom;
         phantom.id = -1;
