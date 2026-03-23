@@ -11,7 +11,8 @@ class ChatSettingsDialog : public QDialog {
    public:
     explicit ChatSettingsDialog(const QString& initialSystemPrompt, const QString& initialSendBehavior,
                                 const QString& initialModel, const QString& initialMultiLine,
-                                const QStringList& availableModels, QWidget* parent = nullptr);
+                                const QString& endpointName, const QStringList& availableModels,
+                                QWidget* parent = nullptr);
     ~ChatSettingsDialog() = default;
 
     QString getSystemPrompt() const;

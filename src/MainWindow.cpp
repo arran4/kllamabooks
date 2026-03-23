@@ -879,46 +879,11 @@ void MainWindow::showSettingsDialog() {
 void MainWindow::showInputSettingsMenu() {
     QMenu menu(this);
 
-    QMenu* bookMenu = menu.addMenu(tr("Book Behavior"));
-    QActionGroup* bookGroup = new QActionGroup(&menu);
-    QAction* bDef = bookMenu->addAction(tr("Use Global Default"));
-    bDef->setData("default");
-    QAction* bEnter = bookMenu->addAction(tr("Enter to Send"));
-    bEnter->setData("EnterToSend");
-    QAction* bCtrl = bookMenu->addAction(tr("Ctrl+Enter to Send"));
-    bCtrl->setData("CtrlEnterToSend");
-    bDef->setCheckable(true);
-    bEnter->setCheckable(true);
-    bCtrl->setCheckable(true);
-    bookGroup->addAction(bDef);
-    bookGroup->addAction(bEnter);
-    bookGroup->addAction(bCtrl);
-
     QAction* toggleMultiLineAction = menu.addAction(tr("Toggle Multi-line Mode"));
     toggleMultiLineAction->setCheckable(true);
     toggleMultiLineAction->setChecked(toggleInputModeBtn->isChecked());
     connect(toggleMultiLineAction, &QAction::triggered, this, [this](bool checked) {
         toggleInputModeBtn->setChecked(checked);
-    });
-
-    QString currentBookSetting = "default";
-    if (currentDb && currentDb->isOpen()) {
-        currentBookSetting = currentDb->getSetting("book", 0, "sendBehavior", "default");
-    } else {
-        bookMenu->setEnabled(false);
-    }
-    if (currentBookSetting == "EnterToSend")
-        bEnter->setChecked(true);
-    else if (currentBookSetting == "CtrlEnterToSend")
-        bCtrl->setChecked(true);
-    else
-        bDef->setChecked(true);
-
-    connect(bookGroup, &QActionGroup::triggered, this, [this](QAction* action) {
-        if (currentDb && currentDb->isOpen()) {
-            currentDb->setSetting("book", 0, "sendBehavior", action->data().toString());
-            updateInputBehavior();
-        }
     });
 
     QMenu* chatMenu = menu.addMenu(tr("Chat Behavior"));
@@ -974,11 +939,16 @@ void MainWindow::showInputSettingsMenu() {
     mDef->setCheckable(true);
     chatModelGroup->addAction(mDef);
 
+    int modelCount = 0;
+    QString endpointName = endpointComboBox ? endpointComboBox->currentText() : "Default";
     for (const QString& modelName : m_availableModels) {
-        QAction* mAction = chatModelMenu->addAction(modelName);
+        if (modelCount >= 10) break;
+        QString displayString = QString("%1's %2").arg(endpointName, modelName);
+        QAction* mAction = chatModelMenu->addAction(displayString);
         mAction->setData(modelName);
         mAction->setCheckable(true);
         chatModelGroup->addAction(mAction);
+        modelCount++;
     }
 
     QString currentChatModel = "default";
@@ -1156,6 +1126,7 @@ void MainWindow::showChatSettingsDialog(int messageId) {
     QString currentBehavior = "default";
     QString currentModel = "default";
     QString currentMultiLine = "default";
+    QString endpointName = endpointComboBox ? endpointComboBox->currentText() : "Default";
     if (messageId == 0) {
         currentPrompt = m_newChatSystemPrompt;
         currentBehavior = m_newChatSendBehavior;
@@ -1168,7 +1139,7 @@ void MainWindow::showChatSettingsDialog(int messageId) {
         currentMultiLine = currentDb->getSetting("chat", messageId, "multiLine", "default");
     }
 
-    ChatSettingsDialog dlg(currentPrompt, currentBehavior, currentModel, currentMultiLine, m_availableModels, this);
+    ChatSettingsDialog dlg(currentPrompt, currentBehavior, currentModel, currentMultiLine, endpointName, m_availableModels, this);
     if (dlg.exec() == QDialog::Accepted) {
         QString newPrompt = dlg.getSystemPrompt();
         QString newBehavior = dlg.getSendBehavior();
@@ -1290,6 +1261,37 @@ void MainWindow::setupWindow() {
     QStringList openBooks = settings.value("openBooks").toStringList();
     for (const QString& book : openBooks) {
         handleBookDrop(book);
+    }
+
+    if (QSystemTrayIcon::isSystemTrayAvailable()) {
+        trayIcon = new QSystemTrayIcon(QIcon::fromTheme("kllamabooks"), this);
+        QMenu* trayMenu = new QMenu(this);
+
+        QAction* showAction = trayMenu->addAction(tr("Show KLlamaBooks"));
+        connect(showAction, &QAction::triggered, this, &MainWindow::show);
+
+        QAction* settingsAction = trayMenu->addAction(QIcon::fromTheme("configure"), tr("Settings..."));
+        connect(settingsAction, &QAction::triggered, this, &MainWindow::showSettingsDialog);
+
+        trayMenu->addSeparator();
+
+        QAction* quitAction = trayMenu->addAction(QIcon::fromTheme("application-exit"), tr("Quit"));
+        connect(quitAction, &QAction::triggered, qApp, &QCoreApplication::quit);
+
+        trayIcon->setContextMenu(trayMenu);
+        trayIcon->show();
+
+        connect(trayIcon, &QSystemTrayIcon::activated, this, [this](QSystemTrayIcon::ActivationReason reason) {
+            if (reason == QSystemTrayIcon::Trigger || reason == QSystemTrayIcon::DoubleClick) {
+                if (isVisible()) {
+                    hide();
+                } else {
+                    show();
+                    raise();
+                    activateWindow();
+                }
+            }
+        });
     }
 }
 

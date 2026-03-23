@@ -8,7 +8,7 @@
 
 ChatSettingsDialog::ChatSettingsDialog(const QString& initialSystemPrompt, const QString& initialSendBehavior,
                                        const QString& initialModel, const QString& initialMultiLine,
-                                       const QStringList& availableModels, QWidget* parent)
+                                       const QString& endpointName, const QStringList& availableModels, QWidget* parent)
     : QDialog(parent) {
     setWindowTitle(tr("Chat Settings"));
     setMinimumWidth(400);
@@ -36,7 +36,8 @@ ChatSettingsDialog::ChatSettingsDialog(const QString& initialSystemPrompt, const
     m_modelCombo = new QComboBox(this);
     m_modelCombo->addItem(tr("Use Parent Default"), "default");
     for (const QString& model : availableModels) {
-        m_modelCombo->addItem(model, model);
+        QString displayString = QString("%1's %2").arg(endpointName, model);
+        m_modelCombo->addItem(displayString, model);
     }
     int modelIndex = m_modelCombo->findData(initialModel);
     if (modelIndex >= 0) {

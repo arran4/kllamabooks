@@ -188,6 +188,8 @@ class MainWindow : public KXmlGuiWindow {
     QToolButton* queueStatusBtn;
     QToolButton* notificationBtn;
     QMenu* notificationMenu;
+
+    QSystemTrayIcon* trayIcon;
 };
 
 #endif  // MAINWINDOW_H
