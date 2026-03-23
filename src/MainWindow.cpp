@@ -438,10 +438,11 @@ void MainWindow::setupUi() {
                 loadDocumentsAndNotes();
             }
         } else if (selectedAction == forkAction && forkAction) {
+            m_isCreatingNewFork = true;
             currentLastNodeId = currentChatPath[msgIndex].id;
             if (currentDb) {
-                loadDocumentsAndNotes(); // Force tree to rebuild so it recognizes currentLastNodeId as an explicit leaf/fork point
-                updateLinearChatView(currentLastNodeId, currentDb->getMessages());
+                loadDocumentsAndNotes(); // Force tree to rebuild and inject the phantom node marker
+                updateLinearChatView(currentLastNodeId, getMessagesWithPhantom());
                 mainContentStack->setCurrentWidget(chatWindowView);
             }
             if (inputModeStack->currentIndex() == 0) {
@@ -475,6 +476,10 @@ void MainWindow::setupUi() {
 
         int nodeId = item->data(Qt::UserRole).toInt();
         if (nodeId != currentLastNodeId) {
+            if (m_isCreatingNewFork) {
+                m_isCreatingNewFork = false;
+                if (currentDb) loadDocumentsAndNotes(); // Erase phantom node globally
+            }
             currentLastNodeId = nodeId;
             if (currentDb) {
                 updateLinearChatView(currentLastNodeId, currentDb->getMessages());
@@ -523,6 +528,10 @@ void MainWindow::setupUi() {
             QStandardItem* item = forkExplorerModel->itemFromIndex(index);
             if (item) {
                 int nodeId = item->data(Qt::UserRole).toInt();
+                if (m_isCreatingNewFork) {
+                    m_isCreatingNewFork = false;
+                    if (currentDb) loadDocumentsAndNotes(); // Erase phantom node globally
+                }
                 currentLastNodeId = nodeId;
                 if (currentDb) updateLinearChatView(currentLastNodeId, currentDb->getMessages());
             }
@@ -1390,6 +1399,10 @@ void MainWindow::showVfsContextMenu(const QPoint& pos) {
             multiLineInput->insertPlainText(QGuiApplication::clipboard()->text());
         }
     } else if (item && selectedAction == forkAction) {
+        if (m_isCreatingNewFork) {
+            m_isCreatingNewFork = false;
+            if (currentDb) loadDocumentsAndNotes(); // Erase phantom node globally
+        }
         currentLastNodeId = item->data(Qt::UserRole).toInt();
         if (currentDb) {
             updateLinearChatView(currentLastNodeId, currentDb->getMessages());
@@ -1539,6 +1552,20 @@ void MainWindow::populateDocumentFolders(QStandardItem* parentItem, int folderId
     }
 }
 
+
+QList<MessageNode> MainWindow::getMessagesWithPhantom() {
+    if (!currentDb) return {};
+    QList<MessageNode> msgs = currentDb->getMessages();
+    if (m_isCreatingNewFork) {
+        MessageNode phantom;
+        phantom.id = -1;
+        phantom.parentId = currentLastNodeId;
+        phantom.role = "user";
+        phantom.content = "*New Fork*";
+        msgs.append(phantom);
+    }
+    return msgs;
+}
 
 void MainWindow::addPhantomItem(QStandardItem* folderItem, const QString& type) {
     if (!folderItem && openBooksModel && openBooksModel->rowCount() > 0) {
@@ -2495,6 +2522,10 @@ void MainWindow::onOpenBooksSelectionChanged(const QItemSelection& selected, con
             }
         } else {
             // It's a chat leaf or fork point
+            if (m_isCreatingNewFork) {
+                m_isCreatingNewFork = false;
+                if (currentDb) loadDocumentsAndNotes(); // Erase phantom node globally
+            }
             currentLastNodeId = nodeId;
             isCreatingNewChat = (nodeId == 0);
             if (isCreatingNewChat && item->parent()) {

@@ -99,6 +99,7 @@ class MainWindow : public KXmlGuiWindow {
     void populateMessageForks(QStandardItem* parentItem, int parentId, const QList<MessageNode>& allMessages);
     void populateDocumentFolders(QStandardItem* parentItem, int folderId, const QString& type, BookDatabase* db);
     void addPhantomItem(QStandardItem* folderItem, const QString& type);
+    QList<MessageNode> getMessagesWithPhantom();
     QStandardItem* findItem(QStandardItem* parent, int id);
     void updateLinearChatView(int tailNodeId, const QList<MessageNode>& allMessages);
     void getPathToRoot(int nodeId, const QList<MessageNode>& allMessages, QList<MessageNode>& path);
@@ -168,6 +169,7 @@ class MainWindow : public KXmlGuiWindow {
     QMap<int, QString> m_chatInputDrafts;
 
     bool isCreatingNewChat = false;
+    bool m_isCreatingNewFork = false;
     bool isCreatingNewDoc = false;
     bool isCreatingNewNote = false;
 
