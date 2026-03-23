@@ -1,5 +1,7 @@
 #include "MainWindow.h"
 
+#include <QRegularExpression>
+#include <QRegularExpressionMatch>
 #include <KActionCollection>
 #include <KActionMenu>
 #include <KStandardAction>
@@ -394,6 +396,8 @@ void MainWindow::setupUi() {
     chatTextArea = new QTextEdit(this);
     chatTextArea->setReadOnly(true);
     chatTextArea->setContextMenuPolicy(Qt::CustomContextMenu);
+    chatTextArea->viewport()->installEventFilter(this);
+    chatTextArea->viewport()->setMouseTracking(true);
     connect(chatTextArea, &QWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
         QMenu* menu = chatTextArea->createStandardContextMenu();
         menu->addSeparator();
@@ -1783,7 +1787,19 @@ void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& 
         chatTextArea->setTextCursor(cursor);
 
         chatTextArea->insertHtml(QString("<div style='font-weight: bold;'>[%1]</div>").arg(roleName.toHtmlEscaped()));
-        chatTextArea->insertPlainText(node.content + "\n\n");
+
+        QString content = node.content;
+        QRegularExpression actionRegex("What would \\*you\\* like to do\\?\\<\\|endoftext\\|\\>\\<\\|im_start\\|\\>user\n(.*?)(?=\\<\\|endoftext\\|\\>|\\<\\|im_end\\|\\>|$)", QRegularExpression::DotMatchesEverythingOption);
+        QRegularExpressionMatch match = actionRegex.match(content);
+
+        if (match.hasMatch()) {
+            QString actionText = match.captured(1).trimmed();
+            content.replace(match.captured(0), "");
+            chatTextArea->insertPlainText(content);
+            chatTextArea->insertHtml(QString("<br><br><a href=\"action:%1\" style=\"text-decoration:none; color:#007bff; border:1px solid #007bff; padding:2px 5px; border-radius:3px;\">%1</a><br><br>").arg(actionText.toHtmlEscaped()));
+        } else {
+            chatTextArea->insertPlainText(content + "\n\n");
+        }
     }
 
     chatTextArea->blockSignals(false);
@@ -2130,6 +2146,31 @@ void MainWindow::onChatNodeSelected(const QModelIndex& current, const QModelInde
 }
 
 bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
+    if (obj == chatTextArea->viewport()) {
+        if (event->type() == QEvent::MouseMove) {
+            QMouseEvent* mouseEvent = static_cast<QMouseEvent*>(event);
+            QString anchor = chatTextArea->anchorAt(mouseEvent->pos());
+            if (anchor.startsWith("action:") || anchor.startsWith("http://") || anchor.startsWith("https://")) {
+                chatTextArea->viewport()->setCursor(Qt::PointingHandCursor);
+            } else {
+                chatTextArea->viewport()->unsetCursor();
+            }
+        } else if (event->type() == QEvent::MouseButtonRelease) {
+            QMouseEvent* mouseEvent = static_cast<QMouseEvent*>(event);
+            QString anchor = chatTextArea->anchorAt(mouseEvent->pos());
+            if (anchor.startsWith("action:")) {
+                QString actionText = anchor.mid(7);
+                if (!toggleInputModeBtn->isChecked()) {
+                    inputField->setPlainText(actionText);
+                } else {
+                    multiLineInput->setPlainText(actionText);
+                }
+                onSendMessage();
+                return true;
+            }
+        }
+    }
+
     if (obj->property("is_breadcrumb_edit").toBool()) {
         if (event->type() == QEvent::MouseButtonDblClick) {
             QLineEdit* edit = qobject_cast<QLineEdit*>(obj);
