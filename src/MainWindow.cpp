@@ -476,10 +476,7 @@ void MainWindow::setupUi() {
 
         int nodeId = item->data(Qt::UserRole).toInt();
         if (nodeId != currentLastNodeId) {
-            if (m_isCreatingNewFork) {
-                m_isCreatingNewFork = false;
-                if (currentDb) loadDocumentsAndNotes(); // Erase phantom node globally
-            }
+            cancelPhantomFork();
             currentLastNodeId = nodeId;
             if (currentDb) {
                 updateLinearChatView(currentLastNodeId, getMessagesWithPhantom());
@@ -528,10 +525,7 @@ void MainWindow::setupUi() {
             QStandardItem* item = forkExplorerModel->itemFromIndex(index);
             if (item) {
                 int nodeId = item->data(Qt::UserRole).toInt();
-                if (m_isCreatingNewFork) {
-                    m_isCreatingNewFork = false;
-                    if (currentDb) loadDocumentsAndNotes(); // Erase phantom node globally
-                }
+                cancelPhantomFork();
                 currentLastNodeId = nodeId;
                 if (currentDb) updateLinearChatView(currentLastNodeId, getMessagesWithPhantom());
             }
@@ -1399,10 +1393,7 @@ void MainWindow::showVfsContextMenu(const QPoint& pos) {
             multiLineInput->insertPlainText(QGuiApplication::clipboard()->text());
         }
     } else if (item && selectedAction == forkAction) {
-        if (m_isCreatingNewFork) {
-            m_isCreatingNewFork = false;
-            if (currentDb) loadDocumentsAndNotes(); // Erase phantom node globally
-        }
+        cancelPhantomFork();
         currentLastNodeId = item->data(Qt::UserRole).toInt();
         if (currentDb) {
             updateLinearChatView(currentLastNodeId, getMessagesWithPhantom());
@@ -1553,10 +1544,12 @@ void MainWindow::populateDocumentFolders(QStandardItem* parentItem, int folderId
 }
 
 
-QList<MessageNode> MainWindow::getMessagesWithPhantom() {
-    if (!currentDb) return {};
-    QList<MessageNode> msgs = currentDb->getMessages();
-    if (m_isCreatingNewFork) {
+QList<MessageNode> MainWindow::getMessagesWithPhantom(BookDatabase* db) {
+    if (!db) db = currentDb.get();
+    if (!db) return {};
+    QList<MessageNode> msgs = db->getMessages();
+    // Only apply phantom to the current active db!
+    if (m_isCreatingNewFork && currentDb && currentDb.get() == db) {
         MessageNode phantom;
         phantom.id = -1;
         phantom.parentId = currentLastNodeId;
@@ -1565,6 +1558,15 @@ QList<MessageNode> MainWindow::getMessagesWithPhantom() {
         msgs.append(phantom);
     }
     return msgs;
+}
+
+void MainWindow::cancelPhantomFork() {
+    if (m_isCreatingNewFork) {
+        m_isCreatingNewFork = false;
+        QTimer::singleShot(0, this, [this]() {
+            if (currentDb) loadDocumentsAndNotes();
+        });
+    }
 }
 
 void MainWindow::addPhantomItem(QStandardItem* folderItem, const QString& type) {
@@ -2522,10 +2524,7 @@ void MainWindow::onOpenBooksSelectionChanged(const QItemSelection& selected, con
             }
         } else {
             // It's a chat leaf or fork point
-            if (m_isCreatingNewFork) {
-                m_isCreatingNewFork = false;
-                if (currentDb) loadDocumentsAndNotes(); // Erase phantom node globally
-            }
+            cancelPhantomFork();
             currentLastNodeId = nodeId;
             isCreatingNewChat = (nodeId == 0);
             if (isCreatingNewChat && item->parent()) {
