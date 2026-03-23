@@ -440,7 +440,7 @@ void MainWindow::setupUi() {
         } else if (selectedAction == forkAction && forkAction) {
             m_preForkNodeId = currentChatPath[msgIndex].id;
             m_isCreatingNewFork = true;
-            currentLastNodeId = -1;
+            currentLastNodeId = m_preForkNodeId;
             loadDocumentsAndNotes(); // Force a tree refresh to inject the phantom node visually into the folder structure
             updateLinearChatView(currentLastNodeId, getMessagesWithPhantom());
             mainContentStack->setCurrentWidget(chatWindowView);
@@ -1775,9 +1775,6 @@ void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& 
         if (isCreatingNewChat) {
             chatForkExplorer->hide();
             if (chatInputContainer) chatInputContainer->show();
-        } else if (m_isCreatingNewFork) {
-            chatForkExplorer->hide();
-            if (chatInputContainer) chatInputContainer->show();
         } else if (!hasChildren && tailNodeId != 0) {
             chatForkExplorer->hide();
             if (chatInputContainer) chatInputContainer->show();
@@ -1974,7 +1971,7 @@ void MainWindow::onDiscardChanges() {
     if (!currentDb) return;
     if (m_isCreatingNewFork) {
         m_isCreatingNewFork = false;
-        currentLastNodeId = m_preForkNodeId;
+        if (currentLastNodeId == -1) currentLastNodeId = m_preForkNodeId;
         m_preForkNodeId = 0;
         loadDocumentsAndNotes(); // Remove phantom node from tree by triggering an update without the m_isCreatingNewFork flag
         updateLinearChatView(currentLastNodeId, getMessagesWithPhantom());
@@ -2080,7 +2077,9 @@ void MainWindow::onSendMessage() {
 
     if (m_isCreatingNewFork) {
         m_isCreatingNewFork = false;
-        currentLastNodeId = m_preForkNodeId; // The real parent ID to branch off of
+        if (currentLastNodeId == -1) {
+            currentLastNodeId = m_preForkNodeId; // The real parent ID to branch off of
+        }
         m_preForkNodeId = 0;
         loadDocumentsAndNotes(); // Refresh tree cleanly before inserting new message to avoid phantom conflicts
     }
