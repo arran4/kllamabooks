@@ -1812,7 +1812,7 @@ void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& 
         chatTextArea->setTextCursor(cursor);
 
         chatTextArea->insertHtml(QString("<div style='font-weight: bold;'>[%1]</div>").arg(roleName.toHtmlEscaped()));
-        chatTextArea->insertPlainText(node.content + "\n\n");
+        chatTextArea->insertPlainText("\n" + node.content + "\n\n");
     }
 
     chatTextArea->blockSignals(false);
