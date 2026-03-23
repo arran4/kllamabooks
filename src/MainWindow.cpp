@@ -482,7 +482,7 @@ void MainWindow::setupUi() {
             }
             currentLastNodeId = nodeId;
             if (currentDb) {
-                updateLinearChatView(currentLastNodeId, currentDb->getMessages());
+                updateLinearChatView(currentLastNodeId, getMessagesWithPhantom());
                 chatTextArea->setFocus();
             }
         }
@@ -533,7 +533,7 @@ void MainWindow::setupUi() {
                     if (currentDb) loadDocumentsAndNotes(); // Erase phantom node globally
                 }
                 currentLastNodeId = nodeId;
-                if (currentDb) updateLinearChatView(currentLastNodeId, currentDb->getMessages());
+                if (currentDb) updateLinearChatView(currentLastNodeId, getMessagesWithPhantom());
             }
         }
     });
@@ -1405,7 +1405,7 @@ void MainWindow::showVfsContextMenu(const QPoint& pos) {
         }
         currentLastNodeId = item->data(Qt::UserRole).toInt();
         if (currentDb) {
-            updateLinearChatView(currentLastNodeId, currentDb->getMessages());
+            updateLinearChatView(currentLastNodeId, getMessagesWithPhantom());
             mainContentStack->setCurrentWidget(chatWindowView);
             chatTextArea->setFocus();
         }
@@ -2532,7 +2532,7 @@ void MainWindow::onOpenBooksSelectionChanged(const QItemSelection& selected, con
                 currentChatFolderId = item->parent()->data(Qt::UserRole).toInt();
             }
             if (currentDb) {
-                updateLinearChatView(currentLastNodeId, currentDb->getMessages());
+                updateLinearChatView(currentLastNodeId, getMessagesWithPhantom());
                 mainContentStack->setCurrentWidget(chatWindowView);
             }
         }
@@ -2653,9 +2653,11 @@ void MainWindow::loadDocumentsAndNotes() {
         }
 
         if (newItem) {
+            openBooksTree->selectionModel()->blockSignals(true);
             openBooksTree->setCurrentIndex(newItem->index());
-            emit openBooksTree->selectionModel()->selectionChanged(
-                QItemSelection(newItem->index(), newItem->index()), QItemSelection());
+            openBooksTree->selectionModel()->select(newItem->index(),
+                QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Current);
+            openBooksTree->selectionModel()->blockSignals(false);
         }
     }
 }
