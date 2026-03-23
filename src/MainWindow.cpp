@@ -1666,7 +1666,7 @@ void MainWindow::populateChatFolders(QStandardItem* parentItem, int folderId, co
             }
 
             QStandardItem* item = nullptr;
-            if (children.size() > 1) {
+            if (children.size() > 0) {
                 item = new QStandardItem(QIcon::fromTheme("vcs-branch", QIcon::fromTheme("folder-open")), displayTitle);
             } else {
                 item = new QStandardItem(QIcon::fromTheme("text-x-generic"), displayTitle);
@@ -1698,7 +1698,7 @@ void MainWindow::populateMessageForks(QStandardItem* parentItem, int parentId, c
             }
 
             QStandardItem* item = nullptr;
-            if (children.size() > 1) {
+            if (children.size() > 0) {
                 item = new QStandardItem(QIcon::fromTheme("vcs-branch", QIcon::fromTheme("folder-open")), displayTitle);
             } else {
                 item = new QStandardItem(QIcon::fromTheme("text-x-generic"), displayTitle);
