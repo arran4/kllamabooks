@@ -2316,8 +2316,6 @@ void MainWindow::onSendMessage() {
     bool wasCreatingNewFork = m_isCreatingNewFork;
     if (wasCreatingNewFork) {
         m_isCreatingNewFork = false;
-        if (currentLastNodeId == -1) currentLastNodeId = m_preForkNodeId;
-        m_preForkNodeId = 0;
     }
 
     int parentId = wasCreatingNewChat ? 0 : currentLastNodeId;

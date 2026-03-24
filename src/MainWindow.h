@@ -175,7 +175,6 @@ class MainWindow : public KXmlGuiWindow {
 
     bool isCreatingNewChat = false;
     bool m_isCreatingNewFork = false;
-    int m_preForkNodeId = 0;
     bool isCreatingNewDoc = false;
     bool isCreatingNewNote = false;
 
