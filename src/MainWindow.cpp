@@ -2917,15 +2917,13 @@ void MainWindow::loadDocumentsAndNotes() {
         restoreExpandedState(openBooksTree, openBooksModel->item(i), expanded);
     }
 
-    if (currId != 0 || !currType.isEmpty()) {
+    if (m_isCreatingNewFork && currentLastNodeId > 0) {
+        // Explicitly prioritize finding the phantom node we injected so the selection accurately focuses the newly created temporary fork.
         QStandardItem* newItem = nullptr;
-
-        // Recursive lambda to find item
         std::function<QStandardItem*(QStandardItem*)> findItem = [&](QStandardItem* item) -> QStandardItem* {
             if (!item) return nullptr;
             int id = item->data(Qt::UserRole).toInt();
-            QString type = item->data(Qt::UserRole + 1).toString();
-            if (id == currId && type == currType) {
+            if (id == -1) {
                 return item;
             }
             for (int i = 0; i < item->rowCount(); ++i) {
@@ -2946,14 +2944,18 @@ void MainWindow::loadDocumentsAndNotes() {
             openBooksTree->selectionModel()->select(newItem->index(),
                 QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Current);
             openBooksTree->selectionModel()->blockSignals(false);
+        } else {
+            qDebug() << "Failed to find phantom fork node to focus. ID: -1";
         }
-    } else if (m_isCreatingNewFork && currentLastNodeId > 0) {
-        // Find the phantom node that we injected and select it instead of falling back to the chats_folder
+    } else if (currId != 0 || !currType.isEmpty()) {
         QStandardItem* newItem = nullptr;
+
+        // Recursive lambda to find item
         std::function<QStandardItem*(QStandardItem*)> findItem = [&](QStandardItem* item) -> QStandardItem* {
             if (!item) return nullptr;
             int id = item->data(Qt::UserRole).toInt();
-            if (id == -1) {
+            QString type = item->data(Qt::UserRole + 1).toString();
+            if (id == currId && type == currType) {
                 return item;
             }
             for (int i = 0; i < item->rowCount(); ++i) {
