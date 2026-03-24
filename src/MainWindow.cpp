@@ -2075,8 +2075,16 @@ void MainWindow::onSendMessage() {
         }
     }
 
-    int parentId = isCreatingNewChat ? 0 : currentLastNodeId;
-    int folderId = isCreatingNewChat ? currentChatFolderId : 0;
+    bool wasCreatingNewChat = isCreatingNewChat;
+    bool wasCreatingNewFork = m_isCreatingNewFork;
+    if (wasCreatingNewFork) {
+        m_isCreatingNewFork = false;
+        if (currentLastNodeId == -1) currentLastNodeId = m_preForkNodeId;
+        m_preForkNodeId = 0;
+    }
+
+    int parentId = wasCreatingNewChat ? 0 : currentLastNodeId;
+    int folderId = wasCreatingNewChat ? currentChatFolderId : 0;
     isCreatingNewChat = false;
 
     // 1. Add User message
@@ -2090,7 +2098,9 @@ void MainWindow::onSendMessage() {
     QueueManager::instance().enqueuePrompt(aiId, m_selectedModel, text);
 
     // 4. Refresh tree if needed (especially for new chats)
-    if (isCreatingNewChat) {
+    if (wasCreatingNewFork) {
+        loadDocumentsAndNotes(); // Safe explicit rebuild now that DB contains the full new child fork branch natively
+    } else if (wasCreatingNewChat) {
         QModelIndex idx = openBooksTree->currentIndex();
         QStandardItem* item = openBooksModel->itemFromIndex(idx);
         if (item && item->data(Qt::UserRole+1).toString() == "chat_session") {
