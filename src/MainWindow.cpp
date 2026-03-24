@@ -1796,6 +1796,7 @@ QList<MessageNode> MainWindow::getMessagesWithPhantom(BookDatabase* db) {
         phantom.parentId = currentLastNodeId;
         phantom.role = "user";
         phantom.content = "*New Fork*";
+        phantom.folderId = currentChatFolderId;
         msgs.append(phantom);
     }
     return msgs;
@@ -1927,6 +1928,11 @@ void MainWindow::populateChatFolders(QStandardItem* parentItem, int folderId, co
             QList<MessageNode> children;
             int endNodeId = getEndOfLinearPath(msg.id, allMessages, children);
 
+            // Phantom node mapping override if the phantom node is created at the root session level
+            if (msg.id == -1) {
+                endNodeId = -1;
+            }
+
             QString displayTitle = msg.content.simplified();
             if (displayTitle.length() > 30) {
                 displayTitle = displayTitle.left(27) + "...";
@@ -1958,6 +1964,11 @@ void MainWindow::populateMessageForks(QStandardItem* parentItem, int parentId, c
             // Find all children of this message
             QList<MessageNode> children;
             int endNodeId = getEndOfLinearPath(msg.id, allMessages, children);
+
+            // Phantom node mapping override
+            if (msg.id == -1) {
+                endNodeId = -1;
+            }
 
             QString displayTitle = msg.content.simplified();
             if (displayTitle.length() > 30) {
