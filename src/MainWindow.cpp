@@ -450,6 +450,7 @@ void MainWindow::setupUi() {
                 loadDocumentsAndNotes();
             }
         } else if (selectedAction == forkAction && forkAction) {
+            m_preForkNodeId = currentLastNodeId;
             m_isCreatingNewFork = true;
             currentLastNodeId = currentChatPath[msgIndex].id;
             if (currentDb) {
@@ -457,7 +458,7 @@ void MainWindow::setupUi() {
                 updateLinearChatView(currentLastNodeId, getMessagesWithPhantom());
                 mainContentStack->setCurrentWidget(chatWindowView);
             }
-            if (inputModeStack->currentIndex() == 0) {
+            if (!toggleInputModeBtn->isChecked()) {
                 inputField->setFocus();
             } else {
                 multiLineInput->setFocus();
@@ -2919,6 +2920,11 @@ void MainWindow::loadDocumentsAndNotes() {
 
     for (int i = 0; i < openBooksModel->rowCount(); ++i) {
         restoreExpandedState(openBooksTree, openBooksModel->item(i), expanded);
+    }
+
+    if (m_isCreatingNewFork) {
+        currId = -1;
+        currType = "chat_node";
     }
 
     if (currId != 0 || !currType.isEmpty()) {
