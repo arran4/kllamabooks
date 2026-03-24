@@ -457,7 +457,7 @@ void MainWindow::setupUi() {
                 updateLinearChatView(currentLastNodeId, getMessagesWithPhantom());
                 mainContentStack->setCurrentWidget(chatWindowView);
             }
-            if (inputModeStack->currentIndex() == 0) {
+            if (!toggleInputModeBtn->isChecked()) {
                 inputField->setFocus();
             } else {
                 multiLineInput->setFocus();
