@@ -457,11 +457,7 @@ void MainWindow::setupUi() {
                 updateLinearChatView(currentLastNodeId, getMessagesWithPhantom());
                 mainContentStack->setCurrentWidget(chatWindowView);
             }
-            if (inputModeStack->currentIndex() == 0) {
-                inputField->setFocus();
-            } else {
-                multiLineInput->setFocus();
-            }
+            inputField->setFocus();
         } else if (selectedAction == copyAction && copyAction) {
             QApplication::clipboard()->setText(currentChatPath[msgIndex].content);
             statusBar->showMessage(tr("Message copied to clipboard."), 3000);
@@ -2930,6 +2926,34 @@ void MainWindow::loadDocumentsAndNotes() {
             int id = item->data(Qt::UserRole).toInt();
             QString type = item->data(Qt::UserRole + 1).toString();
             if (id == currId && type == currType) {
+                return item;
+            }
+            for (int i = 0; i < item->rowCount(); ++i) {
+                QStandardItem* found = findItem(item->child(i));
+                if (found) return found;
+            }
+            return nullptr;
+        };
+
+        for (int i = 0; i < openBooksModel->rowCount(); ++i) {
+            newItem = findItem(openBooksModel->item(i));
+            if (newItem) break;
+        }
+
+        if (newItem) {
+            openBooksTree->selectionModel()->blockSignals(true);
+            openBooksTree->setCurrentIndex(newItem->index());
+            openBooksTree->selectionModel()->select(newItem->index(),
+                QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Current);
+            openBooksTree->selectionModel()->blockSignals(false);
+        }
+    } else if (m_isCreatingNewFork && currentLastNodeId > 0) {
+        // Find the phantom node that we injected and select it instead of falling back to the chats_folder
+        QStandardItem* newItem = nullptr;
+        std::function<QStandardItem*(QStandardItem*)> findItem = [&](QStandardItem* item) -> QStandardItem* {
+            if (!item) return nullptr;
+            int id = item->data(Qt::UserRole).toInt();
+            if (id == -1) {
                 return item;
             }
             for (int i = 0; i < item->rowCount(); ++i) {
