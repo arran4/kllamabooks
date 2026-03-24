@@ -453,7 +453,8 @@ void MainWindow::setupUi() {
             m_isCreatingNewFork = true;
             currentLastNodeId = currentChatPath[msgIndex].id;
             if (currentDb) {
-                loadDocumentsAndNotes(); // Force tree to rebuild and inject the phantom node marker
+                // Do not force loadDocumentsAndNotes() which would jump tree selection unnecessarily.
+                // Just update the chat view to focus on the forked node and await new branch input.
                 updateLinearChatView(currentLastNodeId, getMessagesWithPhantom());
                 mainContentStack->setCurrentWidget(chatWindowView);
             }
@@ -1788,18 +1789,7 @@ void MainWindow::populateDocumentFolders(QStandardItem* parentItem, int folderId
 QList<MessageNode> MainWindow::getMessagesWithPhantom(BookDatabase* db) {
     if (!db) db = currentDb.get();
     if (!db) return {};
-    QList<MessageNode> msgs = db->getMessages();
-    // Only apply phantom to the current active db!
-    if (m_isCreatingNewFork && currentDb && currentDb.get() == db) {
-        MessageNode phantom;
-        phantom.id = -1;
-        phantom.parentId = currentLastNodeId;
-        phantom.role = "user";
-        phantom.content = "*New Fork*";
-        phantom.folderId = currentChatFolderId;
-        msgs.append(phantom);
-    }
-    return msgs;
+    return db->getMessages();
 }
 
 void MainWindow::cancelPhantomFork() {
