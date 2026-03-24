@@ -245,6 +245,14 @@ bool BookDatabase::initSchema() {
         userVersion = 5;
     }
 
+    if (userVersion < 6) {
+        // Clean up old completed jobs since they are now memory-only
+        sqlite3_exec((sqlite3*)m_db, "DELETE FROM queue WHERE status = 'completed';", nullptr, nullptr, nullptr);
+        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (6);", nullptr, nullptr, nullptr);
+        sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 6;", nullptr, nullptr, nullptr);
+        userVersion = 6;
+    }
+
     return true;
 }
 
@@ -375,6 +383,67 @@ bool BookDatabase::deleteMessage(int id) {
     rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
     return rc == SQLITE_DONE;
+}
+
+int BookDatabase::getRootMessageId(int messageId) const {
+    if (!m_isOpen || messageId <= 0) return messageId;
+
+    int currentId = messageId;
+    const char* sql = "SELECT parent_id FROM messages WHERE id = ?;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        return currentId;
+    }
+
+    while (currentId > 0) {
+        int parentId = 0;
+        sqlite3_bind_int(stmt, 1, currentId);
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            parentId = sqlite3_column_int(stmt, 0);
+        }
+        sqlite3_reset(stmt);
+
+        if (parentId <= 0) {
+            break;
+        }
+        currentId = parentId;
+    }
+    sqlite3_finalize(stmt);
+    return currentId;
+}
+
+QString BookDatabase::getInheritedSetting(int messageId, const QString& key) const {
+    if (!m_isOpen) return QString();
+
+    int currentId = messageId;
+    const char* sql = "SELECT parent_id FROM messages WHERE id = ?;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        return QString();
+    }
+
+    QString inheritedValue;
+    while (currentId > 0) {
+        QString currentValue = getSetting("chat", currentId, key, "");
+        if (!currentValue.isEmpty() && currentValue != "default") {
+            inheritedValue = currentValue;
+            break;
+        }
+
+        int parentId = 0;
+        sqlite3_bind_int(stmt, 1, currentId);
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            parentId = sqlite3_column_int(stmt, 0);
+        }
+        sqlite3_reset(stmt);
+
+        if (parentId <= 0) {
+            break;
+        }
+        currentId = parentId;
+    }
+    sqlite3_finalize(stmt);
+    return inheritedValue;
 }
 
 QList<MessageNode> BookDatabase::getMessages() const {
@@ -821,7 +890,7 @@ QList<QueueItem> BookDatabase::getQueue() const {
 
     const char* sql =
         "SELECT id, message_id, model, prompt, status, priority, created_at FROM queue ORDER BY priority DESC, "
-        "created_at ASC;";
+        "created_at DESC;";
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return items;
 
@@ -853,6 +922,18 @@ bool BookDatabase::updateQueueStatus(int id, const QString& status) {
     return rc == SQLITE_DONE;
 }
 
+bool BookDatabase::updateQueueItemPrompt(int id, const QString& prompt) {
+    if (!m_isOpen) return false;
+    const char* sql = "UPDATE queue SET prompt = ? WHERE id = ?;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, prompt.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 2, id);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
+}
+
 bool BookDatabase::deleteQueueItem(int id) {
     if (!m_isOpen) return false;
     const char* sql = "DELETE FROM queue WHERE id = ?;";
@@ -862,12 +943,6 @@ bool BookDatabase::deleteQueueItem(int id) {
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
     return rc == SQLITE_DONE;
-}
-
-bool BookDatabase::clearCompletedQueue() {
-    if (!m_isOpen) return false;
-    const char* sql = "DELETE FROM queue WHERE status = 'completed';";
-    return sqlite3_exec((sqlite3*)m_db, sql, nullptr, nullptr, nullptr) == SQLITE_OK;
 }
 
 int BookDatabase::addNotification(int messageId, const QString& type) {

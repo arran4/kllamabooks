@@ -31,6 +31,8 @@ add_executable(kllamabooks
     src/SettingsDialog.h
     src/DatabaseSettingsDialog.cpp
     src/DatabaseSettingsDialog.h
+    src/ChatSettingsDialog.cpp
+    src/ChatSettingsDialog.h
     src/MainWindow.cpp
     src/MainWindow.h
     src/QueueManager.cpp

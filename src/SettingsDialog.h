@@ -11,6 +11,7 @@
 #include <QPushButton>
 #include <QSettings>
 #include <QTableWidget>
+#include <QTextEdit>
 #include <QVBoxLayout>
 #include <QVariantList>
 #include <QVariantMap>
@@ -67,6 +68,7 @@ class SettingsDialog : public QDialog {
     QPushButton* m_cancelButton;
     QSettings m_settings;
     QComboBox* m_sendBehaviorCombo;
+    QTextEdit* m_globalSystemPromptEdit;
 };
 
 #endif  // SETTINGSDIALOG_H

@@ -1,5 +1,6 @@
 #include "MainWindow.h"
 
+#include "ChatSettingsDialog.h"
 #include <KActionCollection>
 #include <KActionMenu>
 #include <KStandardAction>
@@ -86,6 +87,7 @@ void MainWindow::setupUi() {
     leftSplitter = new QSplitter(Qt::Vertical, this);
 
     openBooksTree = new QTreeView(this);
+    openBooksTree->setMinimumSize(0, 0);
     openBooksModel = new QStandardItemModel(this);
     openBooksTree->setModel(openBooksModel);
     openBooksTree->setHeaderHidden(true);
@@ -137,6 +139,7 @@ void MainWindow::setupUi() {
     });
 
     bookList = new QListWidget(this);
+    bookList->setMinimumSize(0, 0);
     bookList->setAcceptDrops(true);
     bookList->setDragEnabled(true);
     bookList->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -279,13 +282,12 @@ void MainWindow::setupUi() {
         else
             title = "Draft of: " + title;
 
-        QString textToSave = (mainContentStack->currentWidget() == docContainer) ? documentEditorView->toPlainText() : noteEditorView->toPlainText();
+        QString textToSave = (mainContentStack->currentWidget() == docContainer) ? documentEditorView->toPlainText()
+                                                                                 : noteEditorView->toPlainText();
         if (currentAutoDraftId == 0) {
-            currentAutoDraftId = currentDb->addDraft(
-                0, title, textToSave);
+            currentAutoDraftId = currentDb->addDraft(0, title, textToSave);
         } else {
-            currentDb->updateDraft(
-                currentAutoDraftId, title, textToSave);
+            currentDb->updateDraft(currentAutoDraftId, title, textToSave);
         }
     });
 
@@ -320,7 +322,9 @@ void MainWindow::setupUi() {
             item->setData(newId, Qt::UserRole);
             item->setData(type, Qt::UserRole + 1);
             item->setText(currentTitle);
-            QFont f = item->font(); f.setItalic(false); item->setFont(f);
+            QFont f = item->font();
+            f.setItalic(false);
+            item->setFont(f);
             isCreatingNewDoc = false;
             return;
         }
@@ -355,17 +359,25 @@ void MainWindow::setupUi() {
             }
             int newId = currentDb->addNote(folderId, currentTitle, noteEditorView->toPlainText());
             statusBar->showMessage(tr("Note saved."), 3000);
-            if (currentAutoDraftId != 0) { currentDb->deleteDraft(currentAutoDraftId); currentAutoDraftId = 0; }
+            if (currentAutoDraftId != 0) {
+                currentDb->deleteDraft(currentAutoDraftId);
+                currentAutoDraftId = 0;
+            }
             item->setData(newId, Qt::UserRole);
             item->setData("note", Qt::UserRole + 1);
             item->setText(currentTitle);
-            QFont f = item->font(); f.setItalic(false); item->setFont(f);
+            QFont f = item->font();
+            f.setItalic(false);
+            item->setFont(f);
             isCreatingNewNote = false;
             return;
         }
         if (currentNoteId == 0) return;
         currentDb->updateNote(currentNoteId, currentTitle, noteEditorView->toPlainText());
-        if (currentAutoDraftId != 0) { currentDb->deleteDraft(currentAutoDraftId); currentAutoDraftId = 0; }
+        if (currentAutoDraftId != 0) {
+            currentDb->deleteDraft(currentAutoDraftId);
+            currentAutoDraftId = 0;
+        }
         statusBar->showMessage(tr("Note saved."), 3000);
         if (item) item->setText(currentTitle);
     });
@@ -542,16 +554,15 @@ void MainWindow::setupUi() {
     toggleInputModeBtn->setToolTip(tr("Toggle Multi-line Input"));
     toggleInputModeBtn->setCheckable(true);
 
-    inputModeStack = new QStackedWidget(this);
     inputField = new ChatInputWidget(this);
-    // HEAD input settings
-    inputModeStack->addWidget(inputField);
 
     multiLineInput = new QTextEdit(this);
     multiLineInput->setMaximumHeight(100);
-    inputModeStack->addWidget(multiLineInput);
+    multiLineInput->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
+    multiLineInput->hide();
 
-    inputLayout->addWidget(inputModeStack);
+    inputLayout->addWidget(inputField);
+    inputLayout->addWidget(multiLineInput);
 
     discardChangesBtn = new QPushButton("Discard Changes", this);
     discardChangesBtn->setToolTip(tr("Discard any pending edits to history."));
@@ -569,22 +580,18 @@ void MainWindow::setupUi() {
     inputSettingsButton->setIcon(QIcon::fromTheme("configure"));
     inputSettingsButton->setToolTip(tr("Input Settings"));
     connect(inputSettingsButton, &QToolButton::clicked, this, &MainWindow::showInputSettingsMenu);
-    inputLayout->addWidget(sendButton);
-    inputLayout->addWidget(inputSettingsButton);
+
+    QHBoxLayout* topBtnLayout = new QHBoxLayout();
+    topBtnLayout->addWidget(sendButton);
+    topBtnLayout->addWidget(inputSettingsButton);
+    inputLayout->addLayout(topBtnLayout);
+    inputLayout->setAlignment(topBtnLayout, Qt::AlignTop);
 
     chatInputLayout->addLayout(inputLayout);
 
     connect(discardChangesBtn, &QPushButton::clicked, this, &MainWindow::onDiscardChanges);
 
     mainContentStack->addWidget(chatWindowView);
-
-    QVBoxLayout* btnLayout = new QVBoxLayout();
-    QHBoxLayout* topBtnLayout = new QHBoxLayout();
-    topBtnLayout->addWidget(sendButton);
-    topBtnLayout->addWidget(inputSettingsButton);
-    btnLayout->addLayout(topBtnLayout);
-    btnLayout->addStretch();  // Push to the top of the container
-    inputLayout->addLayout(btnLayout);
 
     QWidget* rightContainer = new QWidget(this);
     QVBoxLayout* rightLayout = new QVBoxLayout(rightContainer);
@@ -602,36 +609,62 @@ void MainWindow::setupUi() {
 
     connect(openBooksTree->selectionModel(), &QItemSelectionModel::selectionChanged, this,
             &MainWindow::onOpenBooksSelectionChanged);
-    connect(openBooksModel, &QStandardItemModel::dataChanged, this, [this](const QModelIndex& topLeft, const QModelIndex& bottomRight) {
-        if (mainContentStack->currentWidget() == vfsExplorer) {
-            QModelIndex currentIdx = openBooksTree->currentIndex();
-            if (topLeft.parent() == currentIdx) {
-                refreshVfsExplorer();
-            }
+    connect(openBooksModel, &QStandardItemModel::dataChanged, this,
+            [this](const QModelIndex& topLeft, const QModelIndex& bottomRight) {
+                if (mainContentStack->currentWidget() == vfsExplorer) {
+                    QModelIndex currentIdx = openBooksTree->currentIndex();
+                    if (topLeft.parent() == currentIdx) {
+                        refreshVfsExplorer();
+                    }
+                }
+            });
+    connect(openBooksModel, &QStandardItemModel::rowsInserted, this,
+            [this](const QModelIndex& parent, int first, int last) {
+                if (mainContentStack->currentWidget() == vfsExplorer) {
+                    QModelIndex currentIdx = openBooksTree->currentIndex();
+                    if (parent == currentIdx) {
+                        refreshVfsExplorer();
+                    }
+                }
+            });
+    connect(openBooksModel, &QStandardItemModel::rowsRemoved, this,
+            [this](const QModelIndex& parent, int first, int last) {
+                if (mainContentStack->currentWidget() == vfsExplorer) {
+                    QModelIndex currentIdx = openBooksTree->currentIndex();
+                    if (parent == currentIdx) {
+                        refreshVfsExplorer();
+                    }
+                }
+            });
+    connect(toggleInputModeBtn, &QPushButton::toggled, this, [this](bool checked) {
+        if (checked) {
+            inputField->hide();
+            inputField->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
+            multiLineInput->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
+            multiLineInput->show();
+        } else {
+            multiLineInput->hide();
+            multiLineInput->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
+            inputField->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
+            inputField->show();
         }
     });
-    connect(openBooksModel, &QStandardItemModel::rowsInserted, this, [this](const QModelIndex& parent, int first, int last) {
-        if (mainContentStack->currentWidget() == vfsExplorer) {
-            QModelIndex currentIdx = openBooksTree->currentIndex();
-            if (parent == currentIdx) {
-                refreshVfsExplorer();
-            }
-        }
-    });
-    connect(openBooksModel, &QStandardItemModel::rowsRemoved, this, [this](const QModelIndex& parent, int first, int last) {
-        if (mainContentStack->currentWidget() == vfsExplorer) {
-            QModelIndex currentIdx = openBooksTree->currentIndex();
-            if (parent == currentIdx) {
-                refreshVfsExplorer();
-            }
-        }
-    });
-    connect(toggleInputModeBtn, &QPushButton::toggled, this,
-            [this](bool checked) { inputModeStack->setCurrentIndex(checked ? 1 : 0); });
 
     connect(mainContentStack, &QStackedWidget::currentChanged, this, [this](int index) {
         toggleInputModeBtn->setVisible(mainContentStack->widget(index) == chatWindowView);
     });
+    connect(toggleInputModeBtn, &QPushButton::toggled, this,
+            [this](bool checked) {
+                chatStackWidget->setCurrentIndex(checked ? 1 : 0);
+                if (currentDb && currentDb->isOpen()) {
+                    QString newMultiLine = checked ? "Multi Line" : "Single Line";
+                    if (currentLastNodeId != 0) {
+                        currentDb->setSetting("chat", currentLastNodeId, "multiLine", newMultiLine);
+                    } else {
+                        m_newChatMultiLine = newMultiLine;
+                    }
+                }
+            });
 
     // Initial sizes
     int totalWidth = width();
@@ -769,9 +802,17 @@ void MainWindow::setupUi() {
         if (dlg.exec() == QDialog::Accepted) {
             QString selected = dlg.selectedModel();
             if (!selected.isEmpty()) {
+                if (currentDb && currentDb->isOpen()) {
+                    if (currentLastNodeId != 0) {
+                        currentDb->setSetting("chat", currentLastNodeId, "model", selected);
+                    } else {
+                        m_newChatModel = selected;
+                    }
+                }
                 m_selectedModel = selected;
                 modelSelectButton->setText(m_selectedModel);
                 modelLabel->setText(tr("Model: %1 (User Switch)").arg(m_selectedModel));
+                updateInputBehavior();
             }
         }
     });
@@ -783,9 +824,7 @@ void MainWindow::setupUi() {
     actionCollection()->addAction(QStringLiteral("model_explorer"), modelExplorerAction);
     connect(modelExplorerAction, &QAction::triggered, this, &MainWindow::showModelExplorer);
 
-    QAction* settingsAction = new QAction(QIcon::fromTheme("configure"), tr("Configure KLlamaBooks..."), this);
-    actionCollection()->addAction(QStringLiteral("configure_app"), settingsAction);
-    connect(settingsAction, &QAction::triggered, this, &MainWindow::showSettingsDialog);
+    QAction* settingsAction = KStandardAction::preferences(this, &MainWindow::showSettingsDialog, actionCollection());
 
     QAction* debugInfoAction = new QAction(QIcon::fromTheme("tools-report-bug"), tr("Database Debug Info"), this);
     actionCollection()->addAction(QStringLiteral("debug_info"), debugInfoAction);
@@ -843,6 +882,12 @@ void MainWindow::setupUi() {
     notificationMenu = new QMenu(this);
     notificationBtn->setMenu(notificationMenu);
     statusBar->addPermanentWidget(notificationBtn);
+
+    settingsStatusBarBtn = new QToolButton(this);
+    settingsStatusBarBtn->setIcon(QIcon::fromTheme("configure"));
+    settingsStatusBarBtn->setToolTip(tr("Settings"));
+    connect(settingsStatusBarBtn, &QToolButton::clicked, this, &MainWindow::showSettingsDialog);
+    statusBar->addPermanentWidget(settingsStatusBarBtn);
 
     updateEndpointsList();
     loadBooks();
@@ -916,47 +961,11 @@ void MainWindow::showSettingsDialog() {
 void MainWindow::showInputSettingsMenu() {
     QMenu menu(this);
 
-    QMenu* bookMenu = menu.addMenu(tr("Book Behavior"));
-    QActionGroup* bookGroup = new QActionGroup(&menu);
-    QAction* bDef = bookMenu->addAction(tr("Use Global Default"));
-    bDef->setData("default");
-    QAction* bEnter = bookMenu->addAction(tr("Enter to Send"));
-    bEnter->setData("EnterToSend");
-    QAction* bCtrl = bookMenu->addAction(tr("Ctrl+Enter to Send"));
-    bCtrl->setData("CtrlEnterToSend");
-    bDef->setCheckable(true);
-    bEnter->setCheckable(true);
-    bCtrl->setCheckable(true);
-    bookGroup->addAction(bDef);
-    bookGroup->addAction(bEnter);
-    bookGroup->addAction(bCtrl);
-
     QAction* toggleMultiLineAction = menu.addAction(tr("Toggle Multi-line Mode"));
     toggleMultiLineAction->setCheckable(true);
     toggleMultiLineAction->setChecked(toggleInputModeBtn->isChecked());
-    connect(toggleMultiLineAction, &QAction::triggered, this, [this](bool checked) {
-        toggleInputModeBtn->setChecked(checked);
-    });
-
-    QString currentBookSetting = "default";
-    if (currentDb && currentDb->isOpen()) {
-        currentBookSetting = currentDb->getSetting("book", 0, "sendBehavior", "default");
-    } else {
-        bookMenu->setEnabled(false);
-    }
-    if (currentBookSetting == "EnterToSend")
-        bEnter->setChecked(true);
-    else if (currentBookSetting == "CtrlEnterToSend")
-        bCtrl->setChecked(true);
-    else
-        bDef->setChecked(true);
-
-    connect(bookGroup, &QActionGroup::triggered, this, [this](QAction* action) {
-        if (currentDb && currentDb->isOpen()) {
-            currentDb->setSetting("book", 0, "sendBehavior", action->data().toString());
-            updateInputBehavior();
-        }
-    });
+    connect(toggleMultiLineAction, &QAction::triggered, this,
+            [this](bool checked) { toggleInputModeBtn->setChecked(checked); });
 
     QMenu* chatMenu = menu.addMenu(tr("Chat Behavior"));
     QActionGroup* chatGroup = new QActionGroup(&menu);
@@ -975,6 +984,16 @@ void MainWindow::showInputSettingsMenu() {
 
     QString currentChatSetting = "default";
 
+    if (currentDb && currentDb->isOpen()) {
+        if (currentLastNodeId != 0) {
+            currentChatSetting = currentDb->getSetting("chat", currentLastNodeId, "sendBehavior", "default");
+        } else {
+            currentChatSetting = m_newChatSendBehavior;
+        }
+    } else if (!currentDb || !currentDb->isOpen()) {
+        chatMenu->setEnabled(false);
+    }
+
     // Determine the root ID of the current chat path
     int rootId = 0;
     if (currentDb && currentDb->isOpen() && currentLastNodeId != 0) {
@@ -986,11 +1005,6 @@ void MainWindow::showInputSettingsMenu() {
         }
     }
 
-    if (currentDb && currentDb->isOpen() && rootId != 0) {
-        currentChatSetting = currentDb->getSetting("chat", rootId, "sendBehavior", "default");
-    } else if (!currentDb || !currentDb->isOpen()) {
-        chatMenu->setEnabled(false);
-    }
     if (currentChatSetting == "EnterToSend")
         cEnter->setChecked(true);
     else if (currentChatSetting == "CtrlEnterToSend")
@@ -998,11 +1012,119 @@ void MainWindow::showInputSettingsMenu() {
     else
         cDef->setChecked(true);
 
-    connect(chatGroup, &QActionGroup::triggered, this, [this, rootId](QAction* action) {
+    connect(chatGroup, &QActionGroup::triggered, this, [this](QAction* action) {
         if (currentDb && currentDb->isOpen()) {
-            currentDb->setSetting("chat", rootId, "sendBehavior", action->data().toString());
+            QString newBehavior = action->data().toString();
+            if (currentLastNodeId == 0) {
+                m_newChatSendBehavior = newBehavior;
+            } else {
+                currentDb->setSetting("chat", currentLastNodeId, "sendBehavior", newBehavior);
+            }
             updateInputBehavior();
         }
+    });
+
+    QMenu* chatModelMenu = menu.addMenu(tr("Chat Model"));
+    QActionGroup* chatModelGroup = new QActionGroup(&menu);
+    QAction* mDef = chatModelMenu->addAction(tr("Use Parent Default"));
+    mDef->setData("default");
+    mDef->setCheckable(true);
+    chatModelGroup->addAction(mDef);
+
+    int modelCount = 0;
+    QString endpointName = endpointComboBox ? endpointComboBox->currentText() : "Default";
+    for (const QString& modelName : m_availableModels) {
+        if (modelCount >= 10) break;
+        QString displayString = QString("%1's %2").arg(endpointName, modelName);
+        QAction* mAction = chatModelMenu->addAction(displayString);
+        mAction->setData(modelName);
+        mAction->setCheckable(true);
+        chatModelGroup->addAction(mAction);
+        modelCount++;
+    }
+
+    QString currentChatModel = "default";
+    if (currentDb && currentDb->isOpen()) {
+        if (currentLastNodeId != 0) {
+            currentChatModel = currentDb->getSetting("chat", currentLastNodeId, "model", "default");
+        } else {
+            currentChatModel = m_newChatModel;
+        }
+    } else if (!currentDb || !currentDb->isOpen()) {
+        chatModelMenu->setEnabled(false);
+    }
+
+    bool modelMatched = false;
+    for (QAction* action : chatModelGroup->actions()) {
+        if (action->data().toString() == currentChatModel) {
+            action->setChecked(true);
+            modelMatched = true;
+            break;
+        }
+    }
+    if (!modelMatched) mDef->setChecked(true);
+
+    connect(chatModelGroup, &QActionGroup::triggered, this, [this](QAction* action) {
+        if (currentDb && currentDb->isOpen()) {
+            QString newModel = action->data().toString();
+            if (currentLastNodeId == 0) {
+                m_newChatModel = newModel;
+            } else {
+                currentDb->setSetting("chat", currentLastNodeId, "model", newModel);
+            }
+            updateInputBehavior();
+        }
+    });
+
+    QMenu* chatInputModeMenu = menu.addMenu(tr("Chat Input Mode"));
+    QActionGroup* inputModeGroup = new QActionGroup(&menu);
+    QAction* imDef = chatInputModeMenu->addAction(tr("Use Parent Default"));
+    imDef->setData("default");
+    imDef->setCheckable(true);
+    QAction* imSingle = chatInputModeMenu->addAction(tr("Single Line"));
+    imSingle->setData("Single Line");
+    imSingle->setCheckable(true);
+    QAction* imMulti = chatInputModeMenu->addAction(tr("Multi Line"));
+    imMulti->setData("Multi Line");
+    imMulti->setCheckable(true);
+
+    inputModeGroup->addAction(imDef);
+    inputModeGroup->addAction(imSingle);
+    inputModeGroup->addAction(imMulti);
+
+    QString currentInputMode = "default";
+    if (currentDb && currentDb->isOpen()) {
+        if (currentLastNodeId != 0) {
+            currentInputMode = currentDb->getSetting("chat", currentLastNodeId, "multiLine", "default");
+        } else {
+            currentInputMode = m_newChatMultiLine;
+        }
+    } else if (!currentDb || !currentDb->isOpen()) {
+        chatInputModeMenu->setEnabled(false);
+    }
+
+    if (currentInputMode == "Single Line")
+        imSingle->setChecked(true);
+    else if (currentInputMode == "Multi Line")
+        imMulti->setChecked(true);
+    else
+        imDef->setChecked(true);
+
+    connect(inputModeGroup, &QActionGroup::triggered, this, [this](QAction* action) {
+        if (currentDb && currentDb->isOpen()) {
+            QString newMode = action->data().toString();
+            if (currentLastNodeId == 0) {
+                m_newChatMultiLine = newMode;
+            } else {
+                currentDb->setSetting("chat", currentLastNodeId, "multiLine", newMode);
+            }
+            updateInputBehavior();
+        }
+    });
+
+    QAction* editSystemPromptAction = menu.addAction(QIcon::fromTheme("configure"), tr("Chat Settings..."));
+    connect(editSystemPromptAction, &QAction::triggered, this, [this]() {
+        showChatSettingsDialog(currentLastNodeId);
     });
 
     menu.addSeparator();
@@ -1089,6 +1211,47 @@ void MainWindow::showInputSettingsMenu() {
     menu.exec(inputSettingsButton->mapToGlobal(QPoint(0, inputSettingsButton->height())));
 }
 
+void MainWindow::showChatSettingsDialog(int messageId) {
+    if (!currentDb || !currentDb->isOpen()) return;
+
+    QString currentPrompt;
+    QString currentBehavior = "default";
+    QString currentModel = "default";
+    QString currentMultiLine = "default";
+    QString endpointName = endpointComboBox ? endpointComboBox->currentText() : "Default";
+    if (messageId == 0) {
+        currentPrompt = m_newChatSystemPrompt;
+        currentBehavior = m_newChatSendBehavior;
+        currentModel = m_newChatModel;
+        currentMultiLine = m_newChatMultiLine;
+    } else {
+        currentPrompt = currentDb->getSetting("chat", messageId, "systemPrompt", "");
+        currentBehavior = currentDb->getSetting("chat", messageId, "sendBehavior", "default");
+        currentModel = currentDb->getSetting("chat", messageId, "model", "default");
+        currentMultiLine = currentDb->getSetting("chat", messageId, "multiLine", "default");
+    }
+
+    ChatSettingsDialog dlg(currentPrompt, currentBehavior, currentModel, currentMultiLine, endpointName, m_availableModels, this);
+    if (dlg.exec() == QDialog::Accepted) {
+        QString newPrompt = dlg.getSystemPrompt();
+        QString newBehavior = dlg.getSendBehavior();
+        QString newModel = dlg.getModel();
+        QString newMultiLine = dlg.getMultiLine();
+        if (messageId == 0) {
+            m_newChatSystemPrompt = newPrompt;
+            m_newChatSendBehavior = newBehavior;
+            m_newChatModel = newModel;
+            m_newChatMultiLine = newMultiLine;
+        } else {
+            currentDb->setSetting("chat", messageId, "systemPrompt", newPrompt);
+            currentDb->setSetting("chat", messageId, "sendBehavior", newBehavior);
+            currentDb->setSetting("chat", messageId, "model", newModel);
+            currentDb->setSetting("chat", messageId, "multiLine", newMultiLine);
+        }
+        updateInputBehavior();
+    }
+}
+
 void MainWindow::updateInputBehavior() {
     QString behaviorStr = "EnterToSend";  // Ultimate default
 
@@ -1100,17 +1263,18 @@ void MainWindow::updateInputBehavior() {
 
     if (currentDb && currentDb->isOpen()) {
         bookSetting = currentDb->getSetting("book", 0, "sendBehavior", "default");
-        int rootId = 0;
-        if (currentLastNodeId != 0) {
+         int rootId = 0;
+       if (currentLastNodeId != 0) {
             QList<MessageNode> msgs = getMessagesWithPhantom();
             QList<MessageNode> path;
             getPathToRoot(currentLastNodeId, msgs, path);
             if (!path.isEmpty()) {
                 rootId = path.first().id;
             }
-        }
-        if (rootId != 0) {
-            chatSetting = currentDb->getSetting("chat", rootId, "sendBehavior", "default");
+            chatSetting = currentDb->getInheritedSetting(currentLastNodeId, "sendBehavior");
+            if (chatSetting.isEmpty()) {
+                chatSetting = "default";
+            }
         }
     }
 
@@ -1126,6 +1290,54 @@ void MainWindow::updateInputBehavior() {
         inputField->setSendBehavior(ChatInputWidget::CtrlEnterToSend);
     } else {
         inputField->setSendBehavior(ChatInputWidget::EnterToSend);
+    }
+
+    if (currentDb && currentDb->isOpen()) {
+        QString inheritedModel = "default";
+        if (currentLastNodeId != 0) {
+            inheritedModel = currentDb->getInheritedSetting(currentLastNodeId, "model");
+        } else {
+            inheritedModel = m_newChatModel;
+        }
+
+        if (!inheritedModel.isEmpty() && inheritedModel != "default") {
+            m_selectedModel = inheritedModel;
+            if (modelLabel) modelLabel->setText(tr("Model: %1 (Chat)").arg(m_selectedModel));
+            if (modelSelectButton) modelSelectButton->setText(m_selectedModel);
+        } else {
+            QString dbModel = currentDb->getSetting("book", 0, "defaultModel", "");
+            if (!dbModel.isEmpty()) {
+                m_selectedModel = dbModel;
+                if (modelLabel) modelLabel->setText(tr("Model: %1 (Book Default)").arg(m_selectedModel));
+                if (modelSelectButton) modelSelectButton->setText(m_selectedModel);
+            } else if (!m_availableModels.isEmpty()) {
+                m_selectedModel = m_availableModels.first();
+                if (modelLabel) modelLabel->setText(tr("Model: %1 (Global Fallback)").arg(m_selectedModel));
+                if (modelSelectButton) modelSelectButton->setText(m_selectedModel);
+            }
+        }
+
+        QString inheritedMultiLine = "default";
+        if (currentLastNodeId != 0) {
+            inheritedMultiLine = currentDb->getInheritedSetting(currentLastNodeId, "multiLine");
+        } else {
+            inheritedMultiLine = m_newChatMultiLine;
+        }
+
+        if (toggleInputModeBtn) {
+            bool checked = toggleInputModeBtn->isChecked();
+            if (inheritedMultiLine == "Multi Line" && !checked) {
+                toggleInputModeBtn->blockSignals(true);
+                toggleInputModeBtn->setChecked(true);
+                chatStackWidget->setCurrentIndex(1);
+                toggleInputModeBtn->blockSignals(false);
+            } else if (inheritedMultiLine == "Single Line" && checked) {
+                toggleInputModeBtn->blockSignals(true);
+                toggleInputModeBtn->setChecked(false);
+                chatStackWidget->setCurrentIndex(0);
+                toggleInputModeBtn->blockSignals(false);
+            }
+        }
     }
 }
 
@@ -1148,6 +1360,34 @@ void MainWindow::setupWindow() {
     QStringList openBooks = settings.value("openBooks").toStringList();
     for (const QString& book : openBooks) {
         handleBookDrop(book);
+    }
+
+    if (QSystemTrayIcon::isSystemTrayAvailable()) {
+        trayIcon = new QSystemTrayIcon(QIcon(":/assets/icon.png"), this);
+        QMenu* trayMenu = new QMenu(this);
+
+        QAction* showAction = trayMenu->addAction(tr("Show KLlamaBooks"));
+        connect(showAction, &QAction::triggered, this, &MainWindow::show);
+
+        trayMenu->addSeparator();
+
+        QAction* quitAction = trayMenu->addAction(QIcon::fromTheme("application-exit"), tr("Quit"));
+        connect(quitAction, &QAction::triggered, qApp, &QCoreApplication::quit);
+
+        trayIcon->setContextMenu(trayMenu);
+        trayIcon->show();
+
+        connect(trayIcon, &QSystemTrayIcon::activated, this, [this](QSystemTrayIcon::ActivationReason reason) {
+            if (reason == QSystemTrayIcon::Trigger || reason == QSystemTrayIcon::DoubleClick) {
+                if (isVisible()) {
+                    hide();
+                } else {
+                    show();
+                    raise();
+                    activateWindow();
+                }
+            }
+        });
     }
 }
 
@@ -1269,6 +1509,7 @@ void MainWindow::showVfsContextMenu(const QPoint& pos) {
     QAction* copyAction = nullptr;
     QAction* pasteAction = nullptr;
     QAction* forkAction = nullptr;
+    QAction* settingsAction = nullptr;
 
     QModelIndex treeIndex = openBooksTree->currentIndex();
     QStandardItem* treeItem = nullptr;
@@ -1341,13 +1582,15 @@ void MainWindow::showVfsContextMenu(const QPoint& pos) {
                 }
                 return;
             }
-            if (itemType.isEmpty() || itemType == "chat_session") {
+            if (itemType.isEmpty() || itemType == "chat_session" || itemType == "chat_node") {
                 copyAction = menu.addAction(QIcon::fromTheme("edit-copy"), "Copy Message");
                 pasteAction = menu.addAction(QIcon::fromTheme("edit-paste"), "Paste to Input");
                 menu.addSeparator();
                 forkAction = menu.addAction(QIcon::fromTheme("call-start"), "Fork from Here");
                 menu.addSeparator();
                 menu.addAction(QIcon::fromTheme("document-export"), "Export Chat Session");
+                menu.addSeparator();
+                settingsAction = menu.addAction(QIcon::fromTheme("configure"), "Chat Settings...");
             }
         }
     } else {
@@ -1387,7 +1630,7 @@ void MainWindow::showVfsContextMenu(const QPoint& pos) {
         if (bracketIndex != -1) fullText = fullText.mid(bracketIndex + 2);
         QGuiApplication::clipboard()->setText(fullText);
     } else if (item && selectedAction == pasteAction) {
-        if (inputModeStack->currentIndex() == 0) {
+        if (!toggleInputModeBtn->isChecked()) {
             inputField->setPlainText(inputField->toPlainText() + QGuiApplication::clipboard()->text());
         } else {
             multiLineInput->insertPlainText(QGuiApplication::clipboard()->text());
@@ -1400,6 +1643,8 @@ void MainWindow::showVfsContextMenu(const QPoint& pos) {
             mainContentStack->setCurrentWidget(chatWindowView);
             chatTextArea->setFocus();
         }
+    } else if (item && selectedAction == settingsAction) {
+        showChatSettingsDialog(item->data(Qt::UserRole).toInt());
     }
 }
 
@@ -1743,8 +1988,14 @@ void MainWindow::populateMessageForks(QStandardItem* parentItem, int parentId, c
 }
 
 void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& allMessages) {
+    m_newChatSystemPrompt.clear();
+    m_newChatSendBehavior = "default";
+    m_newChatModel = "default";
+    m_newChatMultiLine = "default";
+
     if (currentLastNodeId != 0) {
-        m_chatInputDrafts[currentLastNodeId] = inputModeStack->currentIndex() == 0 ? inputField->toPlainText() : multiLineInput->toPlainText();
+        m_chatInputDrafts[currentLastNodeId] =
+            !toggleInputModeBtn->isChecked() ? inputField->toPlainText() : multiLineInput->toPlainText();
     }
 
     if (currentDb) {
@@ -1852,7 +2103,7 @@ void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& 
     if (discardChangesBtn) discardChangesBtn->hide();
 
     QString savedDraft = m_chatInputDrafts.value(tailNodeId);
-    if (inputModeStack->currentIndex() == 0) {
+    if (!toggleInputModeBtn->isChecked()) {
         inputField->setPlainText(savedDraft);
     } else {
         multiLineInput->setPlainText(savedDraft);
@@ -1902,9 +2153,8 @@ void MainWindow::updateBreadcrumbs() {
             QPushButton* btn = new QPushButton(nodeItem->text(), this);
             btn->setFlat(true);
             btn->setCursor(Qt::PointingHandCursor);
-            connect(btn, &QPushButton::clicked, this, [this, nodeItem]() {
-                openBooksTree->setCurrentIndex(nodeItem->index());
-            });
+            connect(btn, &QPushButton::clicked, this,
+                    [this, nodeItem]() { openBooksTree->setCurrentIndex(nodeItem->index()); });
             breadcrumbLayout->addWidget(btn);
             breadcrumbLayout->addWidget(new QLabel(">", this));
         } else {
@@ -2012,7 +2262,7 @@ void MainWindow::onSendMessage() {
     if (!currentDb) return;
 
     QString text;
-    if (inputModeStack->currentIndex() == 0) {
+    if (!toggleInputModeBtn->isChecked()) {
         text = inputField->toPlainText().trimmed();
         if (text.isEmpty()) return;
         inputField->clear();
@@ -2090,6 +2340,25 @@ void MainWindow::onSendMessage() {
     // 1. Add User message
     int userMsgId = currentDb->addMessage(parentId, text, "user", folderId);
 
+    if (parentId == 0) {
+        if (!m_newChatSystemPrompt.isEmpty()) {
+            currentDb->setSetting("chat", userMsgId, "systemPrompt", m_newChatSystemPrompt);
+            m_newChatSystemPrompt.clear();
+        }
+        if (m_newChatSendBehavior != "default") {
+            currentDb->setSetting("chat", userMsgId, "sendBehavior", m_newChatSendBehavior);
+            m_newChatSendBehavior = "default";
+        }
+        if (m_newChatModel != "default") {
+            currentDb->setSetting("chat", userMsgId, "model", m_newChatModel);
+            m_newChatModel = "default";
+        }
+        if (m_newChatMultiLine != "default") {
+            currentDb->setSetting("chat", userMsgId, "multiLine", m_newChatMultiLine);
+            m_newChatMultiLine = "default";
+        }
+    }
+
     // 2. Add Assistant placeholder
     int aiId = currentDb->addMessage(userMsgId, "...", "assistant");
     currentLastNodeId = aiId;
@@ -2103,11 +2372,13 @@ void MainWindow::onSendMessage() {
     } else if (wasCreatingNewChat) {
         QModelIndex idx = openBooksTree->currentIndex();
         QStandardItem* item = openBooksModel->itemFromIndex(idx);
-        if (item && item->data(Qt::UserRole+1).toString() == "chat_session") {
+        if (item && item->data(Qt::UserRole + 1).toString() == "chat_session") {
             item->setData(aiId, Qt::UserRole);
-            item->setData("chat_node", Qt::UserRole+1);
+            item->setData("chat_node", Qt::UserRole + 1);
             item->setText(text.left(30));
-            QFont f = item->font(); f.setItalic(false); item->setFont(f);
+            QFont f = item->font();
+            f.setItalic(false);
+            item->setFont(f);
         }
     } else {
         QStandardItem* item = findItemInTree(parentId, "chat_node");
@@ -2115,7 +2386,7 @@ void MainWindow::onSendMessage() {
             if (item->rowCount() > 0) {
                 QStandardItem* branchItem = new QStandardItem(QIcon::fromTheme("text-x-generic"), text.left(30));
                 branchItem->setData(aiId, Qt::UserRole);
-                branchItem->setData("chat_node", Qt::UserRole+1);
+                branchItem->setData("chat_node", Qt::UserRole + 1);
                 item->appendRow(branchItem);
             } else {
                 item->setData(aiId, Qt::UserRole);
@@ -2125,7 +2396,7 @@ void MainWindow::onSendMessage() {
     }
 
     // 5. Update view
-    m_chatInputDrafts.remove(currentLastNodeId); // clear the draft after sending
+    m_chatInputDrafts.remove(currentLastNodeId);  // clear the draft after sending
     updateLinearChatView(currentLastNodeId, getMessagesWithPhantom());
     statusBar->showMessage(tr("Request queued."), 3000);
 }
@@ -2235,14 +2506,14 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
             return true;
         }
         if (sourceView == openBooksTree || sourceView == vfsExplorer) {
-            return false; // let native handling show drop indicator
+            return false;  // let native handling show drop indicator
         }
     } else if (event->type() == QEvent::DragMove) {
         QDragMoveEvent* dragEvent = static_cast<QDragMoveEvent*>(event);
         if (obj == openBooksTree || obj == openBooksTree->viewport()) {
-            return false; // let native handling show drop indicator
+            return false;  // let native handling show drop indicator
         } else if (obj == vfsExplorer || obj == vfsExplorer->viewport()) {
-            return false; // let native handling show drop indicator
+            return false;  // let native handling show drop indicator
         }
     } else if (event->type() == QEvent::Drop) {
         QDropEvent* dropEvent = static_cast<QDropEvent*>(event);
@@ -2265,15 +2536,18 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
                     return true;
                 }
             }
-        } else if ((obj == openBooksTree || obj == openBooksTree->viewport() || obj == vfsExplorer || obj == vfsExplorer->viewport()) &&
+        } else if ((obj == openBooksTree || obj == openBooksTree->viewport() || obj == vfsExplorer ||
+                    obj == vfsExplorer->viewport()) &&
                    (sourceView == openBooksTree || sourceView == vfsExplorer)) {
-            QAbstractItemView* targetView = (obj == openBooksTree || obj == openBooksTree->viewport()) ? static_cast<QAbstractItemView*>(openBooksTree) : static_cast<QAbstractItemView*>(vfsExplorer);
+            QAbstractItemView* targetView = (obj == openBooksTree || obj == openBooksTree->viewport())
+                                                ? static_cast<QAbstractItemView*>(openBooksTree)
+                                                : static_cast<QAbstractItemView*>(vfsExplorer);
 
             QModelIndex targetIndex = targetView->indexAt(dropEvent->position().toPoint());
             QStandardItem* targetItem = nullptr;
 
             if (targetIndex.isValid()) {
-                if (obj == openBooksTree) {
+                if (targetView == openBooksTree) {
                     targetItem = openBooksModel->itemFromIndex(targetIndex);
                 } else {
                     QStandardItem* vfsItem = vfsModel->itemFromIndex(targetIndex);
@@ -2294,7 +2568,7 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
                         }
                     }
                 }
-            } else if (obj == vfsExplorer) {
+            } else if (targetView == vfsExplorer) {
                 // Background drop in VFS explorer - move to current viewing folder
                 QModelIndex treeIndex = openBooksTree->currentIndex();
                 if (treeIndex.isValid()) targetItem = openBooksModel->itemFromIndex(treeIndex);
@@ -2551,25 +2825,31 @@ void MainWindow::onOpenBooksSelectionChanged(const QItemSelection& selected, con
 }
 
 namespace {
-    void saveExpandedState(QTreeView* tree, QStandardItem* item, QSet<QString>& expanded) {
-        if (!item) return;
-        if (tree->isExpanded(item->index())) {
-            QString path = item->text();
-            QStandardItem* p = item->parent();
-            while (p) { path = p->text() + "/" + path; p = p->parent(); }
-            expanded.insert(path);
-        }
-        for (int i = 0; i < item->rowCount(); ++i) saveExpandedState(tree, item->child(i), expanded);
-    }
-    void restoreExpandedState(QTreeView* tree, QStandardItem* item, const QSet<QString>& expanded) {
-        if (!item) return;
+void saveExpandedState(QTreeView* tree, QStandardItem* item, QSet<QString>& expanded) {
+    if (!item) return;
+    if (tree->isExpanded(item->index())) {
         QString path = item->text();
         QStandardItem* p = item->parent();
-        while (p) { path = p->text() + "/" + path; p = p->parent(); }
-        if (expanded.contains(path)) tree->setExpanded(item->index(), true);
-        for (int i = 0; i < item->rowCount(); ++i) restoreExpandedState(tree, item->child(i), expanded);
+        while (p) {
+            path = p->text() + "/" + path;
+            p = p->parent();
+        }
+        expanded.insert(path);
     }
+    for (int i = 0; i < item->rowCount(); ++i) saveExpandedState(tree, item->child(i), expanded);
 }
+void restoreExpandedState(QTreeView* tree, QStandardItem* item, const QSet<QString>& expanded) {
+    if (!item) return;
+    QString path = item->text();
+    QStandardItem* p = item->parent();
+    while (p) {
+        path = p->text() + "/" + path;
+        p = p->parent();
+    }
+    if (expanded.contains(path)) tree->setExpanded(item->index(), true);
+    for (int i = 0; i < item->rowCount(); ++i) restoreExpandedState(tree, item->child(i), expanded);
+}
+}  // namespace
 
 void MainWindow::loadDocumentsAndNotes() {
     if (!openBooksModel) return;
@@ -2579,7 +2859,10 @@ void MainWindow::loadDocumentsAndNotes() {
     QString currType;
     if (currentIndex.isValid()) {
         QStandardItem* currItem = openBooksModel->itemFromIndex(currentIndex);
-        if (currItem) { currId = currItem->data(Qt::UserRole).toInt(); currType = currItem->data(Qt::UserRole + 1).toString(); }
+        if (currItem) {
+            currId = currItem->data(Qt::UserRole).toInt();
+            currType = currItem->data(Qt::UserRole + 1).toString();
+        }
     }
 
     QSet<QString> expanded;
@@ -2707,12 +2990,11 @@ void MainWindow::showOpenBookContextMenu(const QPoint& pos) {
                 if (dlg.exec() == QDialog::Accepted) {
                     QString dbModel = currentDb->getSetting("book", 0, "defaultModel", "");
                     if (!dbModel.isEmpty()) {
-                        int idx = modelComboBox->findText(dbModel);
-                        if (idx >= 0) {
-                            modelComboBox->setCurrentIndex(idx);
-                        }
+                        m_selectedModel = dbModel;
+                        modelLabel->setText(tr("Model: %1 (Book Default)").arg(m_selectedModel));
                     } else if (!m_availableModels.isEmpty()) {
-                        modelComboBox->setCurrentIndex(0);  // Revert to global fallback
+                        m_selectedModel = m_availableModels.first();
+                        modelLabel->setText(tr("Model: %1 (Global Fallback)").arg(m_selectedModel));
                     }
                     if (currentLastNodeId != 0 && mainContentStack->currentWidget() == chatWindowView) {
                         updateLinearChatView(currentLastNodeId, getMessagesWithPhantom());
@@ -2749,9 +3031,17 @@ void MainWindow::showOpenBookContextMenu(const QPoint& pos) {
             importAction = menu.addAction("Import Chat Session");
         }
 
+        QAction* settingsAction = nullptr;
+        if (type == "chat_node") {
+            menu.addSeparator();
+            settingsAction = menu.addAction(QIcon::fromTheme("configure"), "Chat Settings...");
+        }
+
         QAction* selectedAction = menu.exec(openBooksTree->viewport()->mapToGlobal(pos));
         if (selectedAction == newAction) {
             addPhantomItem(item, type);
+        } else if (settingsAction && selectedAction == settingsAction) {
+            showChatSettingsDialog(item->data(Qt::UserRole).toInt());
         } else if (createFolderAction && selectedAction == createFolderAction) {
             bool ok;
             QString name = QInputDialog::getText(this, "Create Folder", "Enter folder name:", QLineEdit::Normal,
@@ -2774,13 +3064,22 @@ void MainWindow::showOpenBookContextMenu(const QPoint& pos) {
         } else if (importAction && selectedAction == importAction) {
             importChatSession();
         }
-    } else if (type == "chat_session") {
+    } else if (type == "chat_session" || type == "chat_node") {
         QMenu menu(this);
-        QAction* exportAction = menu.addAction("Export Chat Session");
+        QAction* exportAction = nullptr;
+
+        if (type == "chat_session") {
+            exportAction = menu.addAction("Export Chat Session");
+            menu.addSeparator();
+        }
+
+        QAction* settingsAction = menu.addAction(QIcon::fromTheme("configure"), "Chat Settings...");
 
         QAction* selectedAction = menu.exec(openBooksTree->viewport()->mapToGlobal(pos));
-        if (selectedAction == exportAction) {
+        if (exportAction && selectedAction == exportAction) {
             exportChatSession();
+        } else if (selectedAction == settingsAction) {
+            showChatSettingsDialog(item->data(Qt::UserRole).toInt());
         }
     }
 }
@@ -3132,17 +3431,13 @@ bool MainWindow::moveItemToFolder(QStandardItem* draggedItem, QStandardItem* tar
         compatible = true;
     } else if (itemType.endsWith("_folder") && targetType == itemType) {
         if (db->moveFolder(itemId, targetFolderId)) {
-            QTimer::singleShot(0, this, [this]() {
-                loadDocumentsAndNotes();
-            });
+            QTimer::singleShot(0, this, [this]() { loadDocumentsAndNotes(); });
             return true;
         }
     }
 
     if (compatible && db->moveItem(table, dbItemId, targetFolderId)) {
-        QTimer::singleShot(0, this, [this]() {
-            loadDocumentsAndNotes();
-        });
+        QTimer::singleShot(0, this, [this]() { loadDocumentsAndNotes(); });
         return true;
     }
     return false;

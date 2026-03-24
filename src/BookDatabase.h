@@ -77,6 +77,8 @@ class BookDatabase {
     bool updateMessage(int id, const QString& newContent);
     bool deleteMessage(int id);
     QList<MessageNode> getMessages() const;
+    int getRootMessageId(int messageId) const;
+    QString getInheritedSetting(int messageId, const QString& key) const;
 
     // Settings
     void setSetting(const QString& scope, int targetId, const QString& key, const QString& value);
@@ -118,8 +120,8 @@ class BookDatabase {
     int enqueuePrompt(int messageId, const QString& model, const QString& prompt, int priority = 0);
     QList<QueueItem> getQueue() const;
     bool updateQueueStatus(int id, const QString& status);
+    bool updateQueueItemPrompt(int id, const QString& prompt);
     bool deleteQueueItem(int id);
-    bool clearCompletedQueue();
 
     // Notifications
     int addNotification(int messageId, const QString& type);

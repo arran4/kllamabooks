@@ -4,6 +4,7 @@
 #include <QObject>
 #include <QList>
 #include <QTimer>
+#include <QSettings>
 #include "BookDatabase.h"
 #include "OllamaClient.h"
 
@@ -30,6 +31,10 @@ public:
     QList<MergedQueueItem> getMergedQueue() const;
 
     void cancelItem(std::shared_ptr<BookDatabase> db, int queueId);
+    void retryItem(std::shared_ptr<BookDatabase> db, int queueId);
+    void modifyItem(std::shared_ptr<BookDatabase> db, int queueId, const QString& newPrompt);
+
+    QList<MergedQueueItem> m_completedItems;
     void clearCompleted();
     void pauseQueue();
     void resumeQueue();
