@@ -1627,18 +1627,15 @@ void MainWindow::showVfsContextMenu(const QPoint& pos) {
         if (bracketIndex != -1) fullText = fullText.mid(bracketIndex + 2);
         QGuiApplication::clipboard()->setText(fullText);
     } else if (item && selectedAction == pasteAction) {
-        if (!toggleInputModeBtn->isChecked()) {
-            inputField->setPlainText(inputField->toPlainText() + QGuiApplication::clipboard()->text());
-        } else {
-            multiLineInput->insertPlainText(QGuiApplication::clipboard()->text());
-        }
+        inputField->setPlainText(inputField->toPlainText() + QGuiApplication::clipboard()->text());
     } else if (item && selectedAction == forkAction) {
         cancelPhantomFork();
+        m_isCreatingNewFork = true;
         currentLastNodeId = item->data(Qt::UserRole).toInt();
         if (currentDb) {
             updateLinearChatView(currentLastNodeId, getMessagesWithPhantom());
             mainContentStack->setCurrentWidget(chatWindowView);
-            chatTextArea->setFocus();
+            inputField->setFocus();
         }
     } else if (item && selectedAction == settingsAction) {
         showChatSettingsDialog(item->data(Qt::UserRole).toInt());
