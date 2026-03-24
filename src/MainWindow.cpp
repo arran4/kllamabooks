@@ -453,8 +453,8 @@ void MainWindow::setupUi() {
             m_isCreatingNewFork = true;
             currentLastNodeId = currentChatPath[msgIndex].id;
             if (currentDb) {
-                // Do not force loadDocumentsAndNotes() which would jump tree selection unnecessarily.
-                // Just update the chat view to focus on the forked node and await new branch input.
+                // We do not call loadDocumentsAndNotes here as that would rebuild the tree unnecessarily.
+                // We just want to stay focused on the current chat view and ready input.
                 updateLinearChatView(currentLastNodeId, getMessagesWithPhantom());
                 mainContentStack->setCurrentWidget(chatWindowView);
             }
@@ -1918,11 +1918,6 @@ void MainWindow::populateChatFolders(QStandardItem* parentItem, int folderId, co
             QList<MessageNode> children;
             int endNodeId = getEndOfLinearPath(msg.id, allMessages, children);
 
-            // Phantom node mapping override if the phantom node is created at the root session level
-            if (msg.id == -1) {
-                endNodeId = -1;
-            }
-
             QString displayTitle = msg.content.simplified();
             if (displayTitle.length() > 30) {
                 displayTitle = displayTitle.left(27) + "...";
@@ -1954,11 +1949,6 @@ void MainWindow::populateMessageForks(QStandardItem* parentItem, int parentId, c
             // Find all children of this message
             QList<MessageNode> children;
             int endNodeId = getEndOfLinearPath(msg.id, allMessages, children);
-
-            // Phantom node mapping override
-            if (msg.id == -1) {
-                endNodeId = -1;
-            }
 
             QString displayTitle = msg.content.simplified();
             if (displayTitle.length() > 30) {
@@ -2918,37 +2908,7 @@ void MainWindow::loadDocumentsAndNotes() {
         restoreExpandedState(openBooksTree, openBooksModel->item(i), expanded);
     }
 
-    if (m_isCreatingNewFork && currentLastNodeId > 0) {
-        // Explicitly prioritize finding the phantom node we injected so the selection accurately focuses the newly created temporary fork.
-        QStandardItem* newItem = nullptr;
-        std::function<QStandardItem*(QStandardItem*)> findItem = [&](QStandardItem* item) -> QStandardItem* {
-            if (!item) return nullptr;
-            int id = item->data(Qt::UserRole).toInt();
-            if (id == -1) {
-                return item;
-            }
-            for (int i = 0; i < item->rowCount(); ++i) {
-                QStandardItem* found = findItem(item->child(i));
-                if (found) return found;
-            }
-            return nullptr;
-        };
-
-        for (int i = 0; i < openBooksModel->rowCount(); ++i) {
-            newItem = findItem(openBooksModel->item(i));
-            if (newItem) break;
-        }
-
-        if (newItem) {
-            openBooksTree->selectionModel()->blockSignals(true);
-            openBooksTree->setCurrentIndex(newItem->index());
-            openBooksTree->selectionModel()->select(newItem->index(),
-                QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Current);
-            openBooksTree->selectionModel()->blockSignals(false);
-        } else {
-            qDebug() << "Failed to find phantom fork node to focus. ID: -1";
-        }
-    } else if (currId != 0 || !currType.isEmpty()) {
+    if (currId != 0 || !currType.isEmpty()) {
         QStandardItem* newItem = nullptr;
 
         // Recursive lambda to find item
