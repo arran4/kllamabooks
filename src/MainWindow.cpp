@@ -131,7 +131,7 @@ void MainWindow::setupUi() {
                 // It's a chat node. Single clicking displays the chat.
                 currentLastNodeId = item->data(Qt::UserRole).toInt();
                 if (currentDb) {
-                    updateLinearChatView(currentLastNodeId, currentDb->getMessages());
+                    updateLinearChatView(currentLastNodeId, getMessagesWithPhantom());
                     mainContentStack->setCurrentWidget(chatWindowView);
                 }
             }
@@ -397,6 +397,37 @@ void MainWindow::setupUi() {
     chatTextArea->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(chatTextArea, &QWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
         QMenu* menu = chatTextArea->createStandardContextMenu();
+
+        // Find which message was clicked based on cursor position
+        QTextCursor cursor = chatTextArea->cursorForPosition(pos);
+        QTextBlock block = cursor.block();
+
+        QString expectedUserBlock = QString("[%1]").arg(currentDb ? currentDb->getSetting("book", 0, "userName", "User") : "User");
+        QString expectedAssistantBlock = QString("[%1]").arg(currentDb ? currentDb->getSetting("book", 0, "assistantName", "Assistant") : "Assistant");
+
+        int msgIndex = -1;
+        QTextDocument* doc = chatTextArea->document();
+        int currentIndex = -1;
+
+        for (QTextBlock b = doc->begin(); b.isValid(); b = b.next()) {
+            QString bText = b.text().trimmed();
+            if (bText == expectedUserBlock || bText == expectedAssistantBlock) {
+                currentIndex++;
+            }
+            if (b == block) {
+                msgIndex = currentIndex;
+            }
+        }
+
+        QAction* forkAction = nullptr;
+        QAction* copyAction = nullptr;
+
+        if (msgIndex >= 0 && msgIndex < currentChatPath.size()) {
+            menu->addSeparator();
+            forkAction = menu->addAction(QIcon::fromTheme("call-start"), "Reply to this and fork here");
+            copyAction = menu->addAction(QIcon::fromTheme("edit-copy"), "Copy message");
+        }
+
         menu->addSeparator();
         QAction* saveDraftAction = menu->addAction(QIcon::fromTheme("document-save-as"), "Save chat as draft");
         QAction* saveTemplateAction = menu->addAction(QIcon::fromTheme("document-save-as"), "Save chat as template");
@@ -418,6 +449,22 @@ void MainWindow::setupUi() {
                 currentDb->addTemplate(0, name, chatTextArea->toPlainText());
                 loadDocumentsAndNotes();
             }
+        } else if (selectedAction == forkAction && forkAction) {
+            m_isCreatingNewFork = true;
+            currentLastNodeId = currentChatPath[msgIndex].id;
+            if (currentDb) {
+                loadDocumentsAndNotes(); // Force tree to rebuild and inject the phantom node marker
+                updateLinearChatView(currentLastNodeId, getMessagesWithPhantom());
+                mainContentStack->setCurrentWidget(chatWindowView);
+            }
+            if (inputModeStack->currentIndex() == 0) {
+                inputField->setFocus();
+            } else {
+                multiLineInput->setFocus();
+            }
+        } else if (selectedAction == copyAction && copyAction) {
+            QApplication::clipboard()->setText(currentChatPath[msgIndex].content);
+            statusBar->showMessage(tr("Message copied to clipboard."), 3000);
         }
         delete menu;
     });
@@ -441,9 +488,10 @@ void MainWindow::setupUi() {
 
         int nodeId = item->data(Qt::UserRole).toInt();
         if (nodeId != currentLastNodeId) {
+            cancelPhantomFork();
             currentLastNodeId = nodeId;
             if (currentDb) {
-                updateLinearChatView(currentLastNodeId, currentDb->getMessages());
+                updateLinearChatView(currentLastNodeId, getMessagesWithPhantom());
                 chatTextArea->setFocus();
             }
         }
@@ -489,8 +537,9 @@ void MainWindow::setupUi() {
             QStandardItem* item = forkExplorerModel->itemFromIndex(index);
             if (item) {
                 int nodeId = item->data(Qt::UserRole).toInt();
+                cancelPhantomFork();
                 currentLastNodeId = nodeId;
-                if (currentDb) updateLinearChatView(currentLastNodeId, currentDb->getMessages());
+                if (currentDb) updateLinearChatView(currentLastNodeId, getMessagesWithPhantom());
             }
         }
     });
@@ -945,6 +994,17 @@ void MainWindow::showInputSettingsMenu() {
         chatMenu->setEnabled(false);
     }
 
+    // Determine the root ID of the current chat path
+    int rootId = 0;
+    if (currentDb && currentDb->isOpen() && currentLastNodeId != 0) {
+        QList<MessageNode> msgs = getMessagesWithPhantom();
+        QList<MessageNode> path;
+        getPathToRoot(currentLastNodeId, msgs, path);
+        if (!path.isEmpty()) {
+            rootId = path.first().id;  // The root node of this chat
+        }
+    }
+
     if (currentChatSetting == "EnterToSend")
         cEnter->setChecked(true);
     else if (currentChatSetting == "CtrlEnterToSend")
@@ -1203,7 +1263,14 @@ void MainWindow::updateInputBehavior() {
 
     if (currentDb && currentDb->isOpen()) {
         bookSetting = currentDb->getSetting("book", 0, "sendBehavior", "default");
-        if (currentLastNodeId != 0) {
+         int rootId = 0;
+       if (currentLastNodeId != 0) {
+            QList<MessageNode> msgs = getMessagesWithPhantom();
+            QList<MessageNode> path;
+            getPathToRoot(currentLastNodeId, msgs, path);
+            if (!path.isEmpty()) {
+                rootId = path.first().id;
+            }
             chatSetting = currentDb->getInheritedSetting(currentLastNodeId, "sendBehavior");
             if (chatSetting.isEmpty()) {
                 chatSetting = "default";
@@ -1569,9 +1636,10 @@ void MainWindow::showVfsContextMenu(const QPoint& pos) {
             multiLineInput->insertPlainText(QGuiApplication::clipboard()->text());
         }
     } else if (item && selectedAction == forkAction) {
+        cancelPhantomFork();
         currentLastNodeId = item->data(Qt::UserRole).toInt();
         if (currentDb) {
-            updateLinearChatView(currentLastNodeId, currentDb->getMessages());
+            updateLinearChatView(currentLastNodeId, getMessagesWithPhantom());
             mainContentStack->setCurrentWidget(chatWindowView);
             chatTextArea->setFocus();
         }
@@ -1642,7 +1710,7 @@ void MainWindow::onBookSelected(const QModelIndex& index) {
 
     // Populate actual chats from database directly into the tree
     auto dbPtr = currentDb;  // Keep shared_ptr to avoid issues during iteration
-    QList<MessageNode> msgs = dbPtr->getMessages();
+    QList<MessageNode> msgs = getMessagesWithPhantom();
     populateChatFolders(chatsItem, 0, msgs, dbPtr.get());
 
     populateDocumentFolders(docsItem, 0, "documents", dbPtr.get());
@@ -1720,6 +1788,32 @@ void MainWindow::populateDocumentFolders(QStandardItem* parentItem, int folderId
     }
 }
 
+
+QList<MessageNode> MainWindow::getMessagesWithPhantom(BookDatabase* db) {
+    if (!db) db = currentDb.get();
+    if (!db) return {};
+    QList<MessageNode> msgs = db->getMessages();
+    // Only apply phantom to the current active db!
+    if (m_isCreatingNewFork && currentDb && currentDb.get() == db) {
+        MessageNode phantom;
+        phantom.id = -1;
+        phantom.parentId = currentLastNodeId;
+        phantom.role = "user";
+        phantom.content = "*New Fork*";
+        msgs.append(phantom);
+    }
+    return msgs;
+}
+
+void MainWindow::cancelPhantomFork() {
+    if (m_isCreatingNewFork) {
+        m_isCreatingNewFork = false;
+        QTimer::singleShot(0, this, [this]() {
+            if (currentDb) loadDocumentsAndNotes();
+        });
+    }
+}
+
 void MainWindow::addPhantomItem(QStandardItem* folderItem, const QString& type) {
     if (!folderItem && openBooksModel && openBooksModel->rowCount() > 0) {
         QStandardItem* book = openBooksModel->item(0);
@@ -1764,7 +1858,7 @@ void MainWindow::loadSession(int rootId) {
 
     loadDocumentsAndNotes();
 
-    QList<MessageNode> msgs = currentDb->getMessages();
+    QList<MessageNode> msgs = getMessagesWithPhantom();
     QStandardItem* rootItem = chatModel->invisibleRootItem();
     populateChatFolders(rootItem, 0, msgs, currentDb.get());
     chatTree->expandAll();
@@ -1801,7 +1895,9 @@ int MainWindow::getEndOfLinearPath(int startId, const QList<MessageNode>& allMes
                 outChildren.append(msg);
             }
         }
-        if (outChildren.size() == 1) {
+        // Force the linear path tracing to stop if we hit the currently selected node,
+        // making it an explicit structural leaf/fork point in the UI trees.
+        if (outChildren.size() == 1 && currentId != currentLastNodeId) {
             currentId = outChildren.first().id;
         } else {
             break;
@@ -1844,7 +1940,7 @@ void MainWindow::populateChatFolders(QStandardItem* parentItem, int folderId, co
             }
 
             QStandardItem* item = nullptr;
-            if (children.size() > 1) {
+            if (children.size() > 0) {
                 item = new QStandardItem(QIcon::fromTheme("vcs-branch", QIcon::fromTheme("folder-open")), displayTitle);
             } else {
                 item = new QStandardItem(QIcon::fromTheme("text-x-generic"), displayTitle);
@@ -1876,7 +1972,7 @@ void MainWindow::populateMessageForks(QStandardItem* parentItem, int parentId, c
             }
 
             QStandardItem* item = nullptr;
-            if (children.size() > 1) {
+            if (children.size() > 0) {
                 item = new QStandardItem(QIcon::fromTheme("vcs-branch", QIcon::fromTheme("folder-open")), displayTitle);
             } else {
                 item = new QStandardItem(QIcon::fromTheme("text-x-generic"), displayTitle);
@@ -1991,6 +2087,8 @@ void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& 
     QString assistantName = currentDb ? currentDb->getSetting("book", 0, "assistantName", "Assistant") : "Assistant";
 
     for (const auto& node : currentChatPath) {
+        if (node.id == -1) continue; // Do not render the phantom user node in the chat view itself
+
         QString roleName = (node.role == "user") ? userName : assistantName;
 
         QTextCursor cursor(chatTextArea->document());
@@ -1998,7 +2096,7 @@ void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& 
         chatTextArea->setTextCursor(cursor);
 
         chatTextArea->insertHtml(QString("<div style='font-weight: bold;'>[%1]</div>").arg(roleName.toHtmlEscaped()));
-        chatTextArea->insertPlainText(node.content + "\n\n");
+        chatTextArea->insertPlainText("\n" + node.content + "\n\n");
     }
 
     chatTextArea->blockSignals(false);
@@ -2132,7 +2230,7 @@ void MainWindow::onRenameCurrentItem() {
 
 void MainWindow::onDiscardChanges() {
     if (!currentDb || currentLastNodeId == 0) return;
-    updateLinearChatView(currentLastNodeId, currentDb->getMessages());
+    updateLinearChatView(currentLastNodeId, getMessagesWithPhantom());
     discardChangesBtn->hide();
     statusBar->showMessage(tr("Changes discarded."), 3000);
 }
@@ -2220,15 +2318,23 @@ void MainWindow::onSendMessage() {
         }
 
         if (forkCreated) {
-            QList<MessageNode> allMsgs = currentDb->getMessages();
+            QList<MessageNode> allMsgs = getMessagesWithPhantom();
             currentChatPath.clear();
             getPathToRoot(currentLastNodeId, allMsgs, currentChatPath);
             statusBar->showMessage(tr("Edits resulted in a new fork."), 3000);
         }
     }
 
-    int parentId = isCreatingNewChat ? 0 : currentLastNodeId;
-    int folderId = isCreatingNewChat ? currentChatFolderId : 0;
+    bool wasCreatingNewChat = isCreatingNewChat;
+    bool wasCreatingNewFork = m_isCreatingNewFork;
+    if (wasCreatingNewFork) {
+        m_isCreatingNewFork = false;
+        if (currentLastNodeId == -1) currentLastNodeId = m_preForkNodeId;
+        m_preForkNodeId = 0;
+    }
+
+    int parentId = wasCreatingNewChat ? 0 : currentLastNodeId;
+    int folderId = wasCreatingNewChat ? currentChatFolderId : 0;
     isCreatingNewChat = false;
 
     // 1. Add User message
@@ -2261,7 +2367,9 @@ void MainWindow::onSendMessage() {
     QueueManager::instance().enqueuePrompt(aiId, m_selectedModel, text);
 
     // 4. Refresh tree if needed (especially for new chats)
-    if (isCreatingNewChat) {
+    if (wasCreatingNewFork) {
+        loadDocumentsAndNotes(); // Safe explicit rebuild now that DB contains the full new child fork branch natively
+    } else if (wasCreatingNewChat) {
         QModelIndex idx = openBooksTree->currentIndex();
         QStandardItem* item = openBooksModel->itemFromIndex(idx);
         if (item && item->data(Qt::UserRole + 1).toString() == "chat_session") {
@@ -2289,7 +2397,7 @@ void MainWindow::onSendMessage() {
 
     // 5. Update view
     m_chatInputDrafts.remove(currentLastNodeId);  // clear the draft after sending
-    updateLinearChatView(currentLastNodeId, currentDb->getMessages());
+    updateLinearChatView(currentLastNodeId, getMessagesWithPhantom());
     statusBar->showMessage(tr("Request queued."), 3000);
 }
 
@@ -2322,7 +2430,7 @@ void MainWindow::onProcessingStarted(std::shared_ptr<BookDatabase> db, int messa
 void MainWindow::onProcessingFinished(std::shared_ptr<BookDatabase> db, int messageId, bool success) {
     if (currentDb == db && currentLastNodeId == messageId) {
         statusBar->showMessage(success ? tr("Response complete.") : tr("Error in response."), 3000);
-        updateLinearChatView(currentLastNodeId, db->getMessages());
+        updateLinearChatView(currentLastNodeId, getMessagesWithPhantom());
     }
     updateQueueStatus();
 }
@@ -2357,7 +2465,7 @@ void MainWindow::onChatNodeSelected(const QModelIndex& current, const QModelInde
     if (item) {
         int previewNodeId = item->data(Qt::UserRole).toInt();
         if (currentDb) {
-            updateLinearChatView(previewNodeId, currentDb->getMessages());
+            updateLinearChatView(previewNodeId, getMessagesWithPhantom());
             updateInputBehavior();  // Keep it updated when selecting nodes/chats
         }
     }
@@ -2649,7 +2757,7 @@ void MainWindow::onOpenBooksSelectionChanged(const QItemSelection& selected, con
 
     QString type = item->data(Qt::UserRole + 1).toString();
     if (type == "book" || type == "chats_folder" || type == "docs_folder" || type == "notes_folder" ||
-        type == "templates_folder" || type == "drafts_folder" || (type == "chat_node" && item->rowCount() > 0)) {
+        type == "templates_folder" || type == "drafts_folder") {
         refreshVfsExplorer();
 
         // If it's the chats_folder, sync currentLastNodeId = 0
@@ -2700,13 +2808,14 @@ void MainWindow::onOpenBooksSelectionChanged(const QItemSelection& selected, con
             }
         } else {
             // It's a chat leaf or fork point
+            cancelPhantomFork();
             currentLastNodeId = nodeId;
             isCreatingNewChat = (nodeId == 0);
             if (isCreatingNewChat && item->parent()) {
                 currentChatFolderId = item->parent()->data(Qt::UserRole).toInt();
             }
             if (currentDb) {
-                updateLinearChatView(currentLastNodeId, currentDb->getMessages());
+                updateLinearChatView(currentLastNodeId, getMessagesWithPhantom());
                 mainContentStack->setCurrentWidget(chatWindowView);
             }
         }
@@ -2804,7 +2913,7 @@ void MainWindow::loadDocumentsAndNotes() {
         }
         if (chatsFolder) {
             chatsFolder->removeRows(0, chatsFolder->rowCount());
-            populateChatFolders(chatsFolder, 0, db->getMessages(), db.get());
+            populateChatFolders(chatsFolder, 0, getMessagesWithPhantom(), db.get());
         }
     }
 
@@ -2836,9 +2945,11 @@ void MainWindow::loadDocumentsAndNotes() {
         }
 
         if (newItem) {
+            openBooksTree->selectionModel()->blockSignals(true);
             openBooksTree->setCurrentIndex(newItem->index());
-            emit openBooksTree->selectionModel()->selectionChanged(QItemSelection(newItem->index(), newItem->index()),
-                                                                   QItemSelection());
+            openBooksTree->selectionModel()->select(newItem->index(),
+                QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Current);
+            openBooksTree->selectionModel()->blockSignals(false);
         }
     }
 }
@@ -2886,7 +2997,7 @@ void MainWindow::showOpenBookContextMenu(const QPoint& pos) {
                         modelLabel->setText(tr("Model: %1 (Global Fallback)").arg(m_selectedModel));
                     }
                     if (currentLastNodeId != 0 && mainContentStack->currentWidget() == chatWindowView) {
-                        updateLinearChatView(currentLastNodeId, currentDb->getMessages());
+                        updateLinearChatView(currentLastNodeId, getMessagesWithPhantom());
                     }
                 }
             }
@@ -3155,7 +3266,7 @@ void MainWindow::onQueueItemClicked(std::shared_ptr<BookDatabase> db, int messag
     }
 
     currentLastNodeId = messageId;
-    updateLinearChatView(currentLastNodeId, db->getMessages());
+    updateLinearChatView(currentLastNodeId, getMessagesWithPhantom());
     mainContentStack->setCurrentWidget(chatWindowView);
     db->dismissNotificationByMessageId(messageId);
     updateNotificationStatus();
@@ -3294,7 +3405,7 @@ bool MainWindow::moveItemToFolder(QStandardItem* draggedItem, QStandardItem* tar
         if (itemType == "chat_node") {
             if (draggedItem->parent() && draggedItem->parent()->data(Qt::UserRole + 1).toString() == "chats_folder") {
                 QList<MessageNode> path;
-                getPathToRoot(itemId, db->getMessages(), path);
+                getPathToRoot(itemId, currentDb->getMessages(), path);
                 if (!path.isEmpty()) {
                     dbItemId = path.first().id;
                 } else {
