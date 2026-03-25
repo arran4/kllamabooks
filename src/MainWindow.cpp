@@ -1211,7 +1211,7 @@ void MainWindow::showChatSettingsDialog(int messageId) {
     if (!currentDb || !currentDb->isOpen()) return;
 
     QString currentTitle;
-    QString currentNotes;
+    QString currentComments;
     QString currentPrompt;
     QString currentBehavior = "default";
     QString currentModel = "default";
@@ -1219,39 +1219,39 @@ void MainWindow::showChatSettingsDialog(int messageId) {
     QString endpointName = endpointComboBox ? endpointComboBox->currentText() : "Default";
     if (messageId == 0) {
         currentTitle = m_newChatTitle;
-        currentNotes = m_newChatNotes;
+        currentComments = m_newChatComments;
         currentPrompt = m_newChatSystemPrompt;
         currentBehavior = m_newChatSendBehavior;
         currentModel = m_newChatModel;
         currentMultiLine = m_newChatMultiLine;
     } else {
         currentTitle = currentDb->getSetting("chat", messageId, "title", "");
-        currentNotes = currentDb->getSetting("chat", messageId, "notes", "");
+        currentComments = currentDb->getSetting("chat", messageId, "comments", "");
         currentPrompt = currentDb->getSetting("chat", messageId, "systemPrompt", "");
         currentBehavior = currentDb->getSetting("chat", messageId, "sendBehavior", "default");
         currentModel = currentDb->getSetting("chat", messageId, "model", "default");
         currentMultiLine = currentDb->getSetting("chat", messageId, "multiLine", "default");
     }
 
-    ChatSettingsDialog dlg(currentTitle, currentNotes, currentPrompt, currentBehavior, currentModel, currentMultiLine,
-                           endpointName, m_availableModels, this);
+    ChatSettingsDialog dlg(currentTitle, currentComments, currentPrompt, currentBehavior, currentModel,
+                           currentMultiLine, endpointName, m_availableModels, this);
     if (dlg.exec() == QDialog::Accepted) {
         QString newTitle = dlg.getTitle();
-        QString newNotes = dlg.getNotes();
+        QString newComments = dlg.getComments();
         QString newPrompt = dlg.getSystemPrompt();
         QString newBehavior = dlg.getSendBehavior();
         QString newModel = dlg.getModel();
         QString newMultiLine = dlg.getMultiLine();
         if (messageId == 0) {
             m_newChatTitle = newTitle;
-            m_newChatNotes = newNotes;
+            m_newChatComments = newComments;
             m_newChatSystemPrompt = newPrompt;
             m_newChatSendBehavior = newBehavior;
             m_newChatModel = newModel;
             m_newChatMultiLine = newMultiLine;
         } else {
             currentDb->setSetting("chat", messageId, "title", newTitle);
-            currentDb->setSetting("chat", messageId, "notes", newNotes);
+            currentDb->setSetting("chat", messageId, "comments", newComments);
             currentDb->setSetting("chat", messageId, "systemPrompt", newPrompt);
             currentDb->setSetting("chat", messageId, "sendBehavior", newBehavior);
             currentDb->setSetting("chat", messageId, "model", newModel);
@@ -1979,7 +1979,7 @@ void MainWindow::populateMessageForks(QStandardItem* parentItem, int parentId, c
 
 void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& allMessages) {
     m_newChatTitle.clear();
-    m_newChatNotes.clear();
+    m_newChatComments.clear();
     m_newChatSystemPrompt.clear();
     m_newChatSendBehavior = "default";
     m_newChatModel = "default";
@@ -2332,9 +2332,9 @@ void MainWindow::onSendMessage() {
             currentDb->setSetting("chat", userMsgId, "title", m_newChatTitle);
             m_newChatTitle.clear();
         }
-        if (!m_newChatNotes.isEmpty()) {
-            currentDb->setSetting("chat", userMsgId, "notes", m_newChatNotes);
-            m_newChatNotes.clear();
+        if (!m_newChatComments.isEmpty()) {
+            currentDb->setSetting("chat", userMsgId, "comments", m_newChatComments);
+            m_newChatComments.clear();
         }
         if (!m_newChatSystemPrompt.isEmpty()) {
             currentDb->setSetting("chat", userMsgId, "systemPrompt", m_newChatSystemPrompt);

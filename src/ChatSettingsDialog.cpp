@@ -7,7 +7,7 @@
 #include <QPushButton>
 #include <QVBoxLayout>
 
-ChatSettingsDialog::ChatSettingsDialog(const QString& initialTitle, const QString& initialNotes,
+ChatSettingsDialog::ChatSettingsDialog(const QString& initialTitle, const QString& initialComments,
                                        const QString& initialSystemPrompt, const QString& initialSendBehavior,
                                        const QString& initialModel, const QString& initialMultiLine,
                                        const QString& endpointName, const QStringList& availableModels, QWidget* parent)
@@ -23,12 +23,12 @@ ChatSettingsDialog::ChatSettingsDialog(const QString& initialTitle, const QStrin
     m_titleEdit->setPlaceholderText(tr("Optional custom title..."));
     formLayout->addRow(tr("Title:"), m_titleEdit);
 
-    m_notesEdit = new QTextEdit(this);
-    m_notesEdit->setAcceptRichText(false);
-    m_notesEdit->setPlainText(initialNotes);
-    m_notesEdit->setPlaceholderText(tr("Optional notes for this chat/fork..."));
-    m_notesEdit->setMaximumHeight(100);
-    formLayout->addRow(tr("Notes:"), m_notesEdit);
+    m_commentsEdit = new QTextEdit(this);
+    m_commentsEdit->setAcceptRichText(false);
+    m_commentsEdit->setPlainText(initialComments);
+    m_commentsEdit->setPlaceholderText(tr("Optional comments for this chat/fork..."));
+    m_commentsEdit->setMaximumHeight(100);
+    formLayout->addRow(tr("Comments:"), m_commentsEdit);
 
     m_systemPromptEdit = new QTextEdit(this);
     m_systemPromptEdit->setAcceptRichText(false);
@@ -91,7 +91,7 @@ ChatSettingsDialog::ChatSettingsDialog(const QString& initialTitle, const QStrin
 
 QString ChatSettingsDialog::getTitle() const { return m_titleEdit->text().trimmed(); }
 
-QString ChatSettingsDialog::getNotes() const { return m_notesEdit->toPlainText().trimmed(); }
+QString ChatSettingsDialog::getComments() const { return m_commentsEdit->toPlainText().trimmed(); }
 
 QString ChatSettingsDialog::getSystemPrompt() const { return m_systemPromptEdit->toPlainText().trimmed(); }
 

@@ -168,7 +168,7 @@ class MainWindow : public KXmlGuiWindow {
     int currentChatFolderId = 0;
 
     QString m_newChatTitle;
-    QString m_newChatNotes;
+    QString m_newChatComments;
     QString m_newChatSystemPrompt;
     QString m_newChatSendBehavior = "default";
     QString m_newChatModel = "default";

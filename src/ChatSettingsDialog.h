@@ -10,7 +10,7 @@
 class ChatSettingsDialog : public QDialog {
     Q_OBJECT
    public:
-    explicit ChatSettingsDialog(const QString& initialTitle, const QString& initialNotes,
+    explicit ChatSettingsDialog(const QString& initialTitle, const QString& initialComments,
                                 const QString& initialSystemPrompt, const QString& initialSendBehavior,
                                 const QString& initialModel, const QString& initialMultiLine,
                                 const QString& endpointName, const QStringList& availableModels,
@@ -18,7 +18,7 @@ class ChatSettingsDialog : public QDialog {
     ~ChatSettingsDialog() = default;
 
     QString getTitle() const;
-    QString getNotes() const;
+    QString getComments() const;
     QString getSystemPrompt() const;
     QString getSendBehavior() const;
     QString getModel() const;
@@ -26,7 +26,7 @@ class ChatSettingsDialog : public QDialog {
 
    private:
     QLineEdit* m_titleEdit;
-    QTextEdit* m_notesEdit;
+    QTextEdit* m_commentsEdit;
     QTextEdit* m_systemPromptEdit;
     QComboBox* m_sendBehaviorCombo;
     QComboBox* m_modelCombo;
