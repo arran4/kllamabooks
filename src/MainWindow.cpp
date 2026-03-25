@@ -47,6 +47,7 @@
 #include "QueueManager.h"
 #include "QueueWindow.h"
 #include "WalletManager.h"
+#include <KMessageBox>
 
 CustomItemModel::CustomItemModel(QObject* parent) : QStandardItemModel(parent), m_mainWindow(nullptr) {}
 
@@ -2455,6 +2456,42 @@ QStandardItem* MainWindow::findItem(QStandardItem* parent, int id) {
 void MainWindow::onSendMessage() {
     if (!currentDb) return;
 
+    if (sendButton->text() == tr("Cancel")) {
+        // Find if this specific message is currently processing and cancel it
+        if (currentLastNodeId != 0 && currentDb) {
+            auto queue = QueueManager::instance().getMergedQueue();
+            for (const auto& item : queue) {
+                if (item.db == currentDb && item.item.status == "processing" && item.item.messageId == currentLastNodeId) {
+                    QueueManager::instance().cancelItem(currentDb, item.item.id);
+
+                    // Recover partial text
+                    QString partialText;
+                    if (!currentChatPath.isEmpty() && currentChatPath.last().id == currentLastNodeId) {
+                        partialText = currentChatPath.last().content;
+                    }
+
+                    if (!partialText.isEmpty()) {
+                        bool inputEmpty = toggleInputModeBtn->isChecked() ? multiLineInput->toPlainText().isEmpty()
+                                                                          : inputField->toPlainText().isEmpty();
+                        if (inputEmpty) {
+                            if (toggleInputModeBtn->isChecked()) {
+                                multiLineInput->setPlainText(partialText);
+                            } else {
+                                inputField->setPlainText(partialText);
+                            }
+                        } else {
+                            m_chatInputDrafts[currentLastNodeId] = partialText;
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+        sendButton->setText(tr("Send"));
+        statusBar->showMessage(tr("Cancelled response generation."), 3000);
+        return;
+    }
+
     QString text;
     if (!toggleInputModeBtn->isChecked()) {
         text = inputField->toPlainText().trimmed();
@@ -2591,7 +2628,19 @@ void MainWindow::onSendMessage() {
 
 void MainWindow::onOllamaChunk(const QString& chunk) {}
 void MainWindow::onOllamaComplete(const QString& fullResponse) {}
-void MainWindow::onOllamaError(const QString& error) {}
+void MainWindow::onOllamaError(const QString& error) {
+    if (m_isGenerating) {
+        m_isGenerating = false;
+        KMessageBox::error(this, tr("AI Generation failed:\n") + error, tr("Network Error"));
+        statusBar->showMessage(tr("LLM disconnected or failed."), 5000);
+
+        // Re-enable input if it was a chat failure
+        if (chatTextArea->isReadOnly()) {
+            chatTextArea->setReadOnly(false);
+            sendButton->show();
+        }
+    }
+}
 
 void MainWindow::onQueueChunk(std::shared_ptr<BookDatabase> db, int messageId, const QString& chunk) {
     if (currentDb == db && currentLastNodeId == messageId) {
@@ -2611,6 +2660,7 @@ void MainWindow::onQueueChunk(std::shared_ptr<BookDatabase> db, int messageId, c
 void MainWindow::onProcessingStarted(std::shared_ptr<BookDatabase> db, int messageId) {
     if (currentDb == db && currentLastNodeId == messageId) {
         statusBar->showMessage(tr("LLM is responding..."));
+        sendButton->setText(tr("Cancel"));
     }
     updateQueueStatus();
 }
@@ -2619,6 +2669,7 @@ void MainWindow::onProcessingFinished(std::shared_ptr<BookDatabase> db, int mess
     if (currentDb == db && currentLastNodeId == messageId) {
         statusBar->showMessage(success ? tr("Response complete.") : tr("Error in response."), 3000);
         updateLinearChatView(currentLastNodeId, currentDb->getMessages());
+        sendButton->setText(tr("Send"));
     }
     updateQueueStatus();
 }
