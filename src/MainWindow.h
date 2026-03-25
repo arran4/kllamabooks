@@ -100,8 +100,6 @@ class MainWindow : public KXmlGuiWindow {
     void populateMessageForks(QStandardItem* parentItem, int parentId, const QList<MessageNode>& allMessages);
     void populateDocumentFolders(QStandardItem* parentItem, int folderId, const QString& type, BookDatabase* db);
     void addPhantomItem(QStandardItem* folderItem, const QString& type);
-    QList<MessageNode> getMessagesWithPhantom(BookDatabase* db = nullptr);
-    void cancelPhantomFork();
     QStandardItem* findItem(QStandardItem* parent, int id);
     void updateLinearChatView(int tailNodeId, const QList<MessageNode>& allMessages);
     void getPathToRoot(int nodeId, const QList<MessageNode>& allMessages, QList<MessageNode>& path);
@@ -174,8 +172,6 @@ class MainWindow : public KXmlGuiWindow {
     QString m_newChatMultiLine = "default";
 
     bool isCreatingNewChat = false;
-    bool m_isCreatingNewFork = false;
-    int m_preForkNodeId = 0;
     bool isCreatingNewDoc = false;
     bool isCreatingNewNote = false;
 
