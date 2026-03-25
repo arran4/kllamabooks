@@ -69,6 +69,7 @@ class SettingsDialog : public QDialog {
     QSettings m_settings;
     QComboBox* m_sendBehaviorCombo;
     QTextEdit* m_globalSystemPromptEdit;
+    QComboBox* m_queueProcessingCombo;
 };
 
 #endif  // SETTINGSDIALOG_H

@@ -2,6 +2,7 @@
 
 #include <QDebug>
 #include <QTimer>
+#include <QRegularExpression>
 
 QueueManager& QueueManager::instance() {
     static QueueManager instance;
@@ -17,6 +18,7 @@ void QueueManager::addDatabase(std::shared_ptr<BookDatabase> db) {
     if (!m_databases.contains(db)) {
         m_databases.append(db);
         emit queueChanged();
+        QTimer::singleShot(0, this, &QueueManager::checkQueue);
     }
 }
 
@@ -140,38 +142,63 @@ void QueueManager::resumeQueue() {
 void QueueManager::processNext() {
     if (m_isProcessing) return;
 
-    // 1. Try active database first
-    if (m_activeDb && m_activeDb->isOpen()) {
-        auto queue = m_activeDb->getQueue();
-        for (const auto& item : queue) {
-            if (item.status == "pending") {
-                m_currentDb = m_activeDb;
-                m_currentItem = item;
-                goto found;
-            }
-        }
-    }
+    QSettings settings;
+    QString processingMode = settings.value("queueProcessing", "FCFS").toString();
 
-    // 2. Round-robin through others
-    if (m_databases.isEmpty()) return;
-    for (int i = 0; i < m_databases.size(); ++i) {
-        m_currentIndex = (m_currentIndex + 1) % m_databases.size();
-        auto db = m_databases[m_currentIndex];
-        if (db == m_activeDb) continue;
+    QList<QueueManager::MergedQueueItem> allPending;
+    for (auto db : m_databases) {
         if (!db || !db->isOpen()) continue;
-
-        auto queue = db->getQueue();
-        for (const auto& item : queue) {
+        auto items = db->getQueue();
+        for (const auto& item : items) {
             if (item.status == "pending") {
-                m_currentDb = db;
-                m_currentItem = item;
-                goto found;
+                allPending.append({db, item});
             }
         }
     }
-    return;
 
-found:
+    if (allPending.isEmpty()) return;
+
+    auto getModelSize = [](const QString& model) -> double {
+        QRegularExpression re("([0-9]+(?:\\.[0-9]+)?)[bB]");
+        QRegularExpressionMatch match = re.match(model);
+        if (match.hasMatch()) {
+            return match.captured(1).toDouble();
+        }
+        return 0.0;
+    };
+
+    std::sort(allPending.begin(), allPending.end(), [processingMode, getModelSize](const QueueManager::MergedQueueItem& a, const QueueManager::MergedQueueItem& b) {
+        if (a.item.priority != b.item.priority) {
+            return a.item.priority > b.item.priority;
+        }
+        if (processingMode == "LCFS") {
+            return a.item.timestamp > b.item.timestamp;
+        } else if (processingMode == "Smallest message first") {
+            return a.item.prompt.length() < b.item.prompt.length();
+        } else if (processingMode == "Largest message first") {
+            return a.item.prompt.length() > b.item.prompt.length();
+        } else if (processingMode == "Smallest model first" || processingMode == "Largest model first") {
+            double sizeA = getModelSize(a.item.model);
+            double sizeB = getModelSize(b.item.model);
+
+            if (sizeA != sizeB) {
+                if (processingMode == "Smallest model first") {
+                    return sizeA < sizeB;
+                } else {
+                    return sizeA > sizeB;
+                }
+            } else {
+                return a.item.model.compare(b.item.model) < 0; // Fallback to string comparison
+            }
+        } else { // FCFS
+            return a.item.timestamp < b.item.timestamp;
+        }
+    });
+
+    auto nextItem = allPending.first();
+    m_currentDb = nextItem.db;
+    m_currentItem = nextItem.item;
+
     m_isProcessing = true;
     m_currentDb->updateQueueStatus(m_currentItem.id, "processing");
     emit processingStarted(m_currentDb, m_currentItem.messageId);

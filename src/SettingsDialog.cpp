@@ -115,6 +115,20 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
     sysPromptLayout->addWidget(m_globalSystemPromptEdit);
     mainLayout->addLayout(sysPromptLayout);
 
+    QHBoxLayout* queueLayout = new QHBoxLayout();
+    QLabel* queueLabel = new QLabel(tr("Queue Processing:"), this);
+    m_queueProcessingCombo = new QComboBox(this);
+    m_queueProcessingCombo->addItem(tr("FCFS"), "FCFS");
+    m_queueProcessingCombo->addItem(tr("LCFS"), "LCFS");
+    m_queueProcessingCombo->addItem(tr("Smallest message first"), "Smallest message first");
+    m_queueProcessingCombo->addItem(tr("Largest message first"), "Largest message first");
+    m_queueProcessingCombo->addItem(tr("Smallest model first"), "Smallest model first");
+    m_queueProcessingCombo->addItem(tr("Largest model first"), "Largest model first");
+    queueLayout->addWidget(queueLabel);
+    queueLayout->addWidget(m_queueProcessingCombo);
+    queueLayout->addStretch();
+    mainLayout->addLayout(queueLayout);
+
     mainLayout->addSpacing(10);
 
     // LLM Section
@@ -167,6 +181,12 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
     int index = m_sendBehaviorCombo->findData(globalBehavior);
     if (index >= 0) {
         m_sendBehaviorCombo->setCurrentIndex(index);
+    }
+
+    QString queueProc = m_settings.value("queueProcessing", "FCFS").toString();
+    int queueIdx = m_queueProcessingCombo->findData(queueProc);
+    if (queueIdx >= 0) {
+        m_queueProcessingCombo->setCurrentIndex(queueIdx);
     }
 }
 
@@ -285,6 +305,7 @@ void SettingsDialog::onApply() {
     QString selectedBehavior = m_sendBehaviorCombo->currentData().toString();
     m_settings.setValue("globalSendBehavior", selectedBehavior);
     m_settings.setValue("globalSystemPrompt", m_globalSystemPromptEdit->toPlainText().trimmed());
+    m_settings.setValue("queueProcessing", m_queueProcessingCombo->currentData().toString());
 
     emit settingsApplied();
     accept();
