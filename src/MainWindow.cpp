@@ -2760,11 +2760,6 @@ void MainWindow::onOpenBooksSelectionChanged(const QItemSelection& selected, con
         type == "templates_folder" || type == "drafts_folder") {
         refreshVfsExplorer();
 
-        // // If it's the chats_folder, sync currentLastNodeId = 0
-        // if (type == "chats_folder") {
-        //     currentLastNodeId = 0;
-        // }
-        //
         mainContentStack->setCurrentWidget(vfsExplorer);
     } else {
         int nodeId = item->data(Qt::UserRole).toInt();
