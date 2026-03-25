@@ -845,10 +845,15 @@ void MainWindow::setupUi() {
     draftDebounceTimer->setInterval(1000);  // 1 second debounce
 
     auto saveDraftFunc = [this]() {
-        if (currentDb && currentDb->isOpen() && currentLastNodeId != 0) {
+        if (currentDb && currentDb->isOpen()) {
             QString textToSave =
                 !toggleInputModeBtn->isChecked() ? inputField->toPlainText() : multiLineInput->toPlainText();
-            currentDb->setSetting("chat", currentLastNodeId, "draftPrompt", textToSave);
+
+            if (currentLastNodeId != 0) {
+                currentDb->setSetting("chat", currentLastNodeId, "draftPrompt", textToSave);
+            } else {
+                m_newChatDraftPrompt = textToSave;
+            }
         }
     };
 
