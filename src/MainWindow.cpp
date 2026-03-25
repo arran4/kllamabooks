@@ -1566,6 +1566,7 @@ void MainWindow::showVfsContextMenu(const QPoint& pos) {
     QAction* pasteAction = nullptr;
     QAction* forkAction = nullptr;
     QAction* settingsAction = nullptr;
+    QAction* exportMarkdownAction = nullptr;
 
     QModelIndex treeIndex = openBooksTree->currentIndex();
     QStandardItem* treeItem = nullptr;
@@ -1648,12 +1649,20 @@ void MainWindow::showVfsContextMenu(const QPoint& pos) {
                 menu.addSeparator();
                 settingsAction = menu.addAction(QIcon::fromTheme("configure"), "Chat Settings...");
             }
+            if (itemType == "document" || itemType == "note") {
+                exportMarkdownAction = menu.addAction(QIcon::fromTheme("document-export"), "Export Markdown...");
+            }
         }
     } else {
         // Empty space - already populated with folder actions at top
     }
 
     QAction* selectedAction = menu.exec(vfsExplorer->viewport()->mapToGlobal(pos));
+
+    if (exportMarkdownAction && selectedAction == exportMarkdownAction && item) {
+        exportDocument(item->data(Qt::UserRole).toInt(), item->data(Qt::UserRole + 1).toString());
+        return;
+    }
 
     if (newChatAction && selectedAction == newChatAction) {
         if (treeItem) addPhantomItem(treeItem, currentFolderType);
@@ -2557,6 +2566,16 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
                     handleBookDrop(fileInfo.fileName());
                     dropEvent->acceptProposedAction();
                     return true;
+                } else if ((fileInfo.suffix() == "md" || fileInfo.suffix() == "txt") && currentDb) {
+                    QFile file(filePath);
+                    if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                        QString content = file.readAll();
+                        file.close();
+                        currentDb->addDocument(0, fileInfo.fileName(), content);
+                        loadDocumentsAndNotes();
+                        dropEvent->acceptProposedAction();
+                        return true;
+                    }
                 }
             }
         } else if ((obj == openBooksTree || obj == openBooksTree->viewport() || obj == vfsExplorer ||
@@ -3099,6 +3118,65 @@ void MainWindow::showOpenBookContextMenu(const QPoint& pos) {
         } else if (selectedAction == settingsAction) {
             showChatSettingsDialog(item->data(Qt::UserRole).toInt());
         }
+    } else if (type == "document" || type == "note") {
+        QMenu menu(this);
+        QAction* exportAction = menu.addAction("Export Markdown...");
+
+        QAction* selectedAction = menu.exec(openBooksTree->viewport()->mapToGlobal(pos));
+        if (selectedAction == exportAction) {
+            exportDocument(item->data(Qt::UserRole).toInt(), type);
+        }
+    }
+}
+
+void MainWindow::exportDocument(int id, const QString& type) {
+    if (!currentDb) return;
+
+    QString content;
+    QString defaultTitle;
+
+    if (type == "document") {
+        QList<DocumentNode> docs = currentDb->getDocuments();
+        for (const auto& doc : docs) {
+            if (doc.id == id) {
+                content = doc.content;
+                defaultTitle = doc.title;
+                break;
+            }
+        }
+    } else if (type == "note") {
+        QList<NoteNode> notes = currentDb->getNotes();
+        for (const auto& note : notes) {
+            if (note.id == id) {
+                content = note.content;
+                defaultTitle = note.title;
+                break;
+            }
+        }
+    }
+
+    if (content.isEmpty() && defaultTitle.isEmpty()) return;
+
+    if (defaultTitle.isEmpty()) {
+        defaultTitle = "export";
+    }
+    if (!defaultTitle.endsWith(".md")) {
+        defaultTitle += ".md";
+    }
+
+    QString defaultPath = QDir::homePath() + "/" + defaultTitle;
+    QString fileName =
+        QFileDialog::getSaveFileName(this, tr("Export Markdown"), defaultPath, tr("Markdown Files (*.md);;Text Files (*.txt);;All Files (*)"));
+    if (fileName.isEmpty()) return;
+
+    QFile file(fileName);
+    if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        QTextStream out(&file);
+        out << content;
+        file.close();
+        statusBar->showMessage(tr("Exported to %1").arg(fileName), 3000);
+    } else {
+        QMessageBox::warning(this, tr("Export Error"), tr("Could not save to file: %1").arg(file.errorString()));
     }
 }
 

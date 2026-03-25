@@ -73,6 +73,7 @@ class MainWindow : public KXmlGuiWindow {
     void updateInputBehavior();
     void exportChatSession();
     void importChatSession();
+    void exportDocument(int id, const QString& type);
     void onOpenBooksSelectionChanged(const QItemSelection& selected, const QItemSelection& deselected);
     void updateQueueStatus();
     void updateNotificationStatus();
