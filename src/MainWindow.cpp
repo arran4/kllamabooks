@@ -2104,10 +2104,6 @@ void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& 
         }
     }
 
-    // Clear tracking on new switch
-    m_newChatDraftPrompt.clear();
-    m_newChatUserNote.clear();
-
     if (currentDb) {
         currentDb->dismissNotificationByMessageId(tailNodeId);
         updateNotificationStatus();
@@ -2225,6 +2221,11 @@ void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& 
         inputField->setPlainText(savedDraft);
     } else {
         multiLineInput->setPlainText(savedDraft);
+    }
+
+    if (tailNodeId != 0) {
+        m_newChatDraftPrompt.clear();
+        m_newChatUserNote.clear();
     }
 
     updateBreadcrumbs();
