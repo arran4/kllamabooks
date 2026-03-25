@@ -1,4 +1,5 @@
 #include "QueueManager.h"
+
 #include <QDebug>
 #include <QTimer>
 
@@ -7,10 +8,9 @@ QueueManager& QueueManager::instance() {
     return instance;
 }
 
-QueueManager::QueueManager(QObject* parent) 
-    : QObject(parent), m_timer(new QTimer(this)), m_isPaused(false) {
+QueueManager::QueueManager(QObject* parent) : QObject(parent), m_timer(new QTimer(this)), m_isPaused(false) {
     connect(m_timer, &QTimer::timeout, this, &QueueManager::checkQueue);
-    m_timer->start(1000); // Check every second
+    m_timer->start(1000);  // Check every second
 }
 
 void QueueManager::addDatabase(std::shared_ptr<BookDatabase> db) {
@@ -55,9 +55,7 @@ void QueueManager::setActiveDatabase(std::shared_ptr<BookDatabase> db) {
     }
 }
 
-void QueueManager::setClient(OllamaClient* client) {
-    m_client = client;
-}
+void QueueManager::setClient(OllamaClient* client) { m_client = client; }
 
 void QueueManager::enqueuePrompt(int messageId, const QString& model, const QString& prompt, int priority) {
     if (m_activeDb && m_activeDb->isOpen()) {
@@ -106,7 +104,7 @@ QList<QueueManager::MergedQueueItem> QueueManager::getMergedQueue() const {
     }
 
     // Sort merged result by priority then timestamp
-    std::sort(result.begin(), result.end(), [](const MergedQueueItem& a, const MergedQueueItem& b){
+    std::sort(result.begin(), result.end(), [](const MergedQueueItem& a, const MergedQueueItem& b) {
         if (a.item.priority != b.item.priority) return a.item.priority > b.item.priority;
         return a.item.timestamp > b.item.timestamp;
     });
@@ -189,10 +187,9 @@ found:
     }
     m_client->setSystemPrompt(sysPrompt);
 
-    m_client->generate(m_currentItem.model, m_currentItem.prompt,
-                       [this](const QString& chunk){ onChunk(chunk); },
-                       [this](const QString& response){ onComplete(response); },
-                       [this](const QString& error){ onError(error); });
+    m_client->generate(
+        m_currentItem.model, m_currentItem.prompt, [this](const QString& chunk) { onChunk(chunk); },
+        [this](const QString& response) { onComplete(response); }, [this](const QString& error) { onError(error); });
 }
 
 void QueueManager::onChunk(const QString& chunk) {
@@ -220,11 +217,23 @@ void QueueManager::onComplete(const QString& response) {
         m_completedItems.append({m_currentDb, m_currentItem});
         m_currentDb->deleteQueueItem(m_currentItem.id);
         m_currentDb->addNotification(m_currentItem.messageId, "responded_to");
+
+        m_currentDb->setSetting("message", m_currentItem.messageId, "model", m_currentItem.model);
+
+        QString sysPrompt = m_currentDb->getInheritedSetting(m_currentItem.messageId, "systemPrompt");
+        if (sysPrompt.isEmpty()) {
+            sysPrompt = m_currentDb->getSetting("book", 0, "systemPrompt", "");
+        }
+        if (sysPrompt.isEmpty()) {
+            QSettings settings;
+            sysPrompt = settings.value("globalSystemPrompt", "").toString();
+        }
+        m_currentDb->setSetting("message", m_currentItem.messageId, "systemPrompt", sysPrompt);
     }
     m_isProcessing = false;
     emit processingFinished(m_currentDb, m_currentItem.messageId, true);
     emit queueChanged();
-    
+
     // Pick up next item after a short delay to avoid tight loop issues
     QTimer::singleShot(500, this, &QueueManager::checkQueue);
 }
@@ -238,6 +247,6 @@ void QueueManager::onError(const QString& error) {
     m_isProcessing = false;
     emit processingFinished(m_currentDb, m_currentItem.messageId, false);
     emit queueChanged();
-    
+
     QTimer::singleShot(500, this, &QueueManager::checkQueue);
 }

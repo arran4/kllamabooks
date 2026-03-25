@@ -51,6 +51,14 @@ struct QueueItem {
     QDateTime timestamp;
 };
 
+struct CommentNode {
+    int id;
+    QString entityType;
+    int entityId;
+    QString content;
+    QDateTime timestamp;
+};
+
 struct Notification {
     int id;
     int messageId;
@@ -122,6 +130,12 @@ class BookDatabase {
     bool updateQueueStatus(int id, const QString& status);
     bool updateQueueItemPrompt(int id, const QString& prompt);
     bool deleteQueueItem(int id);
+
+    // Comments
+    int addComment(const QString& entityType, int entityId, const QString& content);
+    bool updateComment(int id, const QString& newContent);
+    QList<CommentNode> getComments(const QString& entityType, int entityId) const;
+    bool deleteComment(int id);
 
     // Notifications
     int addNotification(int messageId, const QString& type);

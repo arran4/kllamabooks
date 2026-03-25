@@ -248,9 +248,26 @@ bool BookDatabase::initSchema() {
     if (userVersion < 6) {
         // Clean up old completed jobs since they are now memory-only
         sqlite3_exec((sqlite3*)m_db, "DELETE FROM queue WHERE status = 'completed';", nullptr, nullptr, nullptr);
-        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (6);", nullptr, nullptr, nullptr);
+        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (6);", nullptr, nullptr,
+                     nullptr);
         sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 6;", nullptr, nullptr, nullptr);
         userVersion = 6;
+    }
+
+    if (userVersion < 7) {
+        const char* sql =
+            "CREATE TABLE IF NOT EXISTS comments ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "entity_type TEXT, "
+            "entity_id INTEGER, "
+            "content TEXT, "
+            "created_at DATETIME DEFAULT CURRENT_TIMESTAMP"
+            ");";
+        sqlite3_exec((sqlite3*)m_db, sql, nullptr, nullptr, nullptr);
+        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (7);", nullptr, nullptr,
+                     nullptr);
+        sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 7;", nullptr, nullptr, nullptr);
+        userVersion = 7;
     }
 
     return true;
@@ -1032,4 +1049,82 @@ QString BookDatabase::getDatabaseDebugInfo() const {
     }
 
     return info;
+}
+
+int BookDatabase::addComment(const QString& entityType, int entityId, const QString& content) {
+    if (!m_isOpen) return -1;
+
+    const char* sql = "INSERT INTO comments (entity_type, entity_id, content) VALUES (?, ?, ?);";
+    sqlite3_stmt* stmt;
+    int rc = sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr);
+    if (rc != SQLITE_OK) return -1;
+
+    sqlite3_bind_text(stmt, 1, entityType.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 2, entityId);
+    sqlite3_bind_text(stmt, 3, content.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+
+    rc = sqlite3_step(stmt);
+    if (rc != SQLITE_DONE) {
+        sqlite3_finalize(stmt);
+        return -1;
+    }
+
+    int id = sqlite3_last_insert_rowid((sqlite3*)m_db);
+    sqlite3_finalize(stmt);
+    return id;
+}
+
+bool BookDatabase::updateComment(int id, const QString& newContent) {
+    if (!m_isOpen) return false;
+
+    const char* sql = "UPDATE comments SET content = ? WHERE id = ?;";
+    sqlite3_stmt* stmt;
+    int rc = sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr);
+    if (rc != SQLITE_OK) return false;
+
+    sqlite3_bind_text(stmt, 1, newContent.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 2, id);
+
+    rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
+}
+
+QList<CommentNode> BookDatabase::getComments(const QString& entityType, int entityId) const {
+    QList<CommentNode> items;
+    if (!m_isOpen) return items;
+
+    const char* sql =
+        "SELECT id, entity_type, entity_id, content, created_at FROM comments WHERE entity_type = ? AND entity_id = ? "
+        "ORDER BY created_at ASC;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return items;
+
+    sqlite3_bind_text(stmt, 1, entityType.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 2, entityId);
+
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        CommentNode item;
+        item.id = sqlite3_column_int(stmt, 0);
+        item.entityType = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 1));
+        item.entityId = sqlite3_column_int(stmt, 2);
+        item.content = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 3));
+        item.timestamp =
+            QDateTime::fromString(QString::fromUtf8((const char*)sqlite3_column_text(stmt, 4)), Qt::ISODate);
+        items.append(item);
+    }
+
+    sqlite3_finalize(stmt);
+    return items;
+}
+
+bool BookDatabase::deleteComment(int id) {
+    if (!m_isOpen) return false;
+    const char* sql = "DELETE FROM comments WHERE id = ?;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_int(stmt, 1, id);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
 }

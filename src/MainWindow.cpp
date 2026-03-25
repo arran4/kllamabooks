@@ -423,11 +423,16 @@ void MainWindow::setupUi() {
 
         QAction* forkAction = nullptr;
         QAction* copyAction = nullptr;
+        QAction* infoAction = nullptr;
 
         if (msgIndex >= 0 && msgIndex < currentChatPath.size()) {
             menu->addSeparator();
             forkAction = menu->addAction(QIcon::fromTheme("call-start"), "Reply to this and fork here");
             copyAction = menu->addAction(QIcon::fromTheme("edit-copy"), "Copy message");
+
+            bool isAssistant = (currentChatPath[msgIndex].role == "assistant");
+            infoAction =
+                menu->addAction(QIcon::fromTheme("dialog-information"), isAssistant ? "Response info" : "Message info");
         }
 
         menu->addSeparator();
@@ -466,6 +471,60 @@ void MainWindow::setupUi() {
         } else if (selectedAction == copyAction && copyAction) {
             QApplication::clipboard()->setText(currentChatPath[msgIndex].content);
             statusBar->showMessage(tr("Message copied to clipboard."), 3000);
+        } else if (selectedAction == infoAction && infoAction) {
+            QDialog infoDialog(this);
+            bool isAssistant = (currentChatPath[msgIndex].role == "assistant");
+            infoDialog.setWindowTitle(isAssistant ? "Response info" : "Message info");
+            QVBoxLayout* infoLayout = new QVBoxLayout(&infoDialog);
+
+            QString infoText = QString("<b>Date/Time:</b> %1")
+                                   .arg(currentChatPath[msgIndex].timestamp.toString("yyyy-MM-dd HH:mm:ss"));
+
+            if (isAssistant && currentDb) {
+                QString model = currentDb->getSetting("message", currentChatPath[msgIndex].id, "model", "Unknown");
+                QString sysPrompt =
+                    currentDb->getSetting("message", currentChatPath[msgIndex].id, "systemPrompt", "Unknown");
+                infoText += QString("<br><b>Model:</b> %1<br><b>System Prompt:</b> %2")
+                                .arg(model.toHtmlEscaped(), sysPrompt.toHtmlEscaped().replace("\n", "<br>"));
+            }
+
+            QLabel* infoLabel = new QLabel(infoText, &infoDialog);
+            infoLabel->setWordWrap(true);
+            infoLabel->setTextFormat(Qt::RichText);
+            infoLayout->addWidget(infoLabel);
+
+            QLabel* notesLabel = new QLabel("Comments:", &infoDialog);
+            infoLayout->addWidget(notesLabel);
+
+            QTextEdit* notesEdit = new QTextEdit(&infoDialog);
+            int commentId = -1;
+            if (currentDb) {
+                QList<CommentNode> existing = currentDb->getComments("message", currentChatPath[msgIndex].id);
+                if (!existing.isEmpty()) {
+                    commentId = existing.first().id;
+                    notesEdit->setPlainText(existing.first().content);
+                }
+            }
+            infoLayout->addWidget(notesEdit);
+
+            QDialogButtonBox* buttonBox =
+                new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, Qt::Horizontal, &infoDialog);
+            connect(buttonBox, &QDialogButtonBox::accepted, &infoDialog, &QDialog::accept);
+            connect(buttonBox, &QDialogButtonBox::rejected, &infoDialog, &QDialog::reject);
+            infoLayout->addWidget(buttonBox);
+
+            if (infoDialog.exec() == QDialog::Accepted && currentDb) {
+                QString newText = notesEdit->toPlainText();
+                if (commentId == -1 && !newText.isEmpty()) {
+                    currentDb->addComment("message", currentChatPath[msgIndex].id, newText);
+                } else if (commentId != -1) {
+                    if (newText.isEmpty()) {
+                        currentDb->deleteComment(commentId);
+                    } else {
+                        currentDb->updateComment(commentId, newText);
+                    }
+                }
+            }
         }
         delete menu;
     });
