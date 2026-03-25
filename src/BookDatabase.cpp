@@ -48,6 +48,10 @@ bool BookDatabase::open(const QString& password) {
 
     m_isOpen = true;
     initSchema();
+
+    // Reset processing queue items to pending on reconnect
+    sqlite3_exec((sqlite3*)m_db, "UPDATE queue SET status = 'pending' WHERE status = 'processing';", nullptr, nullptr, nullptr);
+
     return true;
 }
 

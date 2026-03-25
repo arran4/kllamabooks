@@ -842,10 +842,19 @@ void MainWindow::setupUi() {
     connect(chatModel, &QStandardItemModel::itemChanged, this, &MainWindow::onItemChanged);
     connect(chatTree->selectionModel(), &QItemSelectionModel::currentChanged, this, &MainWindow::onChatNodeSelected);
 
+    QSettings settings;
+    m_availableModels = settings.value("cachedModels").toStringList();
+
     connect(&ollamaClient, &OllamaClient::modelListUpdated, this, [this](const QStringList& models) {
-        m_availableModels = models;
-        if (m_availableModels.isEmpty()) {
-            m_availableModels.append("llama2");  // fallback
+        QSettings settings;
+        if (!models.isEmpty()) {
+            m_availableModels = models;
+            settings.setValue("cachedModels", m_availableModels);
+        } else if (m_availableModels.isEmpty()) {
+            m_availableModels = settings.value("cachedModels").toStringList();
+            if (m_availableModels.isEmpty()) {
+                m_availableModels.append("llama2");  // fallback
+            }
         }
         if (m_selectedModel.isEmpty() && !m_availableModels.isEmpty()) {
             m_selectedModel = m_availableModels.first();
