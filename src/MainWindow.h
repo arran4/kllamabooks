@@ -19,6 +19,8 @@
 #include <QStackedWidget>
 #include <QStandardItemModel>
 #include <QStatusBar>
+#include <QMimeData>
+#include <QUrl>
 #include <QStringList>
 #include <QStyle>
 #include <QSystemTrayIcon>
@@ -35,11 +37,23 @@
 #include "OllamaClient.h"
 #include "SettingsDialog.h"
 
+class CustomItemModel : public QStandardItemModel {
+    Q_OBJECT
+   public:
+    explicit CustomItemModel(QObject* parent = nullptr);
+    QStringList mimeTypes() const override;
+    QMimeData* mimeData(const QModelIndexList& indexes) const override;
+    void setMainWindow(class MainWindow* mainWindow) { m_mainWindow = mainWindow; }
+   private:
+    class MainWindow* m_mainWindow;
+};
+
 class MainWindow : public KXmlGuiWindow {
     Q_OBJECT
    public:
     explicit MainWindow(QWidget* parent = nullptr);
     ~MainWindow();
+    void getDocumentContent(int id, const QString& type, QString& outTitle, QString& outContent);
 
    private slots:
     void onCreateBook();
@@ -112,12 +126,12 @@ class MainWindow : public KXmlGuiWindow {
     QSplitter* splitter;
     QSplitter* leftSplitter;
     QTreeView* openBooksTree;
-    QStandardItemModel* openBooksModel;
+    CustomItemModel* openBooksModel;
     QListWidget* bookList;             // Closed books
     QStackedWidget* mainContentStack;  // To switch between main views
     QWidget* emptyView;
     QListView* vfsExplorer;
-    QStandardItemModel* vfsModel;
+    CustomItemModel* vfsModel;
     QWidget* chatWindowView;
     QSplitter* chatSplitter;
     QListView* chatForkExplorer;

@@ -48,6 +48,63 @@
 #include "QueueWindow.h"
 #include "WalletManager.h"
 
+CustomItemModel::CustomItemModel(QObject* parent) : QStandardItemModel(parent), m_mainWindow(nullptr) {}
+
+QStringList CustomItemModel::mimeTypes() const {
+    QStringList types = QStandardItemModel::mimeTypes();
+    if (!types.contains("text/uri-list")) {
+        types << "text/uri-list";
+    }
+    return types;
+}
+
+QMimeData* CustomItemModel::mimeData(const QModelIndexList& indexes) const {
+    QMimeData* data = QStandardItemModel::mimeData(indexes);
+    if (!m_mainWindow || indexes.isEmpty()) return data;
+
+    QList<QUrl> urls;
+    for (const QModelIndex& index : indexes) {
+        QStandardItem* item = itemFromIndex(index);
+        if (item && item->text() != "..") {
+            QString type = item->data(Qt::UserRole + 1).toString();
+            int id = item->data(Qt::UserRole).toInt();
+
+            if (type == "document" || type == "note") {
+                QString title, content;
+                m_mainWindow->getDocumentContent(id, type, title, content);
+
+                if (!content.isEmpty() || !title.isEmpty()) {
+                    if (title.isEmpty()) title = "export";
+                    if (!title.endsWith(".md")) title += ".md";
+
+                    title = title.replace("/", "_").replace("\\", "_");
+                    QString tempPath = QDir::tempPath() + "/" + title;
+                    QFile tempFile(tempPath);
+                    if (tempFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
+                        QTextStream out(&tempFile);
+                        out << content;
+                        tempFile.close();
+                        urls.append(QUrl::fromLocalFile(tempPath));
+                    }
+                }
+            }
+        }
+    }
+
+    if (!urls.isEmpty()) {
+        data->setUrls(urls);
+        // Fallback for some managers
+        if (urls.size() == 1 && data->text().isEmpty()) {
+            QFile f(urls.first().toLocalFile());
+            if (f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                data->setText(f.readAll());
+                f.close();
+            }
+        }
+    }
+    return data;
+}
+
 MainWindow::MainWindow(QWidget* parent) : KXmlGuiWindow(parent), currentLastNodeId(0) {
     QueueManager::instance().setClient(&ollamaClient);
     connect(&QueueManager::instance(), &QueueManager::queueChanged, this, &MainWindow::updateQueueStatus);
@@ -89,7 +146,8 @@ void MainWindow::setupUi() {
 
     openBooksTree = new QTreeView(this);
     openBooksTree->setMinimumSize(0, 0);
-    openBooksModel = new QStandardItemModel(this);
+    openBooksModel = new CustomItemModel(this);
+    openBooksModel->setMainWindow(this);
     openBooksTree->setModel(openBooksModel);
     openBooksTree->setHeaderHidden(true);
     openBooksTree->setAcceptDrops(true);
@@ -164,7 +222,8 @@ void MainWindow::setupUi() {
     mainContentStack->addWidget(emptyView);
 
     vfsExplorer = new QListView(this);
-    vfsModel = new QStandardItemModel(this);
+    vfsModel = new CustomItemModel(this);
+    vfsModel->setMainWindow(this);
     vfsExplorer->setModel(vfsModel);
     vfsExplorer->setViewMode(QListView::IconMode);
     vfsExplorer->setDropIndicatorShown(true);
@@ -2567,99 +2626,6 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
         }
     }
 
-    if (event->type() == QEvent::MouseMove) {
-        QMouseEvent* mouseEvent = static_cast<QMouseEvent*>(event);
-        if (mouseEvent->buttons() & Qt::LeftButton) {
-            QAbstractItemView* sourceView = nullptr;
-            if (obj == openBooksTree->viewport() || obj == openBooksTree) {
-                sourceView = openBooksTree;
-            } else if (obj == vfsExplorer->viewport() || obj == vfsExplorer) {
-                sourceView = vfsExplorer;
-            }
-
-            if (sourceView && sourceView->selectionModel()->hasSelection() && currentDb) {
-                static QPoint startPos;
-                if (!obj->property("drag_start_pos").isValid()) {
-                    obj->setProperty("drag_start_pos", mouseEvent->pos());
-                }
-                startPos = obj->property("drag_start_pos").toPoint();
-                if ((mouseEvent->pos() - startPos).manhattanLength() > QApplication::startDragDistance()) {
-                    QModelIndex index = sourceView->indexAt(startPos);
-                    if (!index.isValid()) index = sourceView->selectionModel()->selectedIndexes().first();
-                    if (index.isValid()) {
-                        QStandardItem* item = nullptr;
-                        if (sourceView == openBooksTree) {
-                            item = openBooksModel->itemFromIndex(index);
-                        } else if (sourceView == vfsExplorer) {
-                            item = vfsModel->itemFromIndex(index);
-                        }
-
-                        if (item && item->text() != "..") {
-                            QString type = item->data(Qt::UserRole + 1).toString();
-                            int id = item->data(Qt::UserRole).toInt();
-                            if (type == "document" || type == "note") {
-                                QString content;
-                                QString title;
-                                if (type == "document") {
-                                    for (const auto& doc : currentDb->getDocuments()) {
-                                        if (doc.id == id) {
-                                            content = doc.content;
-                                            title = doc.title;
-                                            break;
-                                        }
-                                    }
-                                } else if (type == "note") {
-                                    for (const auto& note : currentDb->getNotes()) {
-                                        if (note.id == id) {
-                                            content = note.content;
-                                            title = note.title;
-                                            break;
-                                        }
-                                    }
-                                }
-
-                                if (!content.isEmpty() || !title.isEmpty()) {
-                                    if (title.isEmpty()) title = "export";
-                                    if (!title.endsWith(".md")) title += ".md";
-
-                                    title = title.replace("/", "_").replace("\\", "_");
-
-                                    // Save temporarily
-                                    QString tempPath = QDir::tempPath() + "/" + title;
-                                    QFile tempFile(tempPath);
-                                    if (tempFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
-                                        QTextStream out(&tempFile);
-                                        out << content;
-                                        tempFile.close();
-
-                                        QDrag* drag = new QDrag(sourceView);
-                                        QMimeData* mimeData = new QMimeData;
-                                        QList<QUrl> urls;
-                                        urls.append(QUrl::fromLocalFile(tempPath));
-                                        mimeData->setUrls(urls);
-                                        // Some file managers require text plain fallback
-                                        mimeData->setText(content);
-                                        drag->setMimeData(mimeData);
-                                        drag->exec(Qt::CopyAction);
-                                        obj->setProperty("drag_start_pos", QVariant());
-                                        return true; // event handled
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    } else if (event->type() == QEvent::MouseButtonRelease) {
-        obj->setProperty("drag_start_pos", QVariant());
-    } else if (event->type() == QEvent::MouseButtonPress) {
-        QMouseEvent* mouseEvent = static_cast<QMouseEvent*>(event);
-        if (mouseEvent->button() == Qt::LeftButton) {
-            obj->setProperty("drag_start_pos", mouseEvent->pos());
-        }
-    }
-
     if (event->type() == QEvent::DragEnter) {
         QDragEnterEvent* dragEvent = static_cast<QDragEnterEvent*>(event);
 
@@ -3379,31 +3345,36 @@ void MainWindow::showOpenBookContextMenu(const QPoint& pos) {
     }
 }
 
-void MainWindow::exportDocument(int id, const QString& type) {
+void MainWindow::getDocumentContent(int id, const QString& type, QString& outTitle, QString& outContent) {
     if (!currentDb) return;
-
-    QString content;
-    QString defaultTitle;
-
     if (type == "document") {
         QList<DocumentNode> docs = currentDb->getDocuments();
         for (const auto& doc : docs) {
             if (doc.id == id) {
-                content = doc.content;
-                defaultTitle = doc.title;
-                break;
+                outContent = doc.content;
+                outTitle = doc.title;
+                return;
             }
         }
     } else if (type == "note") {
         QList<NoteNode> notes = currentDb->getNotes();
         for (const auto& note : notes) {
             if (note.id == id) {
-                content = note.content;
-                defaultTitle = note.title;
-                break;
+                outContent = note.content;
+                outTitle = note.title;
+                return;
             }
         }
     }
+}
+
+void MainWindow::exportDocument(int id, const QString& type) {
+    if (!currentDb) return;
+
+    QString content;
+    QString defaultTitle;
+
+    getDocumentContent(id, type, defaultTitle, content);
 
     if (content.isEmpty() && defaultTitle.isEmpty()) return;
 
