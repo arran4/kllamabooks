@@ -493,12 +493,12 @@ void MainWindow::setupUi() {
             infoLabel->setTextFormat(Qt::RichText);
             infoLayout->addWidget(infoLabel);
 
-            QLabel* notesLabel = new QLabel("Notes:", &infoDialog);
+            QLabel* notesLabel = new QLabel("Comments:", &infoDialog);
             infoLayout->addWidget(notesLabel);
 
             QTextEdit* notesEdit = new QTextEdit(&infoDialog);
             if (currentDb) {
-                notesEdit->setPlainText(currentDb->getSetting("message", currentChatPath[msgIndex].id, "notes", ""));
+                notesEdit->setPlainText(currentDb->getSetting("message", currentChatPath[msgIndex].id, "comments", ""));
             }
             infoLayout->addWidget(notesEdit);
 
@@ -509,7 +509,7 @@ void MainWindow::setupUi() {
             infoLayout->addWidget(buttonBox);
 
             if (infoDialog.exec() == QDialog::Accepted && currentDb) {
-                currentDb->setSetting("message", currentChatPath[msgIndex].id, "notes", notesEdit->toPlainText());
+                currentDb->setSetting("message", currentChatPath[msgIndex].id, "comments", notesEdit->toPlainText());
             }
         }
         delete menu;
