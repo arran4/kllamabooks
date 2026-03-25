@@ -827,6 +827,8 @@ void MainWindow::setupUi() {
 
     connectionStatusLabel = new QLabel(this);
     connectionStatusLabel->setMargin(4);
+    connectionStatusLabel->setCursor(Qt::PointingHandCursor);
+    connectionStatusLabel->installEventFilter(this);
     toolbar->addWidget(connectionStatusLabel);
     onConnectionStatusChanged(false);  // Initially disconnected
 
@@ -2504,6 +2506,14 @@ void MainWindow::onChatNodeSelected(const QModelIndex& current, const QModelInde
 }
 
 bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
+    if (obj == connectionStatusLabel && event->type() == QEvent::MouseButtonRelease) {
+        QMouseEvent* mouseEvent = static_cast<QMouseEvent*>(event);
+        if (mouseEvent->button() == Qt::LeftButton) {
+            ollamaClient.fetchModels();
+            return true;
+        }
+    }
+
     if (obj->property("is_breadcrumb_edit").toBool()) {
         if (event->type() == QEvent::MouseButtonDblClick) {
             QLineEdit* edit = qobject_cast<QLineEdit*>(obj);
