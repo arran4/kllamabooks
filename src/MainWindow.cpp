@@ -775,7 +775,7 @@ void MainWindow::setupUi() {
     connect(newDraftMenuAction, &QAction::triggered, this, [this]() { addPhantomItem(nullptr, "drafts_folder"); });
 
     QAction* createFolderMenuAction = new QAction(QIcon::fromTheme("folder-new"), tr("Create Folder"), this);
-    actionCollection()->addAction(QStringLiteral("create_folder"), createFolderMenuAction);
+    actionCollection()->addAction(QStringLiteral("create_folder_menu"), createFolderMenuAction);
     connect(createFolderMenuAction, &QAction::triggered, this, [this]() {
         // Find current folder
         QModelIndex index = openBooksTree->currentIndex();
