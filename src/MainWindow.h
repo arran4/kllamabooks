@@ -170,6 +170,8 @@ class MainWindow : public KXmlGuiWindow {
     QString m_newChatSendBehavior = "default";
     QString m_newChatModel = "default";
     QString m_newChatMultiLine = "default";
+    QString m_newChatDraftPrompt;
+    QString m_newChatUserNote;
 
     bool isCreatingNewChat = false;
     bool isCreatingNewDoc = false;

@@ -1300,6 +1300,8 @@ void MainWindow::showChatSettingsDialog(int messageId) {
         currentBehavior = m_newChatSendBehavior;
         currentModel = m_newChatModel;
         currentMultiLine = m_newChatMultiLine;
+        currentDraftPrompt = m_newChatDraftPrompt;
+        currentUserNote = m_newChatUserNote;
     } else {
         currentTitle = currentDb->getSetting("chat", messageId, "title", "");
         currentPrompt = currentDb->getSetting("chat", messageId, "systemPrompt", "");
@@ -1326,6 +1328,17 @@ void MainWindow::showChatSettingsDialog(int messageId) {
             m_newChatSendBehavior = newBehavior;
             m_newChatModel = newModel;
             m_newChatMultiLine = newMultiLine;
+            m_newChatDraftPrompt = newDraftPrompt;
+            m_newChatUserNote = newUserNote;
+
+            // Apply the draft right away if we are on the New Chat root screen
+            if (!m_newChatDraftPrompt.isEmpty()) {
+                if (!toggleInputModeBtn->isChecked()) {
+                    inputField->setPlainText(m_newChatDraftPrompt);
+                } else {
+                    multiLineInput->setPlainText(m_newChatDraftPrompt);
+                }
+            }
         } else {
             currentDb->setSetting("chat", messageId, "title", newTitle);
             currentDb->setSetting("chat", messageId, "systemPrompt", newPrompt);
@@ -2074,11 +2087,18 @@ void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& 
     m_newChatSendBehavior = "default";
     m_newChatModel = "default";
     m_newChatMultiLine = "default";
+    m_newChatDraftPrompt.clear();
+    m_newChatUserNote.clear();
 
-    if (currentLastNodeId != 0 && currentDb) {
+    if (currentDb) {
         QString textToSave =
             !toggleInputModeBtn->isChecked() ? inputField->toPlainText() : multiLineInput->toPlainText();
-        currentDb->setSetting("chat", currentLastNodeId, "draftPrompt", textToSave);
+
+        if (currentLastNodeId != 0) {
+            currentDb->setSetting("chat", currentLastNodeId, "draftPrompt", textToSave);
+        } else {
+            m_newChatDraftPrompt = textToSave;
+        }
     }
 
     if (currentDb) {
@@ -2187,7 +2207,11 @@ void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& 
 
     QString savedDraft = "";
     if (currentDb) {
-        savedDraft = currentDb->getSetting("chat", tailNodeId, "draftPrompt", "");
+        if (tailNodeId != 0) {
+            savedDraft = currentDb->getSetting("chat", tailNodeId, "draftPrompt", "");
+        } else {
+            savedDraft = m_newChatDraftPrompt;
+        }
     }
 
     if (!toggleInputModeBtn->isChecked()) {
