@@ -3,14 +3,29 @@
 
 #include <KXmlGuiWindow>
 #include <QAction>
+#include <QComboBox>
+#include <QDateTime>
 #include <QFutureWatcher>
+#include <QIcon>
+#include <QInputDialog>
+#include <QLabel>
+#include <QLineEdit>
+#include <QListView>
+#include <QListWidget>
 #include <QMenu>
+#include <QMessageBox>
+#include <QPushButton>
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QStandardItemModel>
+#include <QStatusBar>
 #include <QStringList>
+#include <QStyle>
 #include <QSystemTrayIcon>
+#include <QTextEdit>
 #include <QTimer>
+#include <QToolBar>
+#include <QToolButton>
 #include <QTreeView>
 #include <memory>
 
