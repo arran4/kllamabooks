@@ -14,21 +14,22 @@
 #include <QListWidget>
 #include <QMenu>
 #include <QMessageBox>
+#include <QMimeData>
 #include <QPushButton>
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QStandardItemModel>
 #include <QStatusBar>
-#include <QMimeData>
-#include <QUrl>
 #include <QStringList>
 #include <QStyle>
 #include <QSystemTrayIcon>
+#include <QTextBrowser>
 #include <QTextEdit>
 #include <QTimer>
 #include <QToolBar>
 #include <QToolButton>
 #include <QTreeView>
+#include <QUrl>
 #include <memory>
 
 #include "BookDatabase.h"
@@ -44,6 +45,7 @@ class CustomItemModel : public QStandardItemModel {
     QStringList mimeTypes() const override;
     QMimeData* mimeData(const QModelIndexList& indexes) const override;
     void setMainWindow(class MainWindow* mainWindow) { m_mainWindow = mainWindow; }
+
    private:
     class MainWindow* m_mainWindow;
 };
@@ -80,6 +82,10 @@ class MainWindow : public KXmlGuiWindow {
     void onRenameCurrentItem();
     void onDiscardChanges();
     void showBookContextMenu(const QPoint& pos);
+    void showDocumentAIToolsMenu();
+    void onDocumentCompleteText();
+    void onDocumentReplaceEntirely();
+    void onDocumentReplaceInPlace();
     void showOpenBookContextMenu(const QPoint& pos);
     void showVfsContextMenu(const QPoint& pos);
     void showInputSettingsMenu();
@@ -140,8 +146,11 @@ class MainWindow : public KXmlGuiWindow {
     QTextEdit* chatTextArea;  // Replaces linearChatList
     QWidget* chatInputContainer;
     QWidget* docContainer;
+    QStackedWidget* documentStack;
     QTextEdit* documentEditorView;
+    QTextBrowser* documentPreviewView;
     QPushButton* saveDocBtn;
+    QPushButton* previewDocBtn;
     QWidget* noteContainer;
     QTextEdit* noteEditorView;
     QPushButton* saveNoteBtn;

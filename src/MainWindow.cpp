@@ -290,13 +290,46 @@ void MainWindow::setupUi() {
     QToolBar* docToolbar = new QToolBar(this);
     saveDocBtn = new QPushButton(QIcon::fromTheme("document-save"), "Save Document", this);
     QPushButton* backToDocsBtn = new QPushButton(QIcon::fromTheme("go-previous"), "Back to Documents", this);
+    previewDocBtn = new QPushButton(QIcon::fromTheme("view-preview"), "Preview", this);
+    previewDocBtn->setCheckable(true);
+
+    QToolButton* aiOperationsBtn = new QToolButton(this);
+    aiOperationsBtn->setIcon(QIcon::fromTheme("tools-wizard"));
+    aiOperationsBtn->setText("AI Operations");
+    aiOperationsBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    aiOperationsBtn->setPopupMode(QToolButton::InstantPopup);
+    QMenu* aiMenu = new QMenu(this);
+    aiMenu->addAction("Complete this text", this, &MainWindow::onDocumentCompleteText);
+    aiMenu->addAction("Replace entirely", this, &MainWindow::onDocumentReplaceEntirely);
+    aiMenu->addAction("Replace in place", this, &MainWindow::onDocumentReplaceInPlace);
+    aiOperationsBtn->setMenu(aiMenu);
+
     docToolbar->addWidget(backToDocsBtn);
     docToolbar->addWidget(saveDocBtn);
+    docToolbar->addWidget(previewDocBtn);
+    docToolbar->addWidget(aiOperationsBtn);
     docLayout->addWidget(docToolbar);
 
+    documentStack = new QStackedWidget(this);
     documentEditorView = new QTextEdit(this);
-    docLayout->addWidget(documentEditorView);
+    documentPreviewView = new QTextBrowser(this);
+
+    documentStack->addWidget(documentEditorView);
+    documentStack->addWidget(documentPreviewView);
+
+    docLayout->addWidget(documentStack);
     mainContentStack->addWidget(docContainer);
+
+    connect(previewDocBtn, &QPushButton::toggled, this, [this](bool checked) {
+        if (checked) {
+            documentPreviewView->setMarkdown(documentEditorView->toPlainText());
+            documentStack->setCurrentWidget(documentPreviewView);
+            previewDocBtn->setText("Edit");
+        } else {
+            documentStack->setCurrentWidget(documentEditorView);
+            previewDocBtn->setText("Preview");
+        }
+    });
 
     noteContainer = new QWidget(this);
     QVBoxLayout* noteLayout = new QVBoxLayout(noteContainer);
@@ -1740,7 +1773,8 @@ void MainWindow::showVfsContextMenu(const QPoint& pos) {
     }
 
     if (replaceWithImportAction && selectedAction == replaceWithImportAction && item) {
-        QString fileName = QFileDialog::getOpenFileName(this, tr("Import File"), QDir::homePath(), tr("Text Files (*.md *.txt);;All Files (*)"));
+        QString fileName = QFileDialog::getOpenFileName(this, tr("Import File"), QDir::homePath(),
+                                                        tr("Text Files (*.md *.txt);;All Files (*)"));
         if (!fileName.isEmpty() && currentDb) {
             QFile file(fileName);
             if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
@@ -1761,7 +1795,8 @@ void MainWindow::showVfsContextMenu(const QPoint& pos) {
     }
 
     if (importFileAction && selectedAction == importFileAction) {
-        QString fileName = QFileDialog::getOpenFileName(this, tr("Import File"), QDir::homePath(), tr("Text Files (*.md *.txt);;All Files (*)"));
+        QString fileName = QFileDialog::getOpenFileName(this, tr("Import File"), QDir::homePath(),
+                                                        tr("Text Files (*.md *.txt);;All Files (*)"));
         if (!fileName.isEmpty() && currentDb) {
             QFile file(fileName);
             if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
@@ -2721,7 +2756,8 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
                                     QModelIndex treeIndex = openBooksTree->currentIndex();
                                     if (treeIndex.isValid()) {
                                         QStandardItem* currentFolder = openBooksModel->itemFromIndex(treeIndex);
-                                        if (currentFolder && currentFolder->parent()) targetItem = currentFolder->parent();
+                                        if (currentFolder && currentFolder->parent())
+                                            targetItem = currentFolder->parent();
                                     }
                                 } else if (vfsItem) {
                                     int id = vfsItem->data(Qt::UserRole).toInt();
@@ -3253,7 +3289,8 @@ void MainWindow::showOpenBookContextMenu(const QPoint& pos) {
         if (type == "docs_folder" || type == "templates_folder" || type == "drafts_folder" || type == "notes_folder" ||
             type == "chats_folder") {
             createFolderAction = menu.addAction(QIcon::fromTheme("folder-new"), "Create Folder");
-            if (type == "docs_folder" || type == "notes_folder" || type == "templates_folder" || type == "drafts_folder") {
+            if (type == "docs_folder" || type == "notes_folder" || type == "templates_folder" ||
+                type == "drafts_folder") {
                 importFileAction = menu.addAction(QIcon::fromTheme("document-import"), "Import from File...");
             }
         }
@@ -3296,7 +3333,8 @@ void MainWindow::showOpenBookContextMenu(const QPoint& pos) {
         } else if (importAction && selectedAction == importAction) {
             importChatSession();
         } else if (importFileAction && selectedAction == importFileAction) {
-            QString fileName = QFileDialog::getOpenFileName(this, tr("Import File"), QDir::homePath(), tr("Text Files (*.md *.txt);;All Files (*)"));
+            QString fileName = QFileDialog::getOpenFileName(this, tr("Import File"), QDir::homePath(),
+                                                            tr("Text Files (*.md *.txt);;All Files (*)"));
             if (!fileName.isEmpty() && currentDb) {
                 QFile file(fileName);
                 if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
@@ -3344,7 +3382,8 @@ void MainWindow::showOpenBookContextMenu(const QPoint& pos) {
         if (selectedAction == exportAction) {
             exportDocument(item->data(Qt::UserRole).toInt(), type);
         } else if (selectedAction == replaceAction) {
-            QString fileName = QFileDialog::getOpenFileName(this, tr("Import File"), QDir::homePath(), tr("Text Files (*.md *.txt);;All Files (*)"));
+            QString fileName = QFileDialog::getOpenFileName(this, tr("Import File"), QDir::homePath(),
+                                                            tr("Text Files (*.md *.txt);;All Files (*)"));
             if (!fileName.isEmpty() && currentDb) {
                 QFile file(fileName);
                 if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
@@ -3405,8 +3444,8 @@ void MainWindow::exportDocument(int id, const QString& type) {
     }
 
     QString defaultPath = QDir::homePath() + "/" + defaultTitle;
-    QString fileName =
-        QFileDialog::getSaveFileName(this, tr("Export Markdown"), defaultPath, tr("Markdown Files (*.md);;Text Files (*.txt);;All Files (*)"));
+    QString fileName = QFileDialog::getSaveFileName(this, tr("Export Markdown"), defaultPath,
+                                                    tr("Markdown Files (*.md);;Text Files (*.txt);;All Files (*)"));
     if (fileName.isEmpty()) return;
 
     QFile file(fileName);
@@ -3784,4 +3823,187 @@ bool MainWindow::moveItemToFolder(QStandardItem* draggedItem, QStandardItem* tar
         return true;
     }
     return false;
+}
+
+void MainWindow::showDocumentAIToolsMenu() {
+    // Just a placeholder, actually we linked it via QMenu on the QToolButton
+}
+
+void MainWindow::onDocumentCompleteText() {
+    if (m_isGenerating || !currentDb) return;
+
+    QTextCursor cursor = documentEditorView->textCursor();
+    QString textBeforeCursor = documentEditorView->toPlainText().left(cursor.position());
+    if (textBeforeCursor.isEmpty()) {
+        textBeforeCursor = documentEditorView->toPlainText();
+    }
+
+    QString prompt = QString("Please complete the following text. Only output the continuation, nothing else:\n\n%1")
+                         .arg(textBeforeCursor);
+
+    m_isGenerating = true;
+    m_generationId++;
+    int currentGenId = m_generationId;
+    int targetDocumentId = currentDocumentId;
+
+    documentEditorView->setReadOnly(true);
+    statusBar->showMessage(tr("AI is completing text..."));
+
+    QString model = m_selectedModel;
+    if (model.isEmpty() && !m_availableModels.isEmpty()) {
+        model = m_availableModels.first();
+    }
+
+    QTextCursor insertionCursor = documentEditorView->textCursor();
+
+    ollamaClient.generate(
+        model, prompt,
+        [this, currentGenId, targetDocumentId, insertionCursor](const QString& chunk) mutable {
+            if (m_generationId != currentGenId || currentDocumentId != targetDocumentId) return;
+            insertionCursor.insertText(chunk);
+        },
+        [this, currentGenId, targetDocumentId](const QString& response) {
+            if (m_generationId == currentGenId) {
+                m_isGenerating = false;
+                if (currentDocumentId == targetDocumentId) {
+                    documentEditorView->setReadOnly(false);
+                    statusBar->showMessage(tr("AI completed text."), 3000);
+                    saveDocBtn->click();
+                }
+            }
+        },
+        [this, currentGenId, targetDocumentId](const QString& error) {
+            if (m_generationId == currentGenId) {
+                m_isGenerating = false;
+                if (currentDocumentId == targetDocumentId) {
+                    documentEditorView->setReadOnly(false);
+                    statusBar->showMessage(tr("AI Error: ") + error, 5000);
+                }
+            }
+        });
+}
+
+void MainWindow::onDocumentReplaceEntirely() {
+    if (m_isGenerating || !currentDb) return;
+
+    bool ok;
+    QString instructions =
+        QInputDialog::getText(this, tr("Replace Entirely"), tr("Instructions for AI to rewrite the entire document:"),
+                              QLineEdit::Normal, "", &ok);
+    if (!ok || instructions.isEmpty()) return;
+
+    QString prompt = QString(
+                         "Rewrite the following document according to these instructions: %1\n\nOnly output the "
+                         "rewritten document, nothing else.\n\nDocument:\n%2")
+                         .arg(instructions, documentEditorView->toPlainText());
+
+    m_isGenerating = true;
+    m_generationId++;
+    int currentGenId = m_generationId;
+    int targetDocumentId = currentDocumentId;
+
+    documentEditorView->setReadOnly(true);
+    documentEditorView->clear();  // We are replacing entirely
+    statusBar->showMessage(tr("AI is rewriting document..."));
+
+    QString model = m_selectedModel;
+    if (model.isEmpty() && !m_availableModels.isEmpty()) {
+        model = m_availableModels.first();
+    }
+
+    QTextCursor insertionCursor = documentEditorView->textCursor();
+
+    ollamaClient.generate(
+        model, prompt,
+        [this, currentGenId, targetDocumentId, insertionCursor](const QString& chunk) mutable {
+            if (m_generationId != currentGenId || currentDocumentId != targetDocumentId) return;
+            insertionCursor.insertText(chunk);
+        },
+        [this, currentGenId, targetDocumentId](const QString& response) {
+            if (m_generationId == currentGenId) {
+                m_isGenerating = false;
+                if (currentDocumentId == targetDocumentId) {
+                    documentEditorView->setReadOnly(false);
+                    statusBar->showMessage(tr("AI replaced document."), 3000);
+                    saveDocBtn->click();
+                }
+            }
+        },
+        [this, currentGenId, targetDocumentId](const QString& error) {
+            if (m_generationId == currentGenId) {
+                m_isGenerating = false;
+                if (currentDocumentId == targetDocumentId) {
+                    documentEditorView->setReadOnly(false);
+                    statusBar->showMessage(tr("AI Error: ") + error, 5000);
+                }
+            }
+        });
+}
+
+void MainWindow::onDocumentReplaceInPlace() {
+    if (m_isGenerating || !currentDb) return;
+
+    QTextCursor cursor = documentEditorView->textCursor();
+    if (!cursor.hasSelection()) {
+        QMessageBox::information(this, tr("Replace in place"), tr("Please select some text first."));
+        return;
+    }
+
+    QString selectedText = cursor.selectedText();
+    // In QTextEdit, newlines in selected text are represented as QChar::ParagraphSeparator
+    selectedText.replace(QChar::ParagraphSeparator, '\n');
+
+    bool ok;
+    QString instructions = QInputDialog::getText(
+        this, tr("Replace in place"), tr("Instructions to rewrite the selected text:"), QLineEdit::Normal, "", &ok);
+    if (!ok || instructions.isEmpty()) return;
+
+    QString prompt = QString(
+                         "Rewrite the following text according to these instructions: %1\n\nOnly output the rewritten "
+                         "text, nothing else.\n\nText:\n%2")
+                         .arg(instructions, selectedText);
+
+    m_isGenerating = true;
+    m_generationId++;
+    int currentGenId = m_generationId;
+    int targetDocumentId = currentDocumentId;
+
+    documentEditorView->setReadOnly(true);
+    // Erase the selection
+    cursor.removeSelectedText();
+
+    statusBar->showMessage(tr("AI is replacing text..."));
+
+    QString model = m_selectedModel;
+    if (model.isEmpty() && !m_availableModels.isEmpty()) {
+        model = m_availableModels.first();
+    }
+
+    QTextCursor insertionCursor = documentEditorView->textCursor();
+
+    ollamaClient.generate(
+        model, prompt,
+        [this, currentGenId, targetDocumentId, insertionCursor](const QString& chunk) mutable {
+            if (m_generationId != currentGenId || currentDocumentId != targetDocumentId) return;
+            insertionCursor.insertText(chunk);
+        },
+        [this, currentGenId, targetDocumentId](const QString& response) {
+            if (m_generationId == currentGenId) {
+                m_isGenerating = false;
+                if (currentDocumentId == targetDocumentId) {
+                    documentEditorView->setReadOnly(false);
+                    statusBar->showMessage(tr("AI replaced text."), 3000);
+                    saveDocBtn->click();
+                }
+            }
+        },
+        [this, currentGenId, targetDocumentId](const QString& error) {
+            if (m_generationId == currentGenId) {
+                m_isGenerating = false;
+                if (currentDocumentId == targetDocumentId) {
+                    documentEditorView->setReadOnly(false);
+                    statusBar->showMessage(tr("AI Error: ") + error, 5000);
+                }
+            }
+        });
 }

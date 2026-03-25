@@ -42,9 +42,9 @@
 - [x] Add Drag & Drop support for `.md` files into and out of the application.
   - [x] Support importing `.md` files as Document nodes.
   - [x] Support exporting Document nodes to `.md` files.
-- [ ] Implement "Complete this text" / "Append" mode for documents.
-- [ ] Implement "Replace entirely" mode for documents (with access to history).
-- [ ] Implement "Replace in place" (modifying the current document directly, e.g., for censoring or minor edits).
+- [x] Implement "Complete this text" / "Append" mode for documents.
+- [x] Implement "Replace entirely" mode for documents (with access to history).
+- [x] Implement "Replace in place" (modifying the current document directly, e.g., for censoring or minor edits).
 - [ ] For replacement operations, default to creating a new sub-document (version history) rather than destructive edits.
   - [ ] Update `BookDatabase` schema to support document versioning if needed.
 - [ ] Design these interactions as fast, wizard-like dialogs rather than a conversational chat interface.
@@ -66,5 +66,5 @@
 ## Extra / Deduced Requirements
 - [x] **Database Schema Updates:** The `BookDatabase` schema will need significant updates to support Documents, Notes, hierarchical folders, and the complex branching logic for chats (storing paths or explicit parent-child relationships).
 - [x] **State Persistence:** Save the state of open books, splitter sizes, and recent selections between application restarts.
-- [ ] **Markdown Rendering:** Ensure the chat and document views can render Markdown properly (using `QTextBrowser` or a WebEngine view if needed).
+- [x] **Markdown Rendering:** Ensure the chat and document views can render Markdown properly (using `QTextBrowser` or a WebEngine view if needed).
 - [ ] **Error Handling:** Robust error handling for database corruption, network failures with the LLM, and missing files.
