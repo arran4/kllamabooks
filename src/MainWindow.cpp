@@ -1210,40 +1210,53 @@ void MainWindow::showInputSettingsMenu() {
 void MainWindow::showChatSettingsDialog(int messageId) {
     if (!currentDb || !currentDb->isOpen()) return;
 
+    QString currentTitle;
+    QString currentNotes;
     QString currentPrompt;
     QString currentBehavior = "default";
     QString currentModel = "default";
     QString currentMultiLine = "default";
     QString endpointName = endpointComboBox ? endpointComboBox->currentText() : "Default";
     if (messageId == 0) {
+        currentTitle = m_newChatTitle;
+        currentNotes = m_newChatNotes;
         currentPrompt = m_newChatSystemPrompt;
         currentBehavior = m_newChatSendBehavior;
         currentModel = m_newChatModel;
         currentMultiLine = m_newChatMultiLine;
     } else {
+        currentTitle = currentDb->getSetting("chat", messageId, "title", "");
+        currentNotes = currentDb->getSetting("chat", messageId, "notes", "");
         currentPrompt = currentDb->getSetting("chat", messageId, "systemPrompt", "");
         currentBehavior = currentDb->getSetting("chat", messageId, "sendBehavior", "default");
         currentModel = currentDb->getSetting("chat", messageId, "model", "default");
         currentMultiLine = currentDb->getSetting("chat", messageId, "multiLine", "default");
     }
 
-    ChatSettingsDialog dlg(currentPrompt, currentBehavior, currentModel, currentMultiLine, endpointName,
-                           m_availableModels, this);
+    ChatSettingsDialog dlg(currentTitle, currentNotes, currentPrompt, currentBehavior, currentModel, currentMultiLine,
+                           endpointName, m_availableModels, this);
     if (dlg.exec() == QDialog::Accepted) {
+        QString newTitle = dlg.getTitle();
+        QString newNotes = dlg.getNotes();
         QString newPrompt = dlg.getSystemPrompt();
         QString newBehavior = dlg.getSendBehavior();
         QString newModel = dlg.getModel();
         QString newMultiLine = dlg.getMultiLine();
         if (messageId == 0) {
+            m_newChatTitle = newTitle;
+            m_newChatNotes = newNotes;
             m_newChatSystemPrompt = newPrompt;
             m_newChatSendBehavior = newBehavior;
             m_newChatModel = newModel;
             m_newChatMultiLine = newMultiLine;
         } else {
+            currentDb->setSetting("chat", messageId, "title", newTitle);
+            currentDb->setSetting("chat", messageId, "notes", newNotes);
             currentDb->setSetting("chat", messageId, "systemPrompt", newPrompt);
             currentDb->setSetting("chat", messageId, "sendBehavior", newBehavior);
             currentDb->setSetting("chat", messageId, "model", newModel);
             currentDb->setSetting("chat", messageId, "multiLine", newMultiLine);
+            loadDocumentsAndNotes();  // Refresh tree to reflect title changes
         }
         updateInputBehavior();
     }
@@ -1901,12 +1914,15 @@ void MainWindow::populateChatFolders(QStandardItem* parentItem, int folderId, co
             QList<MessageNode> children;
             int endNodeId = getEndOfLinearPath(msg.id, allMessages, children);
 
-            QString displayTitle = msg.content.simplified();
-            if (displayTitle.length() > 30) {
-                displayTitle = displayTitle.left(27) + "...";
-            }
+            QString displayTitle = getChatNodeTitle(msg.id, endNodeId, allMessages, db);
             if (displayTitle.isEmpty()) {
-                displayTitle = "New Chat";
+                displayTitle = msg.content.simplified();
+                if (displayTitle.length() > 30) {
+                    displayTitle = displayTitle.left(27) + "...";
+                }
+                if (displayTitle.isEmpty()) {
+                    displayTitle = "New Chat";
+                }
             }
 
             QStandardItem* item = nullptr;
@@ -1921,24 +1937,28 @@ void MainWindow::populateChatFolders(QStandardItem* parentItem, int folderId, co
             parentItem->appendRow(item);
 
             // Populate the rest of the branch under this root message
-            populateMessageForks(item, endNodeId, allMessages);
+            populateMessageForks(item, endNodeId, allMessages, db);
         }
     }
 }
 
-void MainWindow::populateMessageForks(QStandardItem* parentItem, int parentId, const QList<MessageNode>& allMessages) {
+void MainWindow::populateMessageForks(QStandardItem* parentItem, int parentId, const QList<MessageNode>& allMessages,
+                                      BookDatabase* db) {
     for (const auto& msg : allMessages) {
         if (msg.parentId == parentId) {
             // Find all children of this message
             QList<MessageNode> children;
             int endNodeId = getEndOfLinearPath(msg.id, allMessages, children);
 
-            QString displayTitle = msg.content.simplified();
-            if (displayTitle.length() > 30) {
-                displayTitle = displayTitle.left(27) + "...";
-            }
+            QString displayTitle = getChatNodeTitle(msg.id, endNodeId, allMessages, db);
             if (displayTitle.isEmpty()) {
-                displayTitle = "New Chat";
+                displayTitle = msg.content.simplified();
+                if (displayTitle.length() > 30) {
+                    displayTitle = displayTitle.left(27) + "...";
+                }
+                if (displayTitle.isEmpty()) {
+                    displayTitle = "New Chat";
+                }
             }
 
             QStandardItem* item = nullptr;
@@ -1952,20 +1972,23 @@ void MainWindow::populateMessageForks(QStandardItem* parentItem, int parentId, c
             item->setData("chat_node", Qt::UserRole + 1);
             parentItem->appendRow(item);
             // Recursively populate under this item.
-            populateMessageForks(item, endNodeId, allMessages);
+            populateMessageForks(item, endNodeId, allMessages, db);
         }
     }
 }
 
 void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& allMessages) {
+    m_newChatTitle.clear();
+    m_newChatNotes.clear();
     m_newChatSystemPrompt.clear();
     m_newChatSendBehavior = "default";
     m_newChatModel = "default";
     m_newChatMultiLine = "default";
 
-    if (currentLastNodeId != 0) {
-        m_chatInputDrafts[currentLastNodeId] =
+    if (currentLastNodeId != 0 && currentDb) {
+        QString draftText =
             !toggleInputModeBtn->isChecked() ? inputField->toPlainText() : multiLineInput->toPlainText();
+        currentDb->setSetting("chat", currentLastNodeId, "draftPrompt", draftText);
     }
 
     if (currentDb) {
@@ -2072,7 +2095,7 @@ void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& 
     chatTextArea->blockSignals(false);
     if (discardChangesBtn) discardChangesBtn->hide();
 
-    QString savedDraft = m_chatInputDrafts.value(tailNodeId);
+    QString savedDraft = currentDb ? currentDb->getSetting("chat", tailNodeId, "draftPrompt", "") : "";
     if (!toggleInputModeBtn->isChecked()) {
         inputField->setPlainText(savedDraft);
     } else {
@@ -2305,6 +2328,14 @@ void MainWindow::onSendMessage() {
     int userMsgId = currentDb->addMessage(parentId, text, "user", folderId);
 
     if (parentId == 0) {
+        if (!m_newChatTitle.isEmpty()) {
+            currentDb->setSetting("chat", userMsgId, "title", m_newChatTitle);
+            m_newChatTitle.clear();
+        }
+        if (!m_newChatNotes.isEmpty()) {
+            currentDb->setSetting("chat", userMsgId, "notes", m_newChatNotes);
+            m_newChatNotes.clear();
+        }
         if (!m_newChatSystemPrompt.isEmpty()) {
             currentDb->setSetting("chat", userMsgId, "systemPrompt", m_newChatSystemPrompt);
             m_newChatSystemPrompt.clear();
@@ -2360,7 +2391,9 @@ void MainWindow::onSendMessage() {
     }
 
     // 5. Update view
-    m_chatInputDrafts.remove(currentLastNodeId);  // clear the draft after sending
+    if (currentDb) {
+        currentDb->setSetting("chat", currentLastNodeId, "draftPrompt", "");  // clear the draft after sending
+    }
     updateLinearChatView(currentLastNodeId, currentDb->getMessages());
     statusBar->showMessage(tr("Request queued."), 3000);
 }
@@ -3400,4 +3433,24 @@ bool MainWindow::moveItemToFolder(QStandardItem* draggedItem, QStandardItem* tar
         return true;
     }
     return false;
+}
+
+QString MainWindow::getChatNodeTitle(int startId, int endId, const QList<MessageNode>& allMessages, BookDatabase* db) {
+    if (!db) return "";
+    QString title;
+    int currId = endId;
+    while (currId != 0) {
+        title = db->getSetting("chat", currId, "title", "");
+        if (!title.isEmpty()) return title;
+        if (currId == startId) break;
+        int parentId = 0;
+        for (const auto& m : allMessages) {
+            if (m.id == currId) {
+                parentId = m.parentId;
+                break;
+            }
+        }
+        currId = parentId;
+    }
+    return "";
 }

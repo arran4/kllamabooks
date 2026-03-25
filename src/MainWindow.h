@@ -97,7 +97,8 @@ class MainWindow : public KXmlGuiWindow {
     void populateTree(QStandardItem* parentItem, int parentId, const QList<MessageNode>& allMessages);
     void populateChatFolders(QStandardItem* parentItem, int folderId, const QList<MessageNode>& allMessages,
                              BookDatabase* db);
-    void populateMessageForks(QStandardItem* parentItem, int parentId, const QList<MessageNode>& allMessages);
+    void populateMessageForks(QStandardItem* parentItem, int parentId, const QList<MessageNode>& allMessages,
+                              BookDatabase* db);
     void populateDocumentFolders(QStandardItem* parentItem, int folderId, const QString& type, BookDatabase* db);
     void addPhantomItem(QStandardItem* folderItem, const QString& type);
     QStandardItem* findItem(QStandardItem* parent, int id);
@@ -106,6 +107,7 @@ class MainWindow : public KXmlGuiWindow {
     int getEndOfLinearPath(int startId, const QList<MessageNode>& allMessages, QList<MessageNode>& outChildren);
     void loadDocumentsAndNotes();
     QStandardItem* findItemInTree(int id, const QString& type);
+    QString getChatNodeTitle(int startId, int endId, const QList<MessageNode>& allMessages, BookDatabase* db);
     QStandardItem* findItemRecursive(QStandardItem* parent, int id, const QString& type);
 
     QSplitter* splitter;
@@ -165,7 +167,8 @@ class MainWindow : public KXmlGuiWindow {
     int currentAutoDraftId = 0;
     int currentChatFolderId = 0;
 
-    QMap<int, QString> m_chatInputDrafts;
+    QString m_newChatTitle;
+    QString m_newChatNotes;
     QString m_newChatSystemPrompt;
     QString m_newChatSendBehavior = "default";
     QString m_newChatModel = "default";

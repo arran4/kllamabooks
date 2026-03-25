@@ -3,10 +3,12 @@
 #include <QFormLayout>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QLineEdit>
 #include <QPushButton>
 #include <QVBoxLayout>
 
-ChatSettingsDialog::ChatSettingsDialog(const QString& initialSystemPrompt, const QString& initialSendBehavior,
+ChatSettingsDialog::ChatSettingsDialog(const QString& initialTitle, const QString& initialNotes,
+                                       const QString& initialSystemPrompt, const QString& initialSendBehavior,
                                        const QString& initialModel, const QString& initialMultiLine,
                                        const QString& endpointName, const QStringList& availableModels, QWidget* parent)
     : QDialog(parent) {
@@ -15,6 +17,18 @@ ChatSettingsDialog::ChatSettingsDialog(const QString& initialSystemPrompt, const
 
     QVBoxLayout* mainLayout = new QVBoxLayout(this);
     QFormLayout* formLayout = new QFormLayout();
+
+    m_titleEdit = new QLineEdit(this);
+    m_titleEdit->setText(initialTitle);
+    m_titleEdit->setPlaceholderText(tr("Optional custom title..."));
+    formLayout->addRow(tr("Title:"), m_titleEdit);
+
+    m_notesEdit = new QTextEdit(this);
+    m_notesEdit->setAcceptRichText(false);
+    m_notesEdit->setPlainText(initialNotes);
+    m_notesEdit->setPlaceholderText(tr("Optional notes for this chat/fork..."));
+    m_notesEdit->setMaximumHeight(100);
+    formLayout->addRow(tr("Notes:"), m_notesEdit);
 
     m_systemPromptEdit = new QTextEdit(this);
     m_systemPromptEdit->setAcceptRichText(false);
@@ -75,18 +89,14 @@ ChatSettingsDialog::ChatSettingsDialog(const QString& initialSystemPrompt, const
     connect(saveBtn, &QPushButton::clicked, this, &QDialog::accept);
 }
 
-QString ChatSettingsDialog::getSystemPrompt() const {
-    return m_systemPromptEdit->toPlainText().trimmed();
-}
+QString ChatSettingsDialog::getTitle() const { return m_titleEdit->text().trimmed(); }
 
-QString ChatSettingsDialog::getSendBehavior() const {
-    return m_sendBehaviorCombo->currentData().toString();
-}
+QString ChatSettingsDialog::getNotes() const { return m_notesEdit->toPlainText().trimmed(); }
 
-QString ChatSettingsDialog::getModel() const {
-    return m_modelCombo->currentData().toString();
-}
+QString ChatSettingsDialog::getSystemPrompt() const { return m_systemPromptEdit->toPlainText().trimmed(); }
 
-QString ChatSettingsDialog::getMultiLine() const {
-    return m_multiLineCombo->currentData().toString();
-}
+QString ChatSettingsDialog::getSendBehavior() const { return m_sendBehaviorCombo->currentData().toString(); }
+
+QString ChatSettingsDialog::getModel() const { return m_modelCombo->currentData().toString(); }
+
+QString ChatSettingsDialog::getMultiLine() const { return m_multiLineCombo->currentData().toString(); }
