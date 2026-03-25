@@ -3963,6 +3963,35 @@ void MainWindow::onDocumentReplaceInPlace() {
                          "text, nothing else.\n\nText:\n%2")
                          .arg(instructions, selectedText);
 
+    // Create a fork of the document
+    QString originalTitle = "";
+    int folderId = 0;
+    QList<DocumentNode> docs = currentDb->getDocuments();
+    for (const auto& doc : docs) {
+        if (doc.id == currentDocumentId) {
+            originalTitle = doc.title;
+            folderId = doc.folderId;
+            break;
+        }
+    }
+
+    QString currentContent = documentEditorView->toPlainText();
+    int newDocumentId =
+        currentDb->addDocument(folderId, originalTitle + " (Modified)", currentContent, currentDocumentId);
+
+    if (newDocumentId > 0) {
+        currentDocumentId = newDocumentId;
+        loadDocumentsAndNotes();  // Reload tree to show the new fork
+        // Find and select the new item
+        QStandardItem* newItem = findItemInTree(currentDocumentId, "document");
+        if (newItem) {
+            openBooksTree->setCurrentIndex(newItem->index());
+        }
+    } else {
+        QMessageBox::warning(this, tr("Error"), tr("Failed to create document fork."));
+        return;
+    }
+
     m_isGenerating = true;
     m_generationId++;
     int currentGenId = m_generationId;

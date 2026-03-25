@@ -18,6 +18,7 @@ struct MessageNode {
 struct DocumentNode {
     int id;
     int folderId;  // 0 if root
+    int parentId;  // 0 if root
     QString title;
     QString content;
     QDateTime timestamp;
@@ -94,7 +95,7 @@ class BookDatabase {
                        const QString& defaultValue = QString()) const;
 
     // Documents
-    int addDocument(int folderId, const QString& title, const QString& content);
+    int addDocument(int folderId, const QString& title, const QString& content, int parentId = 0);
     bool updateDocument(int id, const QString& newTitle, const QString& newContent);
     QList<DocumentNode> getDocuments(int folderId = -1) const;  // -1 for all, 0 for root
     bool deleteDocument(int id);
