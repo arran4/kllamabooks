@@ -1799,7 +1799,7 @@ QList<MessageNode> MainWindow::getMessagesWithPhantom(BookDatabase* db) {
         phantom.id = -1;
         phantom.parentId = currentLastNodeId;
         phantom.role = "user";
-        phantom.content = "*New Fork*";
+        phantom.content = "*New Branch*";
         msgs.append(phantom);
     }
     return msgs;
