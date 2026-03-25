@@ -6,15 +6,22 @@
 #include <QPushButton>
 #include <QVBoxLayout>
 
-ChatSettingsDialog::ChatSettingsDialog(const QString& initialSystemPrompt, const QString& initialSendBehavior,
-                                       const QString& initialModel, const QString& initialMultiLine,
-                                       const QString& endpointName, const QStringList& availableModels, QWidget* parent)
+ChatSettingsDialog::ChatSettingsDialog(const QString& initialTitle, const QString& initialSystemPrompt,
+                                       const QString& initialSendBehavior, const QString& initialModel,
+                                       const QString& initialMultiLine, const QString& initialDraftPrompt,
+                                       const QString& initialUserNote, const QString& endpointName,
+                                       const QStringList& availableModels, QWidget* parent)
     : QDialog(parent) {
     setWindowTitle(tr("Chat Settings"));
     setMinimumWidth(400);
 
     QVBoxLayout* mainLayout = new QVBoxLayout(this);
     QFormLayout* formLayout = new QFormLayout();
+
+    m_titleEdit = new QLineEdit(this);
+    m_titleEdit->setText(initialTitle);
+    m_titleEdit->setPlaceholderText(tr("Inherit / Default"));
+    formLayout->addRow(tr("Title:"), m_titleEdit);
 
     m_systemPromptEdit = new QTextEdit(this);
     m_systemPromptEdit->setAcceptRichText(false);
@@ -59,6 +66,16 @@ ChatSettingsDialog::ChatSettingsDialog(const QString& initialSystemPrompt, const
     }
     formLayout->addRow(tr("Input Mode:"), m_multiLineCombo);
 
+    m_draftPromptEdit = new QTextEdit(this);
+    m_draftPromptEdit->setAcceptRichText(false);
+    m_draftPromptEdit->setPlainText(initialDraftPrompt);
+    formLayout->addRow(tr("Incomplete Prompt (Draft):"), m_draftPromptEdit);
+
+    m_userNoteEdit = new QTextEdit(this);
+    m_userNoteEdit->setAcceptRichText(false);
+    m_userNoteEdit->setPlainText(initialUserNote);
+    formLayout->addRow(tr("Comments / Notes:"), m_userNoteEdit);
+
     mainLayout->addLayout(formLayout);
 
     QHBoxLayout* btnLayout = new QHBoxLayout();
@@ -75,18 +92,16 @@ ChatSettingsDialog::ChatSettingsDialog(const QString& initialSystemPrompt, const
     connect(saveBtn, &QPushButton::clicked, this, &QDialog::accept);
 }
 
-QString ChatSettingsDialog::getSystemPrompt() const {
-    return m_systemPromptEdit->toPlainText().trimmed();
-}
+QString ChatSettingsDialog::getTitle() const { return m_titleEdit->text().trimmed(); }
 
-QString ChatSettingsDialog::getSendBehavior() const {
-    return m_sendBehaviorCombo->currentData().toString();
-}
+QString ChatSettingsDialog::getSystemPrompt() const { return m_systemPromptEdit->toPlainText().trimmed(); }
 
-QString ChatSettingsDialog::getModel() const {
-    return m_modelCombo->currentData().toString();
-}
+QString ChatSettingsDialog::getSendBehavior() const { return m_sendBehaviorCombo->currentData().toString(); }
 
-QString ChatSettingsDialog::getMultiLine() const {
-    return m_multiLineCombo->currentData().toString();
-}
+QString ChatSettingsDialog::getModel() const { return m_modelCombo->currentData().toString(); }
+
+QString ChatSettingsDialog::getMultiLine() const { return m_multiLineCombo->currentData().toString(); }
+
+QString ChatSettingsDialog::getDraftPrompt() const { return m_draftPromptEdit->toPlainText(); }
+
+QString ChatSettingsDialog::getUserNote() const { return m_userNoteEdit->toPlainText(); }

@@ -32,3 +32,5 @@ If your environment does not have the required Qt6 or KF6 development headers, t
 - **Drag and Drop:** Handled in `MainWindow::eventFilter`. Dragging `.db` files from external sources or between "Open" and "Closed" lists is supported.
 - **AI Interaction:** Chat messages support a forking feature (branching) starting from any node in the history. Individual messages track which LLM model generated them. All LLM interaction goes through `OllamaClient` using QtNetwork.
 - **State Management:** Essential UI state (window geometry, splitter sizes, list of open books) is saved using `QSettings` in `MainWindow::closeEvent` and restored in `MainWindow::setupWindow`.
+* Custom chat titles are dynamically resolved using `MainWindow::getChatNodeTitle` by traversing upward from the current leaf/fork node to find the latest inherited title in a linear path.
+* Chat titles, user notes, and incomplete prompts (drafts) are persistently stored in the SQLite `settings` table using the `chat` scope and target ID of the corresponding message.
