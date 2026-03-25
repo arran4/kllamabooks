@@ -2092,8 +2092,6 @@ void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& 
     m_newChatSendBehavior = "default";
     m_newChatModel = "default";
     m_newChatMultiLine = "default";
-    m_newChatDraftPrompt.clear();
-    m_newChatUserNote.clear();
 
     if (currentDb) {
         QString textToSave =
@@ -2105,6 +2103,10 @@ void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& 
             m_newChatDraftPrompt = textToSave;
         }
     }
+
+    // Clear tracking on new switch
+    m_newChatDraftPrompt.clear();
+    m_newChatUserNote.clear();
 
     if (currentDb) {
         currentDb->dismissNotificationByMessageId(tailNodeId);
