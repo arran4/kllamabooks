@@ -497,8 +497,13 @@ void MainWindow::setupUi() {
             infoLayout->addWidget(notesLabel);
 
             QTextEdit* notesEdit = new QTextEdit(&infoDialog);
+            int commentId = -1;
             if (currentDb) {
-                notesEdit->setPlainText(currentDb->getSetting("message", currentChatPath[msgIndex].id, "comments", ""));
+                QList<CommentNode> existing = currentDb->getComments("message", currentChatPath[msgIndex].id);
+                if (!existing.isEmpty()) {
+                    commentId = existing.first().id;
+                    notesEdit->setPlainText(existing.first().content);
+                }
             }
             infoLayout->addWidget(notesEdit);
 
@@ -509,7 +514,16 @@ void MainWindow::setupUi() {
             infoLayout->addWidget(buttonBox);
 
             if (infoDialog.exec() == QDialog::Accepted && currentDb) {
-                currentDb->setSetting("message", currentChatPath[msgIndex].id, "comments", notesEdit->toPlainText());
+                QString newText = notesEdit->toPlainText();
+                if (commentId == -1 && !newText.isEmpty()) {
+                    currentDb->addComment("message", currentChatPath[msgIndex].id, newText);
+                } else if (commentId != -1) {
+                    if (newText.isEmpty()) {
+                        currentDb->deleteComment(commentId);
+                    } else {
+                        currentDb->updateComment(commentId, newText);
+                    }
+                }
             }
         }
         delete menu;
