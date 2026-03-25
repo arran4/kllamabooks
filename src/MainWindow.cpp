@@ -3273,6 +3273,13 @@ void MainWindow::updateNotificationStatus() {
 void MainWindow::showNotificationMenu() { notificationBtn->showMenu(); }
 
 void MainWindow::showQueueWindow() {
+    QueueWindow* existing = this->findChild<QueueWindow*>();
+    if (existing) {
+        existing->show();
+        existing->raise();
+        existing->activateWindow();
+        return;
+    }
     QueueWindow* qw = new QueueWindow(this);
     qw->setAttribute(Qt::WA_DeleteOnClose);
     qw->show();
