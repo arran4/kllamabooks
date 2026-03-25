@@ -70,6 +70,7 @@ class SettingsDialog : public QDialog {
     QComboBox* m_sendBehaviorCombo;
     QTextEdit* m_globalSystemPromptEdit;
     QComboBox* m_queueProcessingCombo;
+    QCheckBox* m_prioritizeSameModelCheck;
 };
 
 #endif  // SETTINGSDIALOG_H

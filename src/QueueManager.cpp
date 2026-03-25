@@ -144,6 +144,7 @@ void QueueManager::processNext() {
 
     QSettings settings;
     QString processingMode = settings.value("queueProcessing", "FCFS").toString();
+    bool prioritizeSameModel = settings.value("prioritizeSameModel", false).toBool();
 
     QList<QueueManager::MergedQueueItem> allPending;
     for (auto db : m_databases) {
@@ -167,10 +168,19 @@ void QueueManager::processNext() {
         return 0.0;
     };
 
-    std::sort(allPending.begin(), allPending.end(), [processingMode, getModelSize](const QueueManager::MergedQueueItem& a, const QueueManager::MergedQueueItem& b) {
+    QString lastModel = m_lastProcessedModel;
+    std::sort(allPending.begin(), allPending.end(), [processingMode, getModelSize, prioritizeSameModel, lastModel](const QueueManager::MergedQueueItem& a, const QueueManager::MergedQueueItem& b) {
         if (a.item.priority != b.item.priority) {
             return a.item.priority > b.item.priority;
         }
+
+        if (prioritizeSameModel && !lastModel.isEmpty()) {
+            bool aMatches = (a.item.model == lastModel);
+            bool bMatches = (b.item.model == lastModel);
+            if (aMatches && !bMatches) return true;
+            if (!aMatches && bMatches) return false;
+        }
+
         if (processingMode == "LCFS") {
             return a.item.timestamp > b.item.timestamp;
         } else if (processingMode == "Smallest message first") {
@@ -201,6 +211,7 @@ void QueueManager::processNext() {
 
     m_isProcessing = true;
     m_currentDb->updateQueueStatus(m_currentItem.id, "processing");
+    m_lastProcessedModel = m_currentItem.model;
     emit processingStarted(m_currentDb, m_currentItem.messageId);
     emit queueChanged();
 

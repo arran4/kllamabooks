@@ -6,6 +6,7 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QCheckBox>
 
 ConnectionDialog::ConnectionDialog(QWidget* parent, const QString& name, const QString& backend, const QString& url,
                                    const QString& authKey)
@@ -127,6 +128,10 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
     queueLayout->addWidget(queueLabel);
     queueLayout->addWidget(m_queueProcessingCombo);
     queueLayout->addStretch();
+
+    m_prioritizeSameModelCheck = new QCheckBox(tr("Prioritize jobs with the same model as just ran"), this);
+    queueLayout->addWidget(m_prioritizeSameModelCheck);
+
     mainLayout->addLayout(queueLayout);
 
     mainLayout->addSpacing(10);
@@ -188,6 +193,8 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
     if (queueIdx >= 0) {
         m_queueProcessingCombo->setCurrentIndex(queueIdx);
     }
+
+    m_prioritizeSameModelCheck->setChecked(m_settings.value("prioritizeSameModel", false).toBool());
 }
 
 SettingsDialog::~SettingsDialog() {}
@@ -306,6 +313,7 @@ void SettingsDialog::onApply() {
     m_settings.setValue("globalSendBehavior", selectedBehavior);
     m_settings.setValue("globalSystemPrompt", m_globalSystemPromptEdit->toPlainText().trimmed());
     m_settings.setValue("queueProcessing", m_queueProcessingCombo->currentData().toString());
+    m_settings.setValue("prioritizeSameModel", m_prioritizeSameModelCheck->isChecked());
 
     emit settingsApplied();
     accept();
