@@ -13,6 +13,7 @@
 #include <QDebug>
 #include <QDesktopServices>
 #include <QDir>
+#include <QDrag>
 #include <QDragEnterEvent>
 #include <QDropEvent>
 #include <QFileDialog>
@@ -2563,6 +2564,99 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
                 edit->selectAll();
                 return true;
             }
+        }
+    }
+
+    if (event->type() == QEvent::MouseMove) {
+        QMouseEvent* mouseEvent = static_cast<QMouseEvent*>(event);
+        if (mouseEvent->buttons() & Qt::LeftButton) {
+            QAbstractItemView* sourceView = nullptr;
+            if (obj == openBooksTree->viewport() || obj == openBooksTree) {
+                sourceView = openBooksTree;
+            } else if (obj == vfsExplorer->viewport() || obj == vfsExplorer) {
+                sourceView = vfsExplorer;
+            }
+
+            if (sourceView && sourceView->selectionModel()->hasSelection() && currentDb) {
+                static QPoint startPos;
+                if (!obj->property("drag_start_pos").isValid()) {
+                    obj->setProperty("drag_start_pos", mouseEvent->pos());
+                }
+                startPos = obj->property("drag_start_pos").toPoint();
+                if ((mouseEvent->pos() - startPos).manhattanLength() > QApplication::startDragDistance()) {
+                    QModelIndex index = sourceView->indexAt(startPos);
+                    if (!index.isValid()) index = sourceView->selectionModel()->selectedIndexes().first();
+                    if (index.isValid()) {
+                        QStandardItem* item = nullptr;
+                        if (sourceView == openBooksTree) {
+                            item = openBooksModel->itemFromIndex(index);
+                        } else if (sourceView == vfsExplorer) {
+                            item = vfsModel->itemFromIndex(index);
+                        }
+
+                        if (item && item->text() != "..") {
+                            QString type = item->data(Qt::UserRole + 1).toString();
+                            int id = item->data(Qt::UserRole).toInt();
+                            if (type == "document" || type == "note") {
+                                QString content;
+                                QString title;
+                                if (type == "document") {
+                                    for (const auto& doc : currentDb->getDocuments()) {
+                                        if (doc.id == id) {
+                                            content = doc.content;
+                                            title = doc.title;
+                                            break;
+                                        }
+                                    }
+                                } else if (type == "note") {
+                                    for (const auto& note : currentDb->getNotes()) {
+                                        if (note.id == id) {
+                                            content = note.content;
+                                            title = note.title;
+                                            break;
+                                        }
+                                    }
+                                }
+
+                                if (!content.isEmpty() || !title.isEmpty()) {
+                                    if (title.isEmpty()) title = "export";
+                                    if (!title.endsWith(".md")) title += ".md";
+
+                                    title = title.replace("/", "_").replace("\\", "_");
+
+                                    // Save temporarily
+                                    QString tempPath = QDir::tempPath() + "/" + title;
+                                    QFile tempFile(tempPath);
+                                    if (tempFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
+                                        QTextStream out(&tempFile);
+                                        out << content;
+                                        tempFile.close();
+
+                                        QDrag* drag = new QDrag(sourceView);
+                                        QMimeData* mimeData = new QMimeData;
+                                        QList<QUrl> urls;
+                                        urls.append(QUrl::fromLocalFile(tempPath));
+                                        mimeData->setUrls(urls);
+                                        // Some file managers require text plain fallback
+                                        mimeData->setText(content);
+                                        drag->setMimeData(mimeData);
+                                        drag->exec(Qt::CopyAction);
+                                        obj->setProperty("drag_start_pos", QVariant());
+                                        return true; // event handled
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    } else if (event->type() == QEvent::MouseButtonRelease) {
+        obj->setProperty("drag_start_pos", QVariant());
+    } else if (event->type() == QEvent::MouseButtonPress) {
+        QMouseEvent* mouseEvent = static_cast<QMouseEvent*>(event);
+        if (mouseEvent->button() == Qt::LeftButton) {
+            obj->setProperty("drag_start_pos", mouseEvent->pos());
         }
     }
 
