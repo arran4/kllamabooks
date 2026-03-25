@@ -13,6 +13,7 @@
 #include <QDebug>
 #include <QDesktopServices>
 #include <QDir>
+#include <QDrag>
 #include <QDragEnterEvent>
 #include <QDropEvent>
 #include <QFileDialog>
@@ -46,6 +47,63 @@
 #include "QueueManager.h"
 #include "QueueWindow.h"
 #include "WalletManager.h"
+
+CustomItemModel::CustomItemModel(QObject* parent) : QStandardItemModel(parent), m_mainWindow(nullptr) {}
+
+QStringList CustomItemModel::mimeTypes() const {
+    QStringList types = QStandardItemModel::mimeTypes();
+    if (!types.contains("text/uri-list")) {
+        types << "text/uri-list";
+    }
+    return types;
+}
+
+QMimeData* CustomItemModel::mimeData(const QModelIndexList& indexes) const {
+    QMimeData* data = QStandardItemModel::mimeData(indexes);
+    if (!m_mainWindow || indexes.isEmpty()) return data;
+
+    QList<QUrl> urls;
+    for (const QModelIndex& index : indexes) {
+        QStandardItem* item = itemFromIndex(index);
+        if (item && item->text() != "..") {
+            QString type = item->data(Qt::UserRole + 1).toString();
+            int id = item->data(Qt::UserRole).toInt();
+
+            if (type == "document" || type == "note") {
+                QString title, content;
+                m_mainWindow->getDocumentContent(id, type, title, content);
+
+                if (!content.isEmpty() || !title.isEmpty()) {
+                    if (title.isEmpty()) title = "export";
+                    if (!title.endsWith(".md")) title += ".md";
+
+                    title = title.replace("/", "_").replace("\\", "_");
+                    QString tempPath = QDir::tempPath() + "/" + title;
+                    QFile tempFile(tempPath);
+                    if (tempFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
+                        QTextStream out(&tempFile);
+                        out << content;
+                        tempFile.close();
+                        urls.append(QUrl::fromLocalFile(tempPath));
+                    }
+                }
+            }
+        }
+    }
+
+    if (!urls.isEmpty()) {
+        data->setUrls(urls);
+        // Fallback for some managers
+        if (urls.size() == 1 && data->text().isEmpty()) {
+            QFile f(urls.first().toLocalFile());
+            if (f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                data->setText(f.readAll());
+                f.close();
+            }
+        }
+    }
+    return data;
+}
 
 MainWindow::MainWindow(QWidget* parent) : KXmlGuiWindow(parent), currentLastNodeId(0) {
     QueueManager::instance().setClient(&ollamaClient);
@@ -88,7 +146,8 @@ void MainWindow::setupUi() {
 
     openBooksTree = new QTreeView(this);
     openBooksTree->setMinimumSize(0, 0);
-    openBooksModel = new QStandardItemModel(this);
+    openBooksModel = new CustomItemModel(this);
+    openBooksModel->setMainWindow(this);
     openBooksTree->setModel(openBooksModel);
     openBooksTree->setHeaderHidden(true);
     openBooksTree->setAcceptDrops(true);
@@ -163,7 +222,8 @@ void MainWindow::setupUi() {
     mainContentStack->addWidget(emptyView);
 
     vfsExplorer = new QListView(this);
-    vfsModel = new QStandardItemModel(this);
+    vfsModel = new CustomItemModel(this);
+    vfsModel->setMainWindow(this);
     vfsExplorer->setModel(vfsModel);
     vfsExplorer->setViewMode(QListView::IconMode);
     vfsExplorer->setDropIndicatorShown(true);
@@ -1577,6 +1637,9 @@ void MainWindow::showVfsContextMenu(const QPoint& pos) {
     QAction* pasteAction = nullptr;
     QAction* forkAction = nullptr;
     QAction* settingsAction = nullptr;
+    QAction* exportMarkdownAction = nullptr;
+    QAction* importFileAction = nullptr;
+    QAction* replaceWithImportAction = nullptr;
 
     QModelIndex treeIndex = openBooksTree->currentIndex();
     QStandardItem* treeItem = nullptr;
@@ -1604,6 +1667,7 @@ void MainWindow::showVfsContextMenu(const QPoint& pos) {
             newDocAction = menu.addAction(QIcon::fromTheme("document-new"), actionName);
         }
         createFolderAction = menu.addAction(QIcon::fromTheme("folder-new"), "Create Folder");
+        importFileAction = menu.addAction(QIcon::fromTheme("document-import"), "Import from File...");
         menu.addSeparator();
     }
 
@@ -1659,12 +1723,67 @@ void MainWindow::showVfsContextMenu(const QPoint& pos) {
                 menu.addSeparator();
                 settingsAction = menu.addAction(QIcon::fromTheme("configure"), "Chat Settings...");
             }
+            if (itemType == "document" || itemType == "note") {
+                exportMarkdownAction = menu.addAction(QIcon::fromTheme("document-export"), "Export Markdown...");
+                replaceWithImportAction = menu.addAction(QIcon::fromTheme("document-import"), "Replace with Import...");
+            }
         }
     } else {
         // Empty space - already populated with folder actions at top
     }
 
     QAction* selectedAction = menu.exec(vfsExplorer->viewport()->mapToGlobal(pos));
+
+    if (exportMarkdownAction && selectedAction == exportMarkdownAction && item) {
+        exportDocument(item->data(Qt::UserRole).toInt(), item->data(Qt::UserRole + 1).toString());
+        return;
+    }
+
+    if (replaceWithImportAction && selectedAction == replaceWithImportAction && item) {
+        QString fileName = QFileDialog::getOpenFileName(this, tr("Import File"), QDir::homePath(), tr("Text Files (*.md *.txt);;All Files (*)"));
+        if (!fileName.isEmpty() && currentDb) {
+            QFile file(fileName);
+            if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                QString content = file.readAll();
+                file.close();
+                QFileInfo fileInfo(fileName);
+                int id = item->data(Qt::UserRole).toInt();
+                QString type = item->data(Qt::UserRole + 1).toString();
+                if (type == "document") {
+                    currentDb->updateDocument(id, fileInfo.fileName(), content);
+                } else if (type == "note") {
+                    currentDb->updateNote(id, fileInfo.fileName(), content);
+                }
+                loadDocumentsAndNotes();
+            }
+        }
+        return;
+    }
+
+    if (importFileAction && selectedAction == importFileAction) {
+        QString fileName = QFileDialog::getOpenFileName(this, tr("Import File"), QDir::homePath(), tr("Text Files (*.md *.txt);;All Files (*)"));
+        if (!fileName.isEmpty() && currentDb) {
+            QFile file(fileName);
+            if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                QString content = file.readAll();
+                file.close();
+                QFileInfo fileInfo(fileName);
+                int parentId = treeItem ? treeItem->data(Qt::UserRole).toInt() : 0;
+
+                if (currentFolderType == "notes_folder") {
+                    currentDb->addNote(parentId, fileInfo.fileName(), content);
+                } else if (currentFolderType == "templates_folder") {
+                    currentDb->addTemplate(parentId, fileInfo.fileName(), content);
+                } else if (currentFolderType == "drafts_folder") {
+                    currentDb->addDraft(parentId, fileInfo.fileName(), content);
+                } else {
+                    currentDb->addDocument(parentId, fileInfo.fileName(), content);
+                }
+                loadDocumentsAndNotes();
+            }
+        }
+        return;
+    }
 
     if (newChatAction && selectedAction == newChatAction) {
         if (treeItem) addPhantomItem(treeItem, currentFolderType);
@@ -2552,6 +2671,10 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
         }
     } else if (event->type() == QEvent::DragMove) {
         QDragMoveEvent* dragEvent = static_cast<QDragMoveEvent*>(event);
+        if (dragEvent->mimeData()->hasUrls()) {
+            dragEvent->acceptProposedAction();
+            return true;
+        }
         if (obj == openBooksTree || obj == openBooksTree->viewport()) {
             return false;  // let native handling show drop indicator
         } else if (obj == vfsExplorer || obj == vfsExplorer->viewport()) {
@@ -2576,6 +2699,74 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
                     handleBookDrop(fileInfo.fileName());
                     dropEvent->acceptProposedAction();
                     return true;
+                } else if ((fileInfo.suffix() == "md" || fileInfo.suffix() == "txt") && currentDb) {
+                    QFile file(filePath);
+                    if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                        QString content = file.readAll();
+                        file.close();
+
+                        QAbstractItemView* targetView = (obj == openBooksTree || obj == openBooksTree->viewport())
+                                                            ? static_cast<QAbstractItemView*>(openBooksTree)
+                                                            : static_cast<QAbstractItemView*>(vfsExplorer);
+
+                        QModelIndex targetIndex = targetView->indexAt(dropEvent->position().toPoint());
+                        QStandardItem* targetItem = nullptr;
+
+                        if (targetIndex.isValid()) {
+                            if (targetView == openBooksTree) {
+                                targetItem = openBooksModel->itemFromIndex(targetIndex);
+                            } else {
+                                QStandardItem* vfsItem = vfsModel->itemFromIndex(targetIndex);
+                                if (vfsItem && vfsItem->text() == "..") {
+                                    QModelIndex treeIndex = openBooksTree->currentIndex();
+                                    if (treeIndex.isValid()) {
+                                        QStandardItem* currentFolder = openBooksModel->itemFromIndex(treeIndex);
+                                        if (currentFolder && currentFolder->parent()) targetItem = currentFolder->parent();
+                                    }
+                                } else if (vfsItem) {
+                                    int id = vfsItem->data(Qt::UserRole).toInt();
+                                    QString type = vfsItem->data(Qt::UserRole + 1).toString();
+                                    QModelIndex treeIndex = openBooksTree->currentIndex();
+                                    if (treeIndex.isValid()) {
+                                        QStandardItem* book = openBooksModel->itemFromIndex(treeIndex);
+                                        while (book && book->parent()) book = book->parent();
+                                        targetItem = findItemRecursive(book, id, type);
+                                    }
+                                }
+                            }
+                        } else if (targetView == vfsExplorer) {
+                            QModelIndex treeIndex = openBooksTree->currentIndex();
+                            if (treeIndex.isValid()) targetItem = openBooksModel->itemFromIndex(treeIndex);
+                        }
+
+                        int targetFolderId = 0;
+                        QString targetType = "documents";
+
+                        if (targetItem) {
+                            targetType = targetItem->data(Qt::UserRole + 1).toString();
+                            targetFolderId = targetItem->data(Qt::UserRole).toInt();
+                            if (!targetType.endsWith("_folder")) {
+                                if (targetItem->parent()) {
+                                    targetType = targetItem->parent()->data(Qt::UserRole + 1).toString();
+                                    targetFolderId = targetItem->parent()->data(Qt::UserRole).toInt();
+                                }
+                            }
+                        }
+
+                        if (targetType == "notes_folder") {
+                            currentDb->addNote(targetFolderId, fileInfo.fileName(), content);
+                        } else if (targetType == "templates_folder") {
+                            currentDb->addTemplate(targetFolderId, fileInfo.fileName(), content);
+                        } else if (targetType == "drafts_folder") {
+                            currentDb->addDraft(targetFolderId, fileInfo.fileName(), content);
+                        } else {
+                            currentDb->addDocument(targetFolderId, fileInfo.fileName(), content);
+                        }
+
+                        loadDocumentsAndNotes();
+                        dropEvent->acceptProposedAction();
+                        return true;
+                    }
                 }
             }
         } else if ((obj == openBooksTree || obj == openBooksTree->viewport() || obj == vfsExplorer ||
@@ -3058,9 +3249,13 @@ void MainWindow::showOpenBookContextMenu(const QPoint& pos) {
         QAction* newAction = menu.addAction(actionName);
 
         QAction* createFolderAction = nullptr;
+        QAction* importFileAction = nullptr;
         if (type == "docs_folder" || type == "templates_folder" || type == "drafts_folder" || type == "notes_folder" ||
             type == "chats_folder") {
             createFolderAction = menu.addAction(QIcon::fromTheme("folder-new"), "Create Folder");
+            if (type == "docs_folder" || type == "notes_folder" || type == "templates_folder" || type == "drafts_folder") {
+                importFileAction = menu.addAction(QIcon::fromTheme("document-import"), "Import from File...");
+            }
         }
 
         QAction* importAction = nullptr;
@@ -3100,6 +3295,28 @@ void MainWindow::showOpenBookContextMenu(const QPoint& pos) {
             }
         } else if (importAction && selectedAction == importAction) {
             importChatSession();
+        } else if (importFileAction && selectedAction == importFileAction) {
+            QString fileName = QFileDialog::getOpenFileName(this, tr("Import File"), QDir::homePath(), tr("Text Files (*.md *.txt);;All Files (*)"));
+            if (!fileName.isEmpty() && currentDb) {
+                QFile file(fileName);
+                if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                    QString content = file.readAll();
+                    file.close();
+                    QFileInfo fileInfo(fileName);
+                    int parentId = item->data(Qt::UserRole).toInt();
+
+                    if (type == "notes_folder") {
+                        currentDb->addNote(parentId, fileInfo.fileName(), content);
+                    } else if (type == "templates_folder") {
+                        currentDb->addTemplate(parentId, fileInfo.fileName(), content);
+                    } else if (type == "drafts_folder") {
+                        currentDb->addDraft(parentId, fileInfo.fileName(), content);
+                    } else {
+                        currentDb->addDocument(parentId, fileInfo.fileName(), content);
+                    }
+                    loadDocumentsAndNotes();
+                }
+            }
         }
     } else if (type == "chat_session" || type == "chat_node") {
         QMenu menu(this);
@@ -3118,6 +3335,88 @@ void MainWindow::showOpenBookContextMenu(const QPoint& pos) {
         } else if (selectedAction == settingsAction) {
             showChatSettingsDialog(item->data(Qt::UserRole).toInt());
         }
+    } else if (type == "document" || type == "note") {
+        QMenu menu(this);
+        QAction* exportAction = menu.addAction(QIcon::fromTheme("document-export"), "Export Markdown...");
+        QAction* replaceAction = menu.addAction(QIcon::fromTheme("document-import"), "Replace with Import...");
+
+        QAction* selectedAction = menu.exec(openBooksTree->viewport()->mapToGlobal(pos));
+        if (selectedAction == exportAction) {
+            exportDocument(item->data(Qt::UserRole).toInt(), type);
+        } else if (selectedAction == replaceAction) {
+            QString fileName = QFileDialog::getOpenFileName(this, tr("Import File"), QDir::homePath(), tr("Text Files (*.md *.txt);;All Files (*)"));
+            if (!fileName.isEmpty() && currentDb) {
+                QFile file(fileName);
+                if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                    QString content = file.readAll();
+                    file.close();
+                    QFileInfo fileInfo(fileName);
+                    int id = item->data(Qt::UserRole).toInt();
+                    if (type == "document") {
+                        currentDb->updateDocument(id, fileInfo.fileName(), content);
+                    } else if (type == "note") {
+                        currentDb->updateNote(id, fileInfo.fileName(), content);
+                    }
+                    loadDocumentsAndNotes();
+                }
+            }
+        }
+    }
+}
+
+void MainWindow::getDocumentContent(int id, const QString& type, QString& outTitle, QString& outContent) {
+    if (!currentDb) return;
+    if (type == "document") {
+        QList<DocumentNode> docs = currentDb->getDocuments();
+        for (const auto& doc : docs) {
+            if (doc.id == id) {
+                outContent = doc.content;
+                outTitle = doc.title;
+                return;
+            }
+        }
+    } else if (type == "note") {
+        QList<NoteNode> notes = currentDb->getNotes();
+        for (const auto& note : notes) {
+            if (note.id == id) {
+                outContent = note.content;
+                outTitle = note.title;
+                return;
+            }
+        }
+    }
+}
+
+void MainWindow::exportDocument(int id, const QString& type) {
+    if (!currentDb) return;
+
+    QString content;
+    QString defaultTitle;
+
+    getDocumentContent(id, type, defaultTitle, content);
+
+    if (content.isEmpty() && defaultTitle.isEmpty()) return;
+
+    if (defaultTitle.isEmpty()) {
+        defaultTitle = "export";
+    }
+    if (!defaultTitle.endsWith(".md")) {
+        defaultTitle += ".md";
+    }
+
+    QString defaultPath = QDir::homePath() + "/" + defaultTitle;
+    QString fileName =
+        QFileDialog::getSaveFileName(this, tr("Export Markdown"), defaultPath, tr("Markdown Files (*.md);;Text Files (*.txt);;All Files (*)"));
+    if (fileName.isEmpty()) return;
+
+    QFile file(fileName);
+    if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        QTextStream out(&file);
+        out << content;
+        file.close();
+        statusBar->showMessage(tr("Exported to %1").arg(fileName), 3000);
+    } else {
+        QMessageBox::warning(this, tr("Export Error"), tr("Could not save to file: %1").arg(file.errorString()));
     }
 }
 

@@ -33,15 +33,15 @@
   - When replying to a past message, create two branches from that point: the original path and the new path.
   - The UI should clearly show which branch is currently active and allow switching between them.
 - [x] Allow selecting the LLM/Model for *each* individual response/message.
-- [ ] Implement Import/Export functionality for chat sessions.
+- [x] Implement Import/Export functionality for chat sessions.
 - [x] Add copy/paste support for messages.
 
 ## Document Management & AI Interaction (Non-Chat Modes)
 - [x] Implement a basic document viewer/editor for Markdown files (`.md`) - Currently a basic QTextEdit.
 - [ ] Add Document History Tracking / Forking (similar to chat).
-- [ ] Add Drag & Drop support for `.md` files into and out of the application.
-  - [ ] Support importing `.md` files as Document nodes.
-  - [ ] Support exporting Document nodes to `.md` files.
+- [x] Add Drag & Drop support for `.md` files into and out of the application.
+  - [x] Support importing `.md` files as Document nodes.
+  - [x] Support exporting Document nodes to `.md` files.
 - [ ] Implement "Complete this text" / "Append" mode for documents.
 - [ ] Implement "Replace entirely" mode for documents (with access to history).
 - [ ] Implement "Replace in place" (modifying the current document directly, e.g., for censoring or minor edits).
