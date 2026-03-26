@@ -58,6 +58,15 @@ class MainWindow : public KXmlGuiWindow {
     void getDocumentContent(int id, const QString& type, QString& outTitle, QString& outContent);
 
    private slots:
+
+    void onOpenBooksTreeDoubleClicked(const QModelIndex& index);
+    void onVfsExplorerDoubleClicked(const QModelIndex& index);
+    void onSaveDocBtnClicked();
+    void onSaveNoteBtnClicked();
+    void onChatTextAreaContextMenu(const QPoint& pos);
+    void onChatForkExplorerDoubleClicked(const QModelIndex& index);
+    void onChatForkExplorerContextMenu(const QPoint& pos);
+
     void onCreateBook();
     void onOpenBook();
     void onCloseBook();
@@ -121,12 +130,12 @@ class MainWindow : public KXmlGuiWindow {
     void populateMessageForks(QStandardItem* parentItem, int parentId, const QList<MessageNode>& allMessages);
     void populateDocumentFolders(QStandardItem* parentItem, int folderId, const QString& type, BookDatabase* db);
     void addPhantomItem(QStandardItem* folderItem, const QString& type);
-    QStandardItem* findItem(QStandardItem* parent, int id);
     void updateLinearChatView(int tailNodeId, const QList<MessageNode>& allMessages);
     void getPathToRoot(int nodeId, const QList<MessageNode>& allMessages, QList<MessageNode>& path);
     int getEndOfLinearPath(int startId, const QList<MessageNode>& allMessages, QList<MessageNode>& outChildren);
     QString getChatNodeTitle(int nodeId, const QList<MessageNode>& allMessages);
     void loadDocumentsAndNotes();
+    QStandardItem* findItemById(QStandardItem* parent, int id);
     QStandardItem* findItemInTree(int id, const QString& type);
     QStandardItem* findItemRecursive(QStandardItem* parent, int id, const QString& type);
 

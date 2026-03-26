@@ -59,6 +59,15 @@ void QueueManager::setActiveDatabase(std::shared_ptr<BookDatabase> db) {
 
 void QueueManager::setClient(OllamaClient* client) { m_client = client; }
 
+/**
+ * @brief Appends a generation request payload to the processing queue.
+ *
+ * @param messageId The target chat node ID.
+ * @param model The LLM string identifier.
+ * @param prompt The prompt context payload.
+ * @param priority The priority ranking.
+ * @param targetType The semantic class of generation (e.g. document, message).
+ */
 void QueueManager::enqueuePrompt(int messageId, const QString& model, const QString& prompt, int priority,
                                  const QString& targetType) {
     if (m_activeDb && m_activeDb->isOpen()) {
@@ -114,6 +123,9 @@ QList<QueueManager::MergedQueueItem> QueueManager::getMergedQueue() const {
     return result;
 }
 
+/**
+ * @brief Explicitly issues a termination request to the active Ollama network generation.
+ */
 void QueueManager::cancelItem(std::shared_ptr<BookDatabase> db, int queueId) {
     if (db) db->deleteQueueItem(queueId);
     if (m_currentDb == db && m_currentItem.id == queueId) {
@@ -140,6 +152,9 @@ void QueueManager::resumeQueue() {
     QTimer::singleShot(0, this, &QueueManager::checkQueue);
 }
 
+/**
+ * @brief Advances the queue consumer to begin execution of the next pending element.
+ */
 void QueueManager::processNext() {
     if (m_isProcessing) return;
 
@@ -233,6 +248,11 @@ void QueueManager::processNext() {
         [this](const QString& response) { onComplete(response); }, [this](const QString& error) { onError(error); });
 }
 
+/**
+ * @brief Triggered whenever the Ollama backend streams a partial string sequence.
+ *
+ * @param chunk The text sequence slice.
+ */
 void QueueManager::onChunk(const QString& chunk) {
     if (!m_isProcessing) return;
     if (m_currentDb && m_currentDb->isOpen()) {
@@ -263,6 +283,11 @@ void QueueManager::onChunk(const QString& chunk) {
     }
 }
 
+/**
+ * @brief Triggered when the Ollama backend has successfully closed the generation stream.
+ *
+ * @param response The complete generated text payload.
+ */
 void QueueManager::onComplete(const QString& response) {
     if (!m_isProcessing) return;
     if (m_currentDb && m_currentDb->isOpen()) {
@@ -305,6 +330,11 @@ void QueueManager::onComplete(const QString& response) {
     QTimer::singleShot(500, this, &QueueManager::checkQueue);
 }
 
+/**
+ * @brief Triggered when an exception or HTTP abort is thrown by the Ollama backend.
+ *
+ * @param error The descriptive error message.
+ */
 void QueueManager::onError(const QString& error) {
     if (!m_isProcessing) return;
     if (m_currentDb && m_currentDb->isOpen()) {
