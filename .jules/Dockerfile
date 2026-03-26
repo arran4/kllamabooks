@@ -1,4 +1,4 @@
-FROM public.ecr.aws/docker/library/debian:trixie
+FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y \
@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y \
     qt6-svg-dev \
     qt6-tools-dev \
     qt6-tools-dev-tools \
-    libkf6wallet-dev \
+    libkf5wallet-dev \
     libkf6notifications-dev \
     libkf6coreaddons-dev \
     libkf6xmlgui-dev \

@@ -14,7 +14,7 @@
 #endif
 
 namespace {
-constexpr int CURRENT_SCHEMA_VERSION = 10;
+constexpr int CURRENT_SCHEMA_VERSION = 11;
 }
 
 BookDatabase::BookDatabase(const QString& filepath) : m_filepath(filepath), m_db(nullptr), m_isOpen(false) {}
@@ -57,7 +57,7 @@ bool BookDatabase::open(const QString& password) {
 
     // Reset processing queue items to pending on reconnect if the processing process is dead
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2((sqlite3*)m_db, "SELECT id, processing_pid FROM queue WHERE status = 'processing';", -1,
+    if (sqlite3_prepare_v2((sqlite3*)m_db, "SELECT id, processing_id FROM queue WHERE processing_id > 0;", -1,
                            &stmt, nullptr) == SQLITE_OK) {
         QList<int> idsToReset;
         while (sqlite3_step(stmt) == SQLITE_ROW) {
@@ -80,7 +80,7 @@ bool BookDatabase::open(const QString& password) {
         sqlite3_finalize(stmt);
 
         for (int id : idsToReset) {
-            updateQueueStatus(id, "pending");
+            updateQueueProcessingId(id, 0);
         }
     }
 
@@ -331,6 +331,31 @@ bool BookDatabase::initSchema() {
                      nullptr);
         sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 10;", nullptr, nullptr, nullptr);
         userVersion = 10;
+    }
+
+    if (userVersion < 11) {
+        const char* sql =
+            "CREATE TABLE IF NOT EXISTS queue_new ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "message_id INTEGER, "
+            "model TEXT, "
+            "prompt TEXT, "
+            "processing_id INTEGER DEFAULT 0, "
+            "last_error TEXT DEFAULT '', "
+            "priority INTEGER DEFAULT 0, "
+            "created_at DATETIME DEFAULT CURRENT_TIMESTAMP, "
+            "target_type TEXT DEFAULT 'message'"
+            ");"
+            "INSERT INTO queue_new (id, message_id, model, prompt, processing_id, priority, created_at, target_type) "
+            "SELECT id, message_id, model, prompt, processing_pid, priority, created_at, target_type FROM queue;"
+            "DROP TABLE queue;"
+            "ALTER TABLE queue_new RENAME TO queue;";
+        sqlite3_exec((sqlite3*)m_db, sql, nullptr, nullptr, nullptr);
+
+        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (11);", nullptr, nullptr,
+                     nullptr);
+        sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 11;", nullptr, nullptr, nullptr);
+        userVersion = 11;
     }
 
     return true;
@@ -947,8 +972,7 @@ int BookDatabase::enqueuePrompt(int messageId, const QString& model, const QStri
     if (!m_isOpen) return -1;
 
     const char* sql =
-        "INSERT INTO queue (message_id, model, prompt, status, priority, target_type) VALUES (?, ?, ?, 'pending', ?, "
-        "?);";
+        "INSERT INTO queue (message_id, model, prompt, priority, target_type) VALUES (?, ?, ?, ?, ?);";
     sqlite3_stmt* stmt;
     int rc = sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return -1;
@@ -975,7 +999,7 @@ QList<QueueItem> BookDatabase::getQueue() const {
     if (!m_isOpen) return items;
 
     const char* sql =
-        "SELECT id, message_id, model, prompt, status, priority, created_at, target_type FROM queue ORDER BY priority "
+        "SELECT id, message_id, model, prompt, processing_id, last_error, priority, created_at, target_type FROM queue ORDER BY priority "
         "DESC, "
         "created_at DESC;";
     sqlite3_stmt* stmt;
@@ -987,11 +1011,13 @@ QList<QueueItem> BookDatabase::getQueue() const {
         item.messageId = sqlite3_column_int(stmt, 1);
         item.model = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 2));
         item.prompt = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 3));
-        item.status = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 4));
-        item.priority = sqlite3_column_int(stmt, 5);
+        item.processingId = sqlite3_column_int(stmt, 4);
+        const unsigned char* errorText = sqlite3_column_text(stmt, 5);
+        if (errorText) item.lastError = QString::fromUtf8((const char*)errorText);
+        item.priority = sqlite3_column_int(stmt, 6);
         item.timestamp =
-            QDateTime::fromString(QString::fromUtf8((const char*)sqlite3_column_text(stmt, 6)), Qt::ISODate);
-        item.targetType = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 7));
+            QDateTime::fromString(QString::fromUtf8((const char*)sqlite3_column_text(stmt, 7)), Qt::ISODate);
+        item.targetType = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 8));
         if (item.targetType.isEmpty()) item.targetType = "message";
         items.append(item);
     }
@@ -999,18 +1025,25 @@ QList<QueueItem> BookDatabase::getQueue() const {
     return items;
 }
 
-bool BookDatabase::updateQueueStatus(int id, const QString& status) {
+bool BookDatabase::updateQueueProcessingId(int id, int processingId) {
     if (!m_isOpen) return false;
-    const char* sql = "UPDATE queue SET status = ?, processing_pid = ? WHERE id = ?;";
+    const char* sql = "UPDATE queue SET processing_id = ? WHERE id = ?;";
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
-    sqlite3_bind_text(stmt, 1, status.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-    if (status == "processing") {
-        sqlite3_bind_int(stmt, 2, QCoreApplication::applicationPid());
-    } else {
-        sqlite3_bind_int(stmt, 2, 0);
-    }
-    sqlite3_bind_int(stmt, 3, id);
+    sqlite3_bind_int(stmt, 1, processingId);
+    sqlite3_bind_int(stmt, 2, id);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
+}
+
+bool BookDatabase::updateQueueError(int id, const QString& error) {
+    if (!m_isOpen) return false;
+    const char* sql = "UPDATE queue SET last_error = ?, processing_id = 0 WHERE id = ?;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, error.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 2, id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
     return rc == SQLITE_DONE;
