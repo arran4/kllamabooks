@@ -4,8 +4,9 @@
 #include <QHeaderView>
 #include <QInputDialog>
 #include <QMessageBox>
+#include <QTextEdit>
 
-QueueWindow::QueueWindow(QWidget* parent) : QDialog(parent) {
+QueueWindow::QueueWindow(QWidget* parent) : QWidget(parent, Qt::Window) {
     setWindowTitle("LLM Request Queue");
     resize(600, 400);
 
@@ -73,7 +74,7 @@ void QueueWindow::updateButtons() {
     bool isError = false;
     for (const auto& mi : QueueManager::instance().getMergedQueue()) {
         if (mi.item.id == id && mi.db->filepath() == path) {
-            isError = (mi.item.status == "error");
+            isError = !mi.item.lastError.isEmpty();
             break;
         }
     }
@@ -86,8 +87,27 @@ void QueueWindow::refresh() {
     m_queueList->clear();
     auto items = QueueManager::instance().getMergedQueue();
     for (const auto& mi : items) {
+        QString statusStr = "PENDING";
+        if (mi.item.processingId > 0) {
+            statusStr = "PROCESSING";
+        } else if (!mi.item.lastError.isEmpty()) {
+            statusStr = "ERROR";
+        }
+
+        // Actually, we can check if the item is still in the DB queue.
+        bool inDb = false;
+        for (const auto& q : mi.db->getQueue()) {
+            if (q.id == mi.item.id) {
+                inDb = true;
+                break;
+            }
+        }
+        if (!inDb) {
+            statusStr = "COMPLETED";
+        }
+
         QString text = QString("[%1] %2: %3 (%4)")
-                           .arg(mi.item.status.toUpper())
+                           .arg(statusStr)
                            .arg(QFileInfo(mi.db->filepath()).fileName())
                            .arg(mi.item.prompt.left(100).replace("\n", " ").trimmed() + "...")
                            .arg(mi.item.model);
@@ -96,11 +116,11 @@ void QueueWindow::refresh() {
         listItem->setData(Qt::UserRole, QVariant::fromValue(mi.item.id));
         listItem->setData(Qt::UserRole + 1, mi.db->filepath());
 
-        if (mi.item.status == "processing") {
+        if (statusStr == "PROCESSING") {
             listItem->setBackground(Qt::cyan);
-        } else if (mi.item.status == "error") {
+        } else if (statusStr == "ERROR") {
             listItem->setBackground(Qt::red);
-        } else if (mi.item.status == "completed") {
+        } else if (statusStr == "COMPLETED") {
             listItem->setBackground(Qt::green);
         }
     }

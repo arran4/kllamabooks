@@ -47,7 +47,8 @@ struct QueueItem {
     int messageId;
     QString model;
     QString prompt;
-    QString status;  // "pending", "processing", "completed", "error", "paused"
+    int processingId;
+    QString lastError;
     int priority;
     QDateTime timestamp;
     QString targetType;  // "message" or "document"
@@ -130,7 +131,8 @@ class BookDatabase {
     int enqueuePrompt(int messageId, const QString& model, const QString& prompt, int priority = 0,
                       const QString& targetType = "message");
     QList<QueueItem> getQueue() const;
-    bool updateQueueStatus(int id, const QString& status);
+    bool updateQueueProcessingId(int id, int processingId);
+    bool updateQueueError(int id, const QString& error);
     bool updateQueueItemPrompt(int id, const QString& prompt);
     bool deleteQueueItem(int id);
 

@@ -154,28 +154,50 @@ void OllamaClient::generate(const QString& model, const QString& prompt, std::fu
 
     QNetworkReply* reply = m_networkManager->post(request, data);
 
-    connect(reply, &QNetworkReply::readyRead, this, [reply, onChunk]() {
-        QByteArray chunk = reply->readAll();
-        // The stream gives us multiple JSON objects, often separated by newlines
-        QList<QByteArray> lines = chunk.split('\n');
-        for (const QByteArray& line : lines) {
+    // Shared pointer to accumulate the full response safely
+    auto fullResponse = std::make_shared<QString>();
+    // Buffer for incomplete lines
+    auto buffer = std::make_shared<QByteArray>();
+
+    connect(reply, &QNetworkReply::readyRead, this, [this, reply, onChunk, fullResponse, buffer]() {
+        buffer->append(reply->readAll());
+
+        while (true) {
+            int newlineIndex = buffer->indexOf('\n');
+            if (newlineIndex == -1) break;
+
+            QByteArray line = buffer->left(newlineIndex);
+            buffer->remove(0, newlineIndex + 1);
+
             if (line.trimmed().isEmpty()) continue;
+
             QJsonParseError error;
             QJsonDocument doc = QJsonDocument::fromJson(line, &error);
             if (error.error == QJsonParseError::NoError && doc.isObject()) {
-                QString responsePart = doc.object().value("response").toString();
+                QJsonObject obj = doc.object();
+                QString responsePart = obj.value("response").toString();
                 if (!responsePart.isEmpty()) {
+                    fullResponse->append(responsePart);
                     onChunk(responsePart);
+                }
+
+                if (obj.value("done").toBool()) {
+                    double evalCount = obj.value("eval_count").toDouble();
+                    double evalDuration = obj.value("eval_duration").toDouble();
+                    if (evalDuration > 0 && evalCount > 0) {
+                        double tokensPerSecond = (evalCount / evalDuration) * 1e9;
+                        emit generationMetrics(tokensPerSecond);
+                    }
                 }
             }
         }
     });
 
-    connect(reply, &QNetworkReply::finished, this, [reply, onComplete, onError]() {
+    connect(reply, &QNetworkReply::finished, this, [reply, onComplete, onError, fullResponse]() {
         if (reply->error() != QNetworkReply::NoError) {
             onError(reply->errorString());
         } else {
-            onComplete("");  // Pass empty string or full content if needed later
+            onComplete(*fullResponse);
         }
         reply->deleteLater();
     });

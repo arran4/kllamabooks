@@ -15,6 +15,7 @@
 #include <QMenu>
 #include <QMessageBox>
 #include <QMimeData>
+#include <QPointer>
 #include <QPushButton>
 #include <QSplitter>
 #include <QStackedWidget>
@@ -84,6 +85,7 @@ class MainWindow : public KXmlGuiWindow {
     void onChatNodeSelected(const QModelIndex& current, const QModelIndex& previous);
     void onActiveEndpointChanged(int index);
     void onConnectionStatusChanged(bool isOk);
+    void onGenerationMetrics(double tokensPerSecond);
     void updateEndpointsList();
     void updateBreadcrumbs();
     void refreshVfsExplorer();
@@ -95,6 +97,7 @@ class MainWindow : public KXmlGuiWindow {
     void onDocumentCompleteText();
     void onDocumentReplaceEntirely();
     void onDocumentReplaceInPlace();
+    void showItemContextMenu(QStandardItem* item, const QPoint& globalPos);
     void showOpenBookContextMenu(const QPoint& pos);
     void showVfsContextMenu(const QPoint& pos);
     void showInputSettingsMenu();
@@ -108,6 +111,7 @@ class MainWindow : public KXmlGuiWindow {
     void updateNotificationStatus();
     void showNotificationMenu();
     void showQueueWindow();
+    void showSpyWindow();
     void onQueueItemClicked(std::shared_ptr<BookDatabase> db, int messageId);
     void updateTreeMarkersRecursive(QStandardItem* parent, const QList<Notification>& notifications);
     void updateVfsMarkers(const QList<Notification>& notifications);
@@ -225,6 +229,9 @@ class MainWindow : public KXmlGuiWindow {
 
     QSystemTrayIcon* trayIcon;
     QToolButton* settingsStatusBarBtn;
+
+    QPointer<QWidget> m_queueWindow;
+    QPointer<QWidget> m_spyWindow;
 };
 
 #endif  // MAINWINDOW_H
