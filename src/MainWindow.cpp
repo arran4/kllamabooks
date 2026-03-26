@@ -3697,10 +3697,41 @@ void MainWindow::updateNotificationStatus() {
             QString typeStr = (n.type == "error") ? tr("Error") : tr("Finished");
             QAction* action = notificationMenu->addAction(
                 QString("[%1] %2: Msg %3").arg(bookName, typeStr, QString::number(n.messageId)));
-            connect(action, &QAction::triggered, this, [this, db, n]() {
-                onQueueItemClicked(db, n.messageId);
-                db->dismissNotification(n.id);
-                updateNotificationStatus();
+            connect(action, &QAction::triggered, this, [this, db, n, bookName]() {
+                QDialog dialog(this);
+                dialog.setWindowTitle(tr("Notification Summary"));
+                QVBoxLayout* layout = new QVBoxLayout(&dialog);
+
+                QString typeStr = (n.type == "error") ? tr("Error") : tr("Finished");
+                QLabel* summary = new QLabel(QString("<b>Book:</b> %1<br><b>Status:</b> %2<br><b>Message ID:</b> %3")
+                                                 .arg(bookName, typeStr, QString::number(n.messageId)));
+                summary->setWordWrap(true);
+                layout->addWidget(summary);
+
+                QHBoxLayout* btnLayout = new QHBoxLayout();
+                QPushButton* gotoBtn = new QPushButton(tr("Goto Item"), &dialog);
+                QPushButton* dismissBtn = new QPushButton(tr("Dismiss"), &dialog);
+                QPushButton* closeBtn = new QPushButton(tr("Close"), &dialog);
+
+                btnLayout->addWidget(gotoBtn);
+                btnLayout->addWidget(dismissBtn);
+                btnLayout->addWidget(closeBtn);
+                layout->addLayout(btnLayout);
+
+                connect(gotoBtn, &QPushButton::clicked, [&]() {
+                    onQueueItemClicked(db, n.messageId);
+                    dialog.accept();
+                });
+
+                connect(dismissBtn, &QPushButton::clicked, [&]() {
+                    db->dismissNotification(n.id);
+                    updateNotificationStatus();
+                    dialog.accept();
+                });
+
+                connect(closeBtn, &QPushButton::clicked, &dialog, &QDialog::reject);
+
+                dialog.exec();
             });
         }
     }
@@ -3759,9 +3790,24 @@ void MainWindow::onQueueItemClicked(std::shared_ptr<BookDatabase> db, int messag
         }
     }
 
-    currentLastNodeId = messageId;
-    updateLinearChatView(currentLastNodeId, currentDb->getMessages());
-    mainContentStack->setCurrentWidget(chatWindowView);
+    QStringList types = {"chat_node", "document", "note", "template", "draft"};
+    QStandardItem* foundItem = nullptr;
+    for (const QString& type : types) {
+        foundItem = findItemInTree(messageId, type);
+        if (foundItem) break;
+    }
+
+    if (foundItem) {
+        openBooksTree->setCurrentIndex(foundItem->index());
+        openBooksTree->selectionModel()->select(foundItem->index(), QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Current);
+        openBooksTree->scrollTo(foundItem->index());
+    } else {
+        // Fallback to chat node logic just in case it wasn't rendered yet
+        currentLastNodeId = messageId;
+        updateLinearChatView(currentLastNodeId, currentDb->getMessages());
+        mainContentStack->setCurrentWidget(chatWindowView);
+    }
+
     db->dismissNotificationByMessageId(messageId);
     updateNotificationStatus();
 }
