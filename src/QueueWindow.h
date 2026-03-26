@@ -1,16 +1,16 @@
 #ifndef QUEUEWINDOW_H
 #define QUEUEWINDOW_H
 
-#include <QDialog>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QListWidget>
 #include <QPushButton>
 #include <QVBoxLayout>
+#include <QWidget>
 
 #include "QueueManager.h"
 
-class QueueWindow : public QDialog {
+class QueueWindow : public QWidget {
     Q_OBJECT
    public:
     explicit QueueWindow(QWidget* parent = nullptr);
@@ -20,7 +20,6 @@ class QueueWindow : public QDialog {
     void onCancelItem();
     void onRetryItem();
     void onModifyItem();
-    void onSpyItem();
     void onMoveUp();
     void onMoveDown();
     void onClearCompleted();
@@ -30,7 +29,6 @@ class QueueWindow : public QDialog {
     QPushButton* m_cancelBtn;
     QPushButton* m_retryBtn;
     QPushButton* m_modifyBtn;
-    QPushButton* m_spyBtn;
     QPushButton* m_upBtn;
     QPushButton* m_downBtn;
     QPushButton* m_clearBtn;

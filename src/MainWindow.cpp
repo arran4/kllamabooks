@@ -1026,6 +1026,14 @@ void MainWindow::setupUi() {
     connect(aboutQtAction, &QAction::triggered, qApp, &QApplication::aboutQt);
     actionCollection()->addAction(QStringLiteral("about_qt"), aboutQtAction);
 
+    QAction* showQueueAction = new QAction(QIcon::fromTheme("view-list-details"), tr("Show Queue"), this);
+    connect(showQueueAction, &QAction::triggered, this, &MainWindow::showQueueWindow);
+    actionCollection()->addAction(QStringLiteral("show_queue"), showQueueAction);
+
+    QAction* showSpyAction = new QAction(QIcon::fromTheme("view-preview"), tr("Show Global Spy"), this);
+    connect(showSpyAction, &QAction::triggered, this, &MainWindow::showSpyWindow);
+    actionCollection()->addAction(QStringLiteral("show_spy"), showSpyAction);
+
     QAction* createFolderAction = new QAction(QIcon::fromTheme("folder-new"), tr("Create Folder"), this);
     actionCollection()->addAction(QStringLiteral("create_folder"), createFolderAction);
     connect(createFolderAction, &QAction::triggered, this, [this]() {
@@ -1584,6 +1592,14 @@ void MainWindow::setupWindow() {
 
         QAction* showAction = trayMenu->addAction(tr("Show KLlamaBooks"));
         connect(showAction, &QAction::triggered, this, &MainWindow::show);
+
+        trayMenu->addSeparator();
+
+        QAction* showQueueMenuAction = trayMenu->addAction(QIcon::fromTheme("view-list-details"), tr("Show Queue"));
+        connect(showQueueMenuAction, &QAction::triggered, this, &MainWindow::showQueueWindow);
+
+        QAction* showSpyMenuAction = trayMenu->addAction(QIcon::fromTheme("view-preview"), tr("Show Global Spy"));
+        connect(showSpyMenuAction, &QAction::triggered, this, &MainWindow::showSpyWindow);
 
         trayMenu->addSeparator();
 
@@ -3738,16 +3754,85 @@ void MainWindow::updateNotificationStatus() {
 void MainWindow::showNotificationMenu() { notificationBtn->showMenu(); }
 
 void MainWindow::showQueueWindow() {
-    QueueWindow* existing = this->findChild<QueueWindow*>();
-    if (existing) {
-        existing->show();
-        existing->raise();
-        existing->activateWindow();
+    if (m_queueWindow) {
+        m_queueWindow->show();
+        m_queueWindow->raise();
+        m_queueWindow->activateWindow();
         return;
     }
-    QueueWindow* qw = new QueueWindow(this);
+    QueueWindow* qw = new QueueWindow(nullptr);
     qw->setAttribute(Qt::WA_DeleteOnClose);
     qw->show();
+    m_queueWindow = qw;
+}
+
+void MainWindow::showSpyWindow() {
+    if (m_spyWindow) {
+        m_spyWindow->show();
+        m_spyWindow->raise();
+        m_spyWindow->activateWindow();
+        return;
+    }
+
+    QWidget* spyDialog = new QWidget(nullptr, Qt::Window);
+    spyDialog->setWindowTitle("Global Spying");
+    spyDialog->resize(500, 400);
+
+    QVBoxLayout* layout = new QVBoxLayout(spyDialog);
+    QTextEdit* textEdit = new QTextEdit(spyDialog);
+    textEdit->setReadOnly(true);
+    layout->addWidget(textEdit);
+
+    // Initial check for currently processing items
+    for (const auto& mi : QueueManager::instance().getMergedQueue()) {
+        if (mi.item.status == "processing") {
+            spyDialog->setWindowTitle("Global Spying: " + mi.item.model);
+
+            QString currentContent;
+            if (mi.item.targetType == "document") {
+                auto docs = mi.db->getDocuments();
+                for (const auto& d : docs) {
+                    if (d.id == mi.item.messageId) {
+                        currentContent = d.content;
+                        break;
+                    }
+                }
+            } else {
+                auto messages = mi.db->getMessages();
+                for (const auto& m : messages) {
+                    if (m.id == mi.item.messageId) {
+                        currentContent = m.content;
+                        break;
+                    }
+                }
+            }
+            textEdit->setPlainText(currentContent);
+            textEdit->moveCursor(QTextCursor::End);
+            break; // Just show the first processing one we find
+        }
+    }
+
+    connect(&QueueManager::instance(), &QueueManager::processingStarted, spyDialog,
+            [spyDialog, textEdit](std::shared_ptr<BookDatabase> db, int messageId, const QString& type) {
+                spyDialog->setWindowTitle("Global Spying (Generating...)");
+                textEdit->clear();
+            });
+
+    connect(&QueueManager::instance(), &QueueManager::processingChunk, spyDialog,
+            [textEdit](std::shared_ptr<BookDatabase> db, int mId, const QString& chunk, const QString& type) {
+                textEdit->moveCursor(QTextCursor::End);
+                textEdit->insertPlainText(chunk);
+                textEdit->moveCursor(QTextCursor::End);
+            });
+
+    connect(&QueueManager::instance(), &QueueManager::processingFinished, spyDialog,
+            [spyDialog](std::shared_ptr<BookDatabase> db, int mId, bool success, const QString& type) {
+                spyDialog->setWindowTitle("Global Spying (Idle)");
+            });
+
+    spyDialog->setAttribute(Qt::WA_DeleteOnClose);
+    spyDialog->show();
+    m_spyWindow = spyDialog;
 }
 
 void MainWindow::onQueueItemClicked(std::shared_ptr<BookDatabase> db, int messageId) {
