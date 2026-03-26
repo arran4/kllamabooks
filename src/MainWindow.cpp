@@ -10,6 +10,7 @@
 #include <QComboBox>
 #include <QCoreApplication>
 #include <QDate>
+#include <QDateTime>
 #include <QDebug>
 #include <QDesktopServices>
 #include <QDir>
@@ -3752,6 +3753,16 @@ class GlobalSpyWindow : public QWidget {
                         textEdit->moveCursor(QTextCursor::End);
                         textEdit->insertPlainText(chunk);
                         textEdit->moveCursor(QTextCursor::End);
+
+                        if (m_startTimes[key] == 0) {
+                            m_startTimes[key] = QDateTime::currentMSecsSinceEpoch();
+                        }
+                        m_tokenCounts[key]++;
+                        qint64 elapsed = QDateTime::currentMSecsSinceEpoch() - m_startTimes[key];
+                        if (elapsed > 500) {
+                            double tps = (m_tokenCounts[key] * 1000.0) / elapsed;
+                            m_groupBoxes[key]->setTitle(m_baseTitles[key] + QString(" | %1 tps").arg(tps, 0, 'f', 1));
+                        }
                     }
                 });
 
@@ -3760,10 +3771,7 @@ class GlobalSpyWindow : public QWidget {
                     QString key = QString("%1_%2").arg(reinterpret_cast<quintptr>(db.get())).arg(messageId);
                     if (m_groupBoxes.contains(key)) {
                         QGroupBox* box = m_groupBoxes[key];
-                        QString oldTitle = box->title();
-                        if (!oldTitle.endsWith("(Finished)") && !oldTitle.endsWith("(Error)")) {
-                            box->setTitle(oldTitle + (success ? " (Finished)" : " (Error)"));
-                        }
+                        box->setTitle(m_baseTitles[key] + (success ? " (Finished)" : " (Error)"));
                     }
                 });
     }
@@ -3773,27 +3781,32 @@ class GlobalSpyWindow : public QWidget {
     QVBoxLayout* m_layout;
     QMap<QString, QTextEdit*> m_textEdits;
     QMap<QString, QGroupBox*> m_groupBoxes;
+    QMap<QString, qint64> m_startTimes;
+    QMap<QString, int> m_tokenCounts;
+    QMap<QString, QString> m_baseTitles;
 
     void addProcessBox(std::shared_ptr<BookDatabase> db, int messageId, const QString& model,
                        const QString& initialText) {
         QString key = QString("%1_%2").arg(reinterpret_cast<quintptr>(db.get())).arg(messageId);
-        if (m_textEdits.contains(key)) {
-            m_textEdits[key]->clear();
-            if (!initialText.isEmpty()) {
-                m_textEdits[key]->setPlainText(initialText);
-            }
-            QString title = QString("DB: %1 | Msg: %2 | Model: %3")
-                                .arg(QFileInfo(db->filepath()).fileName())
-                                .arg(messageId)
-                                .arg(model);
-            m_groupBoxes[key]->setTitle(title);
-            return;
-        }
+
+        m_startTimes[key] = 0;
+        m_tokenCounts[key] = 0;
 
         QString title = QString("DB: %1 | Msg: %2 | Model: %3")
                             .arg(QFileInfo(db->filepath()).fileName())
                             .arg(messageId)
                             .arg(model);
+        m_baseTitles[key] = title;
+
+        if (m_textEdits.contains(key)) {
+            m_textEdits[key]->clear();
+            if (!initialText.isEmpty()) {
+                m_textEdits[key]->setPlainText(initialText);
+            }
+            m_groupBoxes[key]->setTitle(title);
+            return;
+        }
+
         QGroupBox* groupBox = new QGroupBox(title, m_container);
         QVBoxLayout* gbLayout = new QVBoxLayout(groupBox);
         QTextEdit* textEdit = new QTextEdit(groupBox);
