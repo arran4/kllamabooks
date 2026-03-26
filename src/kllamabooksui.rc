@@ -19,7 +19,7 @@
                 <Action name="new_template" />
                 <Action name="new_draft" />
                 <Separator />
-                <Action name="create_folder" />
+                <Action name="create_folder_menu" />
             </Menu>
             <Separator />
             <Action name="close_book" />
@@ -54,5 +54,13 @@
         <Action name="new_book" />
         <Separator />
         <Action name="nav_up" />
+        <Separator />
+        <Action name="new_chat" />
+        <Action name="new_document" />
+        <Action name="new_note" />
+        <Action name="new_template" />
+        <Action name="new_draft" />
+        <Separator />
+        <Action name="create_folder" />
     </ToolBar>
 </gui>

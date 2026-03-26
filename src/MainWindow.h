@@ -14,6 +14,7 @@
 #include <QListWidget>
 #include <QMenu>
 #include <QMessageBox>
+#include <QMimeData>
 #include <QPushButton>
 #include <QSplitter>
 #include <QStackedWidget>
@@ -22,11 +23,13 @@
 #include <QStringList>
 #include <QStyle>
 #include <QSystemTrayIcon>
+#include <QTextBrowser>
 #include <QTextEdit>
 #include <QTimer>
 #include <QToolBar>
 #include <QToolButton>
 #include <QTreeView>
+#include <QUrl>
 #include <memory>
 
 #include "BookDatabase.h"
@@ -35,11 +38,24 @@
 #include "OllamaClient.h"
 #include "SettingsDialog.h"
 
+class CustomItemModel : public QStandardItemModel {
+    Q_OBJECT
+   public:
+    explicit CustomItemModel(QObject* parent = nullptr);
+    QStringList mimeTypes() const override;
+    QMimeData* mimeData(const QModelIndexList& indexes) const override;
+    void setMainWindow(class MainWindow* mainWindow) { m_mainWindow = mainWindow; }
+
+   private:
+    class MainWindow* m_mainWindow;
+};
+
 class MainWindow : public KXmlGuiWindow {
     Q_OBJECT
    public:
     explicit MainWindow(QWidget* parent = nullptr);
     ~MainWindow();
+    void getDocumentContent(int id, const QString& type, QString& outTitle, QString& outContent);
 
    private slots:
     void onCreateBook();
@@ -66,6 +82,10 @@ class MainWindow : public KXmlGuiWindow {
     void onRenameCurrentItem();
     void onDiscardChanges();
     void showBookContextMenu(const QPoint& pos);
+    void showDocumentAIToolsMenu();
+    void onDocumentCompleteText();
+    void onDocumentReplaceEntirely();
+    void onDocumentReplaceInPlace();
     void showOpenBookContextMenu(const QPoint& pos);
     void showVfsContextMenu(const QPoint& pos);
     void showInputSettingsMenu();
@@ -73,6 +93,7 @@ class MainWindow : public KXmlGuiWindow {
     void updateInputBehavior();
     void exportChatSession();
     void importChatSession();
+    void exportDocument(int id, const QString& type);
     void onOpenBooksSelectionChanged(const QItemSelection& selected, const QItemSelection& deselected);
     void updateQueueStatus();
     void updateNotificationStatus();
@@ -112,12 +133,12 @@ class MainWindow : public KXmlGuiWindow {
     QSplitter* splitter;
     QSplitter* leftSplitter;
     QTreeView* openBooksTree;
-    QStandardItemModel* openBooksModel;
+    CustomItemModel* openBooksModel;
     QListWidget* bookList;             // Closed books
     QStackedWidget* mainContentStack;  // To switch between main views
     QWidget* emptyView;
     QListView* vfsExplorer;
-    QStandardItemModel* vfsModel;
+    CustomItemModel* vfsModel;
     QWidget* chatWindowView;
     QSplitter* chatSplitter;
     QListView* chatForkExplorer;
@@ -126,8 +147,11 @@ class MainWindow : public KXmlGuiWindow {
     QTextEdit* chatTextArea;  // Replaces linearChatList
     QWidget* chatInputContainer;
     QWidget* docContainer;
+    QStackedWidget* documentStack;
     QTextEdit* documentEditorView;
+    QTextBrowser* documentPreviewView;
     QPushButton* saveDocBtn;
+    QPushButton* previewDocBtn;
     QWidget* noteContainer;
     QTextEdit* noteEditorView;
     QPushButton* saveNoteBtn;

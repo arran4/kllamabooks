@@ -13,6 +13,7 @@
 #include <QDebug>
 #include <QDesktopServices>
 #include <QDir>
+#include <QDrag>
 #include <QDragEnterEvent>
 #include <QDropEvent>
 #include <QFileDialog>
@@ -46,6 +47,63 @@
 #include "QueueManager.h"
 #include "QueueWindow.h"
 #include "WalletManager.h"
+
+CustomItemModel::CustomItemModel(QObject* parent) : QStandardItemModel(parent), m_mainWindow(nullptr) {}
+
+QStringList CustomItemModel::mimeTypes() const {
+    QStringList types = QStandardItemModel::mimeTypes();
+    if (!types.contains("text/uri-list")) {
+        types << "text/uri-list";
+    }
+    return types;
+}
+
+QMimeData* CustomItemModel::mimeData(const QModelIndexList& indexes) const {
+    QMimeData* data = QStandardItemModel::mimeData(indexes);
+    if (!m_mainWindow || indexes.isEmpty()) return data;
+
+    QList<QUrl> urls;
+    for (const QModelIndex& index : indexes) {
+        QStandardItem* item = itemFromIndex(index);
+        if (item && item->text() != "..") {
+            QString type = item->data(Qt::UserRole + 1).toString();
+            int id = item->data(Qt::UserRole).toInt();
+
+            if (type == "document" || type == "note") {
+                QString title, content;
+                m_mainWindow->getDocumentContent(id, type, title, content);
+
+                if (!content.isEmpty() || !title.isEmpty()) {
+                    if (title.isEmpty()) title = "export";
+                    if (!title.endsWith(".md")) title += ".md";
+
+                    title = title.replace("/", "_").replace("\\", "_");
+                    QString tempPath = QDir::tempPath() + "/" + title;
+                    QFile tempFile(tempPath);
+                    if (tempFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
+                        QTextStream out(&tempFile);
+                        out << content;
+                        tempFile.close();
+                        urls.append(QUrl::fromLocalFile(tempPath));
+                    }
+                }
+            }
+        }
+    }
+
+    if (!urls.isEmpty()) {
+        data->setUrls(urls);
+        // Fallback for some managers
+        if (urls.size() == 1 && data->text().isEmpty()) {
+            QFile f(urls.first().toLocalFile());
+            if (f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                data->setText(f.readAll());
+                f.close();
+            }
+        }
+    }
+    return data;
+}
 
 MainWindow::MainWindow(QWidget* parent) : KXmlGuiWindow(parent), currentLastNodeId(0) {
     QueueManager::instance().setClient(&ollamaClient);
@@ -88,7 +146,8 @@ void MainWindow::setupUi() {
 
     openBooksTree = new QTreeView(this);
     openBooksTree->setMinimumSize(0, 0);
-    openBooksModel = new QStandardItemModel(this);
+    openBooksModel = new CustomItemModel(this);
+    openBooksModel->setMainWindow(this);
     openBooksTree->setModel(openBooksModel);
     openBooksTree->setHeaderHidden(true);
     openBooksTree->setAcceptDrops(true);
@@ -163,7 +222,8 @@ void MainWindow::setupUi() {
     mainContentStack->addWidget(emptyView);
 
     vfsExplorer = new QListView(this);
-    vfsModel = new QStandardItemModel(this);
+    vfsModel = new CustomItemModel(this);
+    vfsModel->setMainWindow(this);
     vfsExplorer->setModel(vfsModel);
     vfsExplorer->setViewMode(QListView::IconMode);
     vfsExplorer->setDropIndicatorShown(true);
@@ -230,13 +290,46 @@ void MainWindow::setupUi() {
     QToolBar* docToolbar = new QToolBar(this);
     saveDocBtn = new QPushButton(QIcon::fromTheme("document-save"), "Save Document", this);
     QPushButton* backToDocsBtn = new QPushButton(QIcon::fromTheme("go-previous"), "Back to Documents", this);
+    previewDocBtn = new QPushButton(QIcon::fromTheme("view-preview"), "Preview", this);
+    previewDocBtn->setCheckable(true);
+
+    QToolButton* aiOperationsBtn = new QToolButton(this);
+    aiOperationsBtn->setIcon(QIcon::fromTheme("tools-wizard"));
+    aiOperationsBtn->setText("AI Operations");
+    aiOperationsBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    aiOperationsBtn->setPopupMode(QToolButton::InstantPopup);
+    QMenu* aiMenu = new QMenu(this);
+    aiMenu->addAction("Complete this text", this, &MainWindow::onDocumentCompleteText);
+    aiMenu->addAction("Replace entirely", this, &MainWindow::onDocumentReplaceEntirely);
+    aiMenu->addAction("Replace in place", this, &MainWindow::onDocumentReplaceInPlace);
+    aiOperationsBtn->setMenu(aiMenu);
+
     docToolbar->addWidget(backToDocsBtn);
     docToolbar->addWidget(saveDocBtn);
+    docToolbar->addWidget(previewDocBtn);
+    docToolbar->addWidget(aiOperationsBtn);
     docLayout->addWidget(docToolbar);
 
+    documentStack = new QStackedWidget(this);
     documentEditorView = new QTextEdit(this);
-    docLayout->addWidget(documentEditorView);
+    documentPreviewView = new QTextBrowser(this);
+
+    documentStack->addWidget(documentEditorView);
+    documentStack->addWidget(documentPreviewView);
+
+    docLayout->addWidget(documentStack);
     mainContentStack->addWidget(docContainer);
+
+    connect(previewDocBtn, &QPushButton::toggled, this, [this](bool checked) {
+        if (checked) {
+            documentPreviewView->setMarkdown(documentEditorView->toPlainText());
+            documentStack->setCurrentWidget(documentPreviewView);
+            previewDocBtn->setText("Edit");
+        } else {
+            documentStack->setCurrentWidget(documentEditorView);
+            previewDocBtn->setText("Preview");
+        }
+    });
 
     noteContainer = new QWidget(this);
     QVBoxLayout* noteLayout = new QVBoxLayout(noteContainer);
@@ -775,7 +868,7 @@ void MainWindow::setupUi() {
     connect(newDraftMenuAction, &QAction::triggered, this, [this]() { addPhantomItem(nullptr, "drafts_folder"); });
 
     QAction* createFolderMenuAction = new QAction(QIcon::fromTheme("folder-new"), tr("Create Folder"), this);
-    actionCollection()->addAction(QStringLiteral("create_folder"), createFolderMenuAction);
+    actionCollection()->addAction(QStringLiteral("create_folder_menu"), createFolderMenuAction);
     connect(createFolderMenuAction, &QAction::triggered, this, [this]() {
         // Find current folder
         QModelIndex index = openBooksTree->currentIndex();
@@ -827,6 +920,8 @@ void MainWindow::setupUi() {
 
     connectionStatusLabel = new QLabel(this);
     connectionStatusLabel->setMargin(4);
+    connectionStatusLabel->setCursor(Qt::PointingHandCursor);
+    connectionStatusLabel->installEventFilter(this);
     toolbar->addWidget(connectionStatusLabel);
     onConnectionStatusChanged(false);  // Initially disconnected
 
@@ -864,10 +959,19 @@ void MainWindow::setupUi() {
     connect(chatModel, &QStandardItemModel::itemChanged, this, &MainWindow::onItemChanged);
     connect(chatTree->selectionModel(), &QItemSelectionModel::currentChanged, this, &MainWindow::onChatNodeSelected);
 
+    QSettings settings;
+    m_availableModels = settings.value("cachedModels").toStringList();
+
     connect(&ollamaClient, &OllamaClient::modelListUpdated, this, [this](const QStringList& models) {
-        m_availableModels = models;
-        if (m_availableModels.isEmpty()) {
-            m_availableModels.append("llama2");  // fallback
+        QSettings settings;
+        if (!models.isEmpty()) {
+            m_availableModels = models;
+            settings.setValue("cachedModels", m_availableModels);
+        } else if (m_availableModels.isEmpty()) {
+            m_availableModels = settings.value("cachedModels").toStringList();
+            if (m_availableModels.isEmpty()) {
+                m_availableModels.append("llama2");  // fallback
+            }
         }
         if (m_selectedModel.isEmpty() && !m_availableModels.isEmpty()) {
             m_selectedModel = m_availableModels.first();
@@ -1616,6 +1720,9 @@ void MainWindow::showVfsContextMenu(const QPoint& pos) {
     QAction* pasteAction = nullptr;
     QAction* forkAction = nullptr;
     QAction* settingsAction = nullptr;
+    QAction* exportMarkdownAction = nullptr;
+    QAction* importFileAction = nullptr;
+    QAction* replaceWithImportAction = nullptr;
 
     QModelIndex treeIndex = openBooksTree->currentIndex();
     QStandardItem* treeItem = nullptr;
@@ -1643,6 +1750,7 @@ void MainWindow::showVfsContextMenu(const QPoint& pos) {
             newDocAction = menu.addAction(QIcon::fromTheme("document-new"), actionName);
         }
         createFolderAction = menu.addAction(QIcon::fromTheme("folder-new"), "Create Folder");
+        importFileAction = menu.addAction(QIcon::fromTheme("document-import"), "Import from File...");
         menu.addSeparator();
     }
 
@@ -1698,12 +1806,69 @@ void MainWindow::showVfsContextMenu(const QPoint& pos) {
                 menu.addSeparator();
                 settingsAction = menu.addAction(QIcon::fromTheme("configure"), "Chat Settings...");
             }
+            if (itemType == "document" || itemType == "note") {
+                exportMarkdownAction = menu.addAction(QIcon::fromTheme("document-export"), "Export Markdown...");
+                replaceWithImportAction = menu.addAction(QIcon::fromTheme("document-import"), "Replace with Import...");
+            }
         }
     } else {
         // Empty space - already populated with folder actions at top
     }
 
     QAction* selectedAction = menu.exec(vfsExplorer->viewport()->mapToGlobal(pos));
+
+    if (exportMarkdownAction && selectedAction == exportMarkdownAction && item) {
+        exportDocument(item->data(Qt::UserRole).toInt(), item->data(Qt::UserRole + 1).toString());
+        return;
+    }
+
+    if (replaceWithImportAction && selectedAction == replaceWithImportAction && item) {
+        QString fileName = QFileDialog::getOpenFileName(this, tr("Import File"), QDir::homePath(),
+                                                        tr("Text Files (*.md *.txt);;All Files (*)"));
+        if (!fileName.isEmpty() && currentDb) {
+            QFile file(fileName);
+            if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                QString content = file.readAll();
+                file.close();
+                QFileInfo fileInfo(fileName);
+                int id = item->data(Qt::UserRole).toInt();
+                QString type = item->data(Qt::UserRole + 1).toString();
+                if (type == "document") {
+                    currentDb->updateDocument(id, fileInfo.fileName(), content);
+                } else if (type == "note") {
+                    currentDb->updateNote(id, fileInfo.fileName(), content);
+                }
+                loadDocumentsAndNotes();
+            }
+        }
+        return;
+    }
+
+    if (importFileAction && selectedAction == importFileAction) {
+        QString fileName = QFileDialog::getOpenFileName(this, tr("Import File"), QDir::homePath(),
+                                                        tr("Text Files (*.md *.txt);;All Files (*)"));
+        if (!fileName.isEmpty() && currentDb) {
+            QFile file(fileName);
+            if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                QString content = file.readAll();
+                file.close();
+                QFileInfo fileInfo(fileName);
+                int parentId = treeItem ? treeItem->data(Qt::UserRole).toInt() : 0;
+
+                if (currentFolderType == "notes_folder") {
+                    currentDb->addNote(parentId, fileInfo.fileName(), content);
+                } else if (currentFolderType == "templates_folder") {
+                    currentDb->addTemplate(parentId, fileInfo.fileName(), content);
+                } else if (currentFolderType == "drafts_folder") {
+                    currentDb->addDraft(parentId, fileInfo.fileName(), content);
+                } else {
+                    currentDb->addDocument(parentId, fileInfo.fileName(), content);
+                }
+                loadDocumentsAndNotes();
+            }
+        }
+        return;
+    }
 
     if (newChatAction && selectedAction == newChatAction) {
         if (treeItem) addPhantomItem(treeItem, currentFolderType);
@@ -2587,6 +2752,14 @@ void MainWindow::onChatNodeSelected(const QModelIndex& current, const QModelInde
 }
 
 bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
+    if (obj == connectionStatusLabel && event->type() == QEvent::MouseButtonRelease) {
+        QMouseEvent* mouseEvent = static_cast<QMouseEvent*>(event);
+        if (mouseEvent->button() == Qt::LeftButton) {
+            ollamaClient.fetchModels();
+            return true;
+        }
+    }
+
     if (obj->property("is_breadcrumb_edit").toBool()) {
         if (event->type() == QEvent::MouseButtonDblClick) {
             QLineEdit* edit = qobject_cast<QLineEdit*>(obj);
@@ -2625,6 +2798,10 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
         }
     } else if (event->type() == QEvent::DragMove) {
         QDragMoveEvent* dragEvent = static_cast<QDragMoveEvent*>(event);
+        if (dragEvent->mimeData()->hasUrls()) {
+            dragEvent->acceptProposedAction();
+            return true;
+        }
         if (obj == openBooksTree || obj == openBooksTree->viewport()) {
             return false;  // let native handling show drop indicator
         } else if (obj == vfsExplorer || obj == vfsExplorer->viewport()) {
@@ -2649,6 +2826,75 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
                     handleBookDrop(fileInfo.fileName());
                     dropEvent->acceptProposedAction();
                     return true;
+                } else if ((fileInfo.suffix() == "md" || fileInfo.suffix() == "txt") && currentDb) {
+                    QFile file(filePath);
+                    if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                        QString content = file.readAll();
+                        file.close();
+
+                        QAbstractItemView* targetView = (obj == openBooksTree || obj == openBooksTree->viewport())
+                                                            ? static_cast<QAbstractItemView*>(openBooksTree)
+                                                            : static_cast<QAbstractItemView*>(vfsExplorer);
+
+                        QModelIndex targetIndex = targetView->indexAt(dropEvent->position().toPoint());
+                        QStandardItem* targetItem = nullptr;
+
+                        if (targetIndex.isValid()) {
+                            if (targetView == openBooksTree) {
+                                targetItem = openBooksModel->itemFromIndex(targetIndex);
+                            } else {
+                                QStandardItem* vfsItem = vfsModel->itemFromIndex(targetIndex);
+                                if (vfsItem && vfsItem->text() == "..") {
+                                    QModelIndex treeIndex = openBooksTree->currentIndex();
+                                    if (treeIndex.isValid()) {
+                                        QStandardItem* currentFolder = openBooksModel->itemFromIndex(treeIndex);
+                                        if (currentFolder && currentFolder->parent())
+                                            targetItem = currentFolder->parent();
+                                    }
+                                } else if (vfsItem) {
+                                    int id = vfsItem->data(Qt::UserRole).toInt();
+                                    QString type = vfsItem->data(Qt::UserRole + 1).toString();
+                                    QModelIndex treeIndex = openBooksTree->currentIndex();
+                                    if (treeIndex.isValid()) {
+                                        QStandardItem* book = openBooksModel->itemFromIndex(treeIndex);
+                                        while (book && book->parent()) book = book->parent();
+                                        targetItem = findItemRecursive(book, id, type);
+                                    }
+                                }
+                            }
+                        } else if (targetView == vfsExplorer) {
+                            QModelIndex treeIndex = openBooksTree->currentIndex();
+                            if (treeIndex.isValid()) targetItem = openBooksModel->itemFromIndex(treeIndex);
+                        }
+
+                        int targetFolderId = 0;
+                        QString targetType = "documents";
+
+                        if (targetItem) {
+                            targetType = targetItem->data(Qt::UserRole + 1).toString();
+                            targetFolderId = targetItem->data(Qt::UserRole).toInt();
+                            if (!targetType.endsWith("_folder")) {
+                                if (targetItem->parent()) {
+                                    targetType = targetItem->parent()->data(Qt::UserRole + 1).toString();
+                                    targetFolderId = targetItem->parent()->data(Qt::UserRole).toInt();
+                                }
+                            }
+                        }
+
+                        if (targetType == "notes_folder") {
+                            currentDb->addNote(targetFolderId, fileInfo.fileName(), content);
+                        } else if (targetType == "templates_folder") {
+                            currentDb->addTemplate(targetFolderId, fileInfo.fileName(), content);
+                        } else if (targetType == "drafts_folder") {
+                            currentDb->addDraft(targetFolderId, fileInfo.fileName(), content);
+                        } else {
+                            currentDb->addDocument(targetFolderId, fileInfo.fileName(), content);
+                        }
+
+                        loadDocumentsAndNotes();
+                        dropEvent->acceptProposedAction();
+                        return true;
+                    }
                 }
             }
         } else if ((obj == openBooksTree || obj == openBooksTree->viewport() || obj == vfsExplorer ||
@@ -3131,9 +3377,14 @@ void MainWindow::showOpenBookContextMenu(const QPoint& pos) {
         QAction* newAction = menu.addAction(actionName);
 
         QAction* createFolderAction = nullptr;
+        QAction* importFileAction = nullptr;
         if (type == "docs_folder" || type == "templates_folder" || type == "drafts_folder" || type == "notes_folder" ||
             type == "chats_folder") {
             createFolderAction = menu.addAction(QIcon::fromTheme("folder-new"), "Create Folder");
+            if (type == "docs_folder" || type == "notes_folder" || type == "templates_folder" ||
+                type == "drafts_folder") {
+                importFileAction = menu.addAction(QIcon::fromTheme("document-import"), "Import from File...");
+            }
         }
 
         QAction* importAction = nullptr;
@@ -3173,6 +3424,29 @@ void MainWindow::showOpenBookContextMenu(const QPoint& pos) {
             }
         } else if (importAction && selectedAction == importAction) {
             importChatSession();
+        } else if (importFileAction && selectedAction == importFileAction) {
+            QString fileName = QFileDialog::getOpenFileName(this, tr("Import File"), QDir::homePath(),
+                                                            tr("Text Files (*.md *.txt);;All Files (*)"));
+            if (!fileName.isEmpty() && currentDb) {
+                QFile file(fileName);
+                if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                    QString content = file.readAll();
+                    file.close();
+                    QFileInfo fileInfo(fileName);
+                    int parentId = item->data(Qt::UserRole).toInt();
+
+                    if (type == "notes_folder") {
+                        currentDb->addNote(parentId, fileInfo.fileName(), content);
+                    } else if (type == "templates_folder") {
+                        currentDb->addTemplate(parentId, fileInfo.fileName(), content);
+                    } else if (type == "drafts_folder") {
+                        currentDb->addDraft(parentId, fileInfo.fileName(), content);
+                    } else {
+                        currentDb->addDocument(parentId, fileInfo.fileName(), content);
+                    }
+                    loadDocumentsAndNotes();
+                }
+            }
         }
     } else if (type == "chat_session" || type == "chat_node") {
         QMenu menu(this);
@@ -3191,6 +3465,89 @@ void MainWindow::showOpenBookContextMenu(const QPoint& pos) {
         } else if (selectedAction == settingsAction) {
             showChatSettingsDialog(item->data(Qt::UserRole).toInt());
         }
+    } else if (type == "document" || type == "note") {
+        QMenu menu(this);
+        QAction* exportAction = menu.addAction(QIcon::fromTheme("document-export"), "Export Markdown...");
+        QAction* replaceAction = menu.addAction(QIcon::fromTheme("document-import"), "Replace with Import...");
+
+        QAction* selectedAction = menu.exec(openBooksTree->viewport()->mapToGlobal(pos));
+        if (selectedAction == exportAction) {
+            exportDocument(item->data(Qt::UserRole).toInt(), type);
+        } else if (selectedAction == replaceAction) {
+            QString fileName = QFileDialog::getOpenFileName(this, tr("Import File"), QDir::homePath(),
+                                                            tr("Text Files (*.md *.txt);;All Files (*)"));
+            if (!fileName.isEmpty() && currentDb) {
+                QFile file(fileName);
+                if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                    QString content = file.readAll();
+                    file.close();
+                    QFileInfo fileInfo(fileName);
+                    int id = item->data(Qt::UserRole).toInt();
+                    if (type == "document") {
+                        currentDb->updateDocument(id, fileInfo.fileName(), content);
+                    } else if (type == "note") {
+                        currentDb->updateNote(id, fileInfo.fileName(), content);
+                    }
+                    loadDocumentsAndNotes();
+                }
+            }
+        }
+    }
+}
+
+void MainWindow::getDocumentContent(int id, const QString& type, QString& outTitle, QString& outContent) {
+    if (!currentDb) return;
+    if (type == "document") {
+        QList<DocumentNode> docs = currentDb->getDocuments();
+        for (const auto& doc : docs) {
+            if (doc.id == id) {
+                outContent = doc.content;
+                outTitle = doc.title;
+                return;
+            }
+        }
+    } else if (type == "note") {
+        QList<NoteNode> notes = currentDb->getNotes();
+        for (const auto& note : notes) {
+            if (note.id == id) {
+                outContent = note.content;
+                outTitle = note.title;
+                return;
+            }
+        }
+    }
+}
+
+void MainWindow::exportDocument(int id, const QString& type) {
+    if (!currentDb) return;
+
+    QString content;
+    QString defaultTitle;
+
+    getDocumentContent(id, type, defaultTitle, content);
+
+    if (content.isEmpty() && defaultTitle.isEmpty()) return;
+
+    if (defaultTitle.isEmpty()) {
+        defaultTitle = "export";
+    }
+    if (!defaultTitle.endsWith(".md")) {
+        defaultTitle += ".md";
+    }
+
+    QString defaultPath = QDir::homePath() + "/" + defaultTitle;
+    QString fileName = QFileDialog::getSaveFileName(this, tr("Export Markdown"), defaultPath,
+                                                    tr("Markdown Files (*.md);;Text Files (*.txt);;All Files (*)"));
+    if (fileName.isEmpty()) return;
+
+    QFile file(fileName);
+    if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        QTextStream out(&file);
+        out << content;
+        file.close();
+        statusBar->showMessage(tr("Exported to %1").arg(fileName), 3000);
+    } else {
+        QMessageBox::warning(this, tr("Export Error"), tr("Could not save to file: %1").arg(file.errorString()));
     }
 }
 
@@ -3356,6 +3713,13 @@ void MainWindow::updateNotificationStatus() {
 void MainWindow::showNotificationMenu() { notificationBtn->showMenu(); }
 
 void MainWindow::showQueueWindow() {
+    QueueWindow* existing = this->findChild<QueueWindow*>();
+    if (existing) {
+        existing->show();
+        existing->raise();
+        existing->activateWindow();
+        return;
+    }
     QueueWindow* qw = new QueueWindow(this);
     qw->setAttribute(Qt::WA_DeleteOnClose);
     qw->show();
@@ -3551,4 +3915,187 @@ bool MainWindow::moveItemToFolder(QStandardItem* draggedItem, QStandardItem* tar
         return true;
     }
     return false;
+}
+
+void MainWindow::showDocumentAIToolsMenu() {
+    // Just a placeholder, actually we linked it via QMenu on the QToolButton
+}
+
+void MainWindow::onDocumentCompleteText() {
+    if (m_isGenerating || !currentDb) return;
+
+    QTextCursor cursor = documentEditorView->textCursor();
+    QString textBeforeCursor = documentEditorView->toPlainText().left(cursor.position());
+    if (textBeforeCursor.isEmpty()) {
+        textBeforeCursor = documentEditorView->toPlainText();
+    }
+
+    QString prompt = QString("Please complete the following text. Only output the continuation, nothing else:\n\n%1")
+                         .arg(textBeforeCursor);
+
+    m_isGenerating = true;
+    m_generationId++;
+    int currentGenId = m_generationId;
+    int targetDocumentId = currentDocumentId;
+
+    documentEditorView->setReadOnly(true);
+    statusBar->showMessage(tr("AI is completing text..."));
+
+    QString model = m_selectedModel;
+    if (model.isEmpty() && !m_availableModels.isEmpty()) {
+        model = m_availableModels.first();
+    }
+
+    QTextCursor insertionCursor = documentEditorView->textCursor();
+
+    ollamaClient.generate(
+        model, prompt,
+        [this, currentGenId, targetDocumentId, insertionCursor](const QString& chunk) mutable {
+            if (m_generationId != currentGenId || currentDocumentId != targetDocumentId) return;
+            insertionCursor.insertText(chunk);
+        },
+        [this, currentGenId, targetDocumentId](const QString& response) {
+            if (m_generationId == currentGenId) {
+                m_isGenerating = false;
+                if (currentDocumentId == targetDocumentId) {
+                    documentEditorView->setReadOnly(false);
+                    statusBar->showMessage(tr("AI completed text."), 3000);
+                    saveDocBtn->click();
+                }
+            }
+        },
+        [this, currentGenId, targetDocumentId](const QString& error) {
+            if (m_generationId == currentGenId) {
+                m_isGenerating = false;
+                if (currentDocumentId == targetDocumentId) {
+                    documentEditorView->setReadOnly(false);
+                    statusBar->showMessage(tr("AI Error: ") + error, 5000);
+                }
+            }
+        });
+}
+
+void MainWindow::onDocumentReplaceEntirely() {
+    if (m_isGenerating || !currentDb) return;
+
+    bool ok;
+    QString instructions =
+        QInputDialog::getText(this, tr("Replace Entirely"), tr("Instructions for AI to rewrite the entire document:"),
+                              QLineEdit::Normal, "", &ok);
+    if (!ok || instructions.isEmpty()) return;
+
+    QString prompt = QString(
+                         "Rewrite the following document according to these instructions: %1\n\nOnly output the "
+                         "rewritten document, nothing else.\n\nDocument:\n%2")
+                         .arg(instructions, documentEditorView->toPlainText());
+
+    m_isGenerating = true;
+    m_generationId++;
+    int currentGenId = m_generationId;
+    int targetDocumentId = currentDocumentId;
+
+    documentEditorView->setReadOnly(true);
+    documentEditorView->clear();  // We are replacing entirely
+    statusBar->showMessage(tr("AI is rewriting document..."));
+
+    QString model = m_selectedModel;
+    if (model.isEmpty() && !m_availableModels.isEmpty()) {
+        model = m_availableModels.first();
+    }
+
+    QTextCursor insertionCursor = documentEditorView->textCursor();
+
+    ollamaClient.generate(
+        model, prompt,
+        [this, currentGenId, targetDocumentId, insertionCursor](const QString& chunk) mutable {
+            if (m_generationId != currentGenId || currentDocumentId != targetDocumentId) return;
+            insertionCursor.insertText(chunk);
+        },
+        [this, currentGenId, targetDocumentId](const QString& response) {
+            if (m_generationId == currentGenId) {
+                m_isGenerating = false;
+                if (currentDocumentId == targetDocumentId) {
+                    documentEditorView->setReadOnly(false);
+                    statusBar->showMessage(tr("AI replaced document."), 3000);
+                    saveDocBtn->click();
+                }
+            }
+        },
+        [this, currentGenId, targetDocumentId](const QString& error) {
+            if (m_generationId == currentGenId) {
+                m_isGenerating = false;
+                if (currentDocumentId == targetDocumentId) {
+                    documentEditorView->setReadOnly(false);
+                    statusBar->showMessage(tr("AI Error: ") + error, 5000);
+                }
+            }
+        });
+}
+
+void MainWindow::onDocumentReplaceInPlace() {
+    if (m_isGenerating || !currentDb) return;
+
+    QTextCursor cursor = documentEditorView->textCursor();
+    if (!cursor.hasSelection()) {
+        QMessageBox::information(this, tr("Replace in place"), tr("Please select some text first."));
+        return;
+    }
+
+    QString selectedText = cursor.selectedText();
+    // In QTextEdit, newlines in selected text are represented as QChar::ParagraphSeparator
+    selectedText.replace(QChar::ParagraphSeparator, '\n');
+
+    bool ok;
+    QString instructions = QInputDialog::getText(
+        this, tr("Replace in place"), tr("Instructions to rewrite the selected text:"), QLineEdit::Normal, "", &ok);
+    if (!ok || instructions.isEmpty()) return;
+
+    QString prompt = QString(
+                         "Rewrite the following text according to these instructions: %1\n\nOnly output the rewritten "
+                         "text, nothing else.\n\nText:\n%2")
+                         .arg(instructions, selectedText);
+
+    m_isGenerating = true;
+    m_generationId++;
+    int currentGenId = m_generationId;
+    int targetDocumentId = currentDocumentId;
+
+    documentEditorView->setReadOnly(true);
+    // Erase the selection
+    cursor.removeSelectedText();
+
+    statusBar->showMessage(tr("AI is replacing text..."));
+
+    QString model = m_selectedModel;
+    if (model.isEmpty() && !m_availableModels.isEmpty()) {
+        model = m_availableModels.first();
+    }
+
+    QTextCursor insertionCursor = documentEditorView->textCursor();
+
+    ollamaClient.generate(
+        model, prompt,
+        [this, currentGenId, targetDocumentId, insertionCursor](const QString& chunk) mutable {
+            if (m_generationId != currentGenId || currentDocumentId != targetDocumentId) return;
+            insertionCursor.insertText(chunk);
+        },
+        [this, currentGenId, targetDocumentId](const QString& response) {
+            if (m_generationId == currentGenId) {
+                m_isGenerating = false;
+                if (currentDocumentId == targetDocumentId) {
+                    documentEditorView->setReadOnly(false);
+                    statusBar->showMessage(tr("AI replaced text."), 3000);
+                    saveDocBtn->click();
+                }
+            }
+        },
+        [this, currentGenId, targetDocumentId](const QString& error) {
+            if (m_generationId == currentGenId) {
+                m_isGenerating = false;
+                if (currentDocumentId == targetDocumentId) {
+                    documentEditorView->setReadOnly(false);
+                    statusBar->showMessage(tr("AI Error: ") + error, 5000);
+                }
+            }
+        });
 }

@@ -68,6 +68,7 @@ private:
     QueueItem m_currentItem;
     int m_currentIndex = 0;
     bool m_isPaused = false;
+    QString m_lastProcessedModel;
 
     void processNext();
 };
