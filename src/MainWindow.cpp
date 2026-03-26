@@ -235,6 +235,7 @@ void MainWindow::setupUi() {
     vfsExplorer->setDefaultDropAction(Qt::MoveAction);
     vfsExplorer->setEditTriggers(QAbstractItemView::NoEditTriggers);
     vfsExplorer->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(vfsExplorer, &QWidget::customContextMenuRequested, this, &MainWindow::showVfsContextMenu);
     vfsExplorer->installEventFilter(this);
     vfsExplorer->viewport()->installEventFilter(this);
     mainContentStack->addWidget(vfsExplorer);
