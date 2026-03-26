@@ -1,0 +1,30 @@
+--- BookDatabase.cpp
++++ BookDatabase.cpp
+@@ -334,7 +334,13 @@
+         userVersion = 10;
+     }
+
+-    if (userVersion < 11) {
++    if (userVersion < 11) {
++        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (11);", nullptr, nullptr, nullptr);
++        sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 11;", nullptr, nullptr, nullptr);
++        userVersion = 11;
++    }
++
++    if (userVersion < 12) {
+         const char* sql =
+             "CREATE TABLE IF NOT EXISTS chats ("
+             "message_id INTEGER PRIMARY KEY, "
+@@ -373,9 +379,9 @@
+         }
+
+         sqlite3_exec((sqlite3*)m_db, "DELETE FROM settings WHERE scope='chat';", nullptr, nullptr, nullptr);
+-        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (11);", nullptr, nullptr, nullptr);
+-        sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 11;", nullptr, nullptr, nullptr);
+-        userVersion = 11;
++        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (12);", nullptr, nullptr, nullptr);
++        sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 12;", nullptr, nullptr, nullptr);
++        userVersion = 12;
+     }
+
+     return true;

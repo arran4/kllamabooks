@@ -333,52 +333,6 @@ bool BookDatabase::initSchema() {
         userVersion = 10;
     }
 
-    if (userVersion < 12) {
-        const char* sql =
-            "CREATE TABLE IF NOT EXISTS chats ("
-            "message_id INTEGER PRIMARY KEY, "
-            "title TEXT, "
-            "systemPrompt TEXT, "
-            "sendBehavior TEXT, "
-            "model TEXT, "
-            "multiLine TEXT, "
-            "draftPrompt TEXT, "
-            "userNote TEXT, "
-            "version INTEGER DEFAULT 0"
-            ");";
-        sqlite3_exec((sqlite3*)m_db, sql, nullptr, nullptr, nullptr);
-
-        sqlite3_stmt* stmt;
-        if (sqlite3_prepare_v2((sqlite3*)m_db, "SELECT DISTINCT target_id FROM settings WHERE scope='chat';", -1, &stmt,
-                               nullptr) == SQLITE_OK) {
-            QList<int> messageIds;
-            while (sqlite3_step(stmt) == SQLITE_ROW) {
-                messageIds.append(sqlite3_column_int(stmt, 0));
-            }
-            sqlite3_finalize(stmt);
-
-            for (int id : messageIds) {
-                ChatNode c;
-                c.id = id;
-                c.title = getSetting("chat", id, "title", "");
-                c.systemPrompt = getSetting("chat", id, "systemPrompt", "");
-                c.sendBehavior = getSetting("chat", id, "sendBehavior", "default");
-                c.model = getSetting("chat", id, "model", "default");
-                c.multiLine = getSetting("chat", id, "multiLine", "default");
-                c.draftPrompt = getSetting("chat", id, "draftPrompt", "");
-                c.userNote = getSetting("chat", id, "userNote", "");
-                c.version = 0;
-                updateChat(c);
-            }
-        }
-
-        sqlite3_exec((sqlite3*)m_db, "DELETE FROM settings WHERE scope='chat';", nullptr, nullptr, nullptr);
-        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (12);", nullptr, nullptr,
-                     nullptr);
-        sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 12;", nullptr, nullptr, nullptr);
-        userVersion = 12;
-    }
-
     return true;
 }
 
@@ -550,22 +504,7 @@ QString BookDatabase::getInheritedSetting(int messageId, const QString& key) con
 
     QString inheritedValue;
     while (currentId > 0) {
-        QString currentValue = "";
-        ChatNode c = getChat(currentId);
-        if (key == "title")
-            currentValue = c.title;
-        else if (key == "systemPrompt")
-            currentValue = c.systemPrompt;
-        else if (key == "sendBehavior")
-            currentValue = c.sendBehavior;
-        else if (key == "model")
-            currentValue = c.model;
-        else if (key == "multiLine")
-            currentValue = c.multiLine;
-        else if (key == "draftPrompt")
-            currentValue = c.draftPrompt;
-        else if (key == "userNote")
-            currentValue = c.userNote;
+        QString currentValue = getSetting("chat", currentId, key, "");
         if (!currentValue.isEmpty() && currentValue != "default") {
             inheritedValue = currentValue;
             break;
@@ -1265,82 +1204,4 @@ bool BookDatabase::deleteComment(int id) {
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
     return rc == SQLITE_DONE;
-}
-
-ChatNode BookDatabase::getChat(int messageId) const {
-    ChatNode chat;
-    chat.id = messageId;
-    chat.sendBehavior = "default";
-    chat.model = "default";
-    chat.multiLine = "default";
-    chat.version = 0;
-
-    if (!m_isOpen) return chat;
-
-    const char* sql =
-        "SELECT title, systemPrompt, sendBehavior, model, multiLine, draftPrompt, userNote, version FROM chats WHERE "
-        "message_id = ?;";
-    sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
-        sqlite3_bind_int(stmt, 1, messageId);
-
-        if (sqlite3_step(stmt) == SQLITE_ROW) {
-            if (sqlite3_column_text(stmt, 0)) chat.title = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 0));
-            if (sqlite3_column_text(stmt, 1))
-                chat.systemPrompt = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 1));
-            if (sqlite3_column_text(stmt, 2))
-                chat.sendBehavior = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 2));
-            if (sqlite3_column_text(stmt, 3)) chat.model = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 3));
-            if (sqlite3_column_text(stmt, 4))
-                chat.multiLine = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 4));
-            if (sqlite3_column_text(stmt, 5))
-                chat.draftPrompt = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 5));
-            if (sqlite3_column_text(stmt, 6))
-                chat.userNote = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 6));
-            chat.version = sqlite3_column_int(stmt, 7);
-        }
-        sqlite3_finalize(stmt);
-    }
-    return chat;
-}
-
-bool BookDatabase::updateChat(const ChatNode& chat) {
-    if (!m_isOpen) return false;
-
-    const char* sql =
-        "INSERT OR REPLACE INTO chats (message_id, title, systemPrompt, sendBehavior, model, multiLine, draftPrompt, "
-        "userNote, version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);";
-    sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
-        return false;
-    }
-
-    sqlite3_bind_int(stmt, 1, chat.id);
-    sqlite3_bind_text(stmt, 2, chat.title.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 3, chat.systemPrompt.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 4, chat.sendBehavior.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 5, chat.model.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 6, chat.multiLine.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 7, chat.draftPrompt.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 8, chat.userNote.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int(stmt, 9, chat.version + 1);
-
-    int rc = sqlite3_step(stmt);
-    sqlite3_finalize(stmt);
-
-    return rc == SQLITE_DONE;
-}
-
-QSet<int> BookDatabase::getAllChatIds() const {
-    QSet<int> ids;
-    if (!m_isOpen) return ids;
-    const char* sql = "SELECT message_id FROM chats;";
-    sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
-        while (sqlite3_step(stmt) == SQLITE_ROW) {
-            ids.insert(sqlite3_column_int(stmt, 0));
-        }
-        sqlite3_finalize(stmt);
-    }
-    return ids;
 }

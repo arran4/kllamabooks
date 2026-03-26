@@ -3,7 +3,6 @@
 
 #include <QDateTime>
 #include <QList>
-#include <QSet>
 #include <QString>
 
 struct MessageNode {
@@ -27,7 +26,7 @@ struct DocumentNode {
 };
 
 struct ChatNode {
-    int id;  // Maps to message_id
+    int id; // Maps to message_id
     QString title;
     QString systemPrompt;
     QString sendBehavior;
