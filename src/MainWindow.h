@@ -125,6 +125,7 @@ class MainWindow : public KXmlGuiWindow {
     void updateLinearChatView(int tailNodeId, const QList<MessageNode>& allMessages);
     void getPathToRoot(int nodeId, const QList<MessageNode>& allMessages, QList<MessageNode>& path);
     int getEndOfLinearPath(int startId, const QList<MessageNode>& allMessages, QList<MessageNode>& outChildren);
+    QString getChatNodeTitle(int nodeId, const QList<MessageNode>& allMessages);
     void loadDocumentsAndNotes();
     QStandardItem* findItemInTree(int id, const QString& type);
     QStandardItem* findItemRecursive(QStandardItem* parent, int id, const QString& type);
@@ -189,11 +190,12 @@ class MainWindow : public KXmlGuiWindow {
     int currentAutoDraftId = 0;
     int currentChatFolderId = 0;
 
-    QMap<int, QString> m_chatInputDrafts;
     QString m_newChatSystemPrompt;
     QString m_newChatSendBehavior = "default";
     QString m_newChatModel = "default";
     QString m_newChatMultiLine = "default";
+    QString m_newChatDraftPrompt;
+    QString m_newChatUserNote;
 
     bool isCreatingNewChat = false;
     bool isCreatingNewDoc = false;
