@@ -51,9 +51,7 @@
 
 CustomItemModel::CustomItemModel(QObject* parent) : QStandardItemModel(parent), m_mainWindow(nullptr) {}
 
-/**
- * @brief Function mimeTypes.
- */
+/** * @brief Executes logic for mimeTypes. This function manages component initialization and handles state transitions for the UI. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 QStringList CustomItemModel::mimeTypes() const {
     QStringList types = QStandardItemModel::mimeTypes();
     if (!types.contains("text/uri-list")) {
@@ -62,9 +60,7 @@ QStringList CustomItemModel::mimeTypes() const {
     return types;
 }
 
-/**
- * @brief Function mimeData.
- */
+/** * @brief Executes logic for mimeData. This function manages component initialization and handles state transitions for the UI. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 QMimeData* CustomItemModel::mimeData(const QModelIndexList& indexes) const {
     QMimeData* data = QStandardItemModel::mimeData(indexes);
     if (!m_mainWindow || indexes.isEmpty()) return data;
@@ -130,9 +126,7 @@ MainWindow::MainWindow(QWidget* parent) : KXmlGuiWindow(parent), currentLastNode
 
 MainWindow::~MainWindow() {}
 
-/**
- * @brief Function closeEvent.
- */
+/** * @brief Handles the application close event, safely persisting unsaved state. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::closeEvent(QCloseEvent* event) {
     QSettings settings;
     settings.setValue("geometry", saveGeometry());
@@ -148,9 +142,7 @@ void MainWindow::closeEvent(QCloseEvent* event) {
     KXmlGuiWindow::closeEvent(event);
 }
 
-/**
- * @brief Function setupUi.
- */
+/** * @brief Sets up the user interface elements, connecting signals and slots for widgets. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::setupUi() {
     splitter = new QSplitter(this);
     setCentralWidget(splitter);
@@ -739,9 +731,7 @@ void MainWindow::setupUi() {
     loadBooks();
 }
 
-/**
- * @brief Function updateEndpointsList.
- */
+/** * @brief Refreshes the combobox containing remote Ollama API endpoint targets. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::updateEndpointsList() {
     endpointComboBox->blockSignals(true);
     endpointComboBox->clear();
@@ -773,9 +763,7 @@ void MainWindow::updateEndpointsList() {
     }
 }
 
-/**
- * @brief Function onActiveEndpointChanged.
- */
+/** * @brief Callback when the user selects a new LLM endpoint target. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::onActiveEndpointChanged(int index) {
     if (index < 0) return;
 
@@ -790,9 +778,7 @@ void MainWindow::onActiveEndpointChanged(int index) {
     settings.setValue("lastEndpointIndex", index);
 }
 
-/**
- * @brief Function onConnectionStatusChanged.
- */
+/** * @brief Callback triggered when the background OllamaClient signals a status shift. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::onConnectionStatusChanged(bool isOk) {
     if (isOk) {
         connectionStatusLabel->setText("🟢");
@@ -803,9 +789,7 @@ void MainWindow::onConnectionStatusChanged(bool isOk) {
     }
 }
 
-/**
- * @brief Function showSettingsDialog.
- */
+/** * @brief Spawns the global application settings dialog modal. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::showSettingsDialog() {
     SettingsDialog* dlg = new SettingsDialog(this);
     connect(dlg, &SettingsDialog::settingsApplied, this, [this]() {
@@ -816,9 +800,7 @@ void MainWindow::showSettingsDialog() {
     dlg->show();
 }
 
-/**
- * @brief Function showInputSettingsMenu.
- */
+/** * @brief Displays the pop-up configuration menu for chat input behaviors. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::showInputSettingsMenu() {
     QMenu menu(this);
 
@@ -1070,9 +1052,7 @@ void MainWindow::showInputSettingsMenu() {
     menu.exec(inputSettingsButton->mapToGlobal(QPoint(0, inputSettingsButton->height())));
 }
 
-/**
- * @brief Function showChatSettingsDialog.
- */
+/** * @brief Spawns the modal settings dialogue to configure a specific chat node context. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::showChatSettingsDialog(int messageId) {
     if (!currentDb || !currentDb->isOpen()) return;
 
@@ -1143,9 +1123,7 @@ void MainWindow::showChatSettingsDialog(int messageId) {
     }
 }
 
-/**
- * @brief Function updateInputBehavior.
- */
+/** * @brief Synchronizes the UI logic based on whether multi-line chat input is activated. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::updateInputBehavior() {
     QString behaviorStr = "EnterToSend";  // Ultimate default
 
@@ -1235,9 +1213,7 @@ void MainWindow::updateInputBehavior() {
     }
 }
 
-/**
- * @brief Function setupWindow.
- */
+/** * @brief Configures the window's title, geometry, and system tray icon based on prior settings. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::setupWindow() {
     setWindowTitle("KLlamaBooks");
     resize(800, 600);
@@ -1288,9 +1264,7 @@ void MainWindow::setupWindow() {
     }
 }
 
-/**
- * @brief Function loadBooks.
- */
+/** * @brief Populates the left-most list view with available `.db` files from the app data directory. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::loadBooks() {
     bookList->clear();
     QDir dir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation));
@@ -1340,18 +1314,14 @@ void MainWindow::loadBooks() {
     }
 }
 
-/**
- * @brief Function showModelExplorer.
- */
+/** * @brief Spawns a specialized modal dedicated to querying and managing installed Ollama models. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::showModelExplorer() {
     ModelExplorer* explorer = new ModelExplorer(&ollamaClient, this);
     explorer->setAttribute(Qt::WA_DeleteOnClose);
     explorer->show();
 }
 
-/**
- * @brief Function onOpenBook.
- */
+/** * @brief Triggers the native file browser dialog to open an existing `.db` file. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::onOpenBook() {
     QString startPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
     QString filePath = QFileDialog::getOpenFileName(this, tr("Open Book"), startPath, tr("Books (*.db)"));
@@ -1361,9 +1331,7 @@ void MainWindow::onOpenBook() {
     }
 }
 
-/**
- * @brief Function onCloseBook.
- */
+/** * @brief Action handler connecting to the explicit file close menu bar button. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::onCloseBook() {
     if (currentDb && currentDb->isOpen()) {
         QFileInfo fileInfo(currentDb->filepath());
@@ -1371,17 +1339,13 @@ void MainWindow::onCloseBook() {
     }
 }
 
-/**
- * @brief Function onOpenBookLocation.
- */
+/** * @brief Locates the application's `.db` file directory using the desktop environment's file manager. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::onOpenBookLocation() {
     QString path = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
     QDesktopServices::openUrl(QUrl::fromLocalFile(path));
 }
 
-/**
- * @brief Function onCreateBook.
- */
+/** * @brief Spawns a dialog for the user to create a new SQLite Book file. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::onCreateBook() {
     bool ok;
     QString bookName = QInputDialog::getText(this, "New Book", "Enter book name:", QLineEdit::Normal, "", &ok);
@@ -1412,9 +1376,7 @@ void MainWindow::onCreateBook() {
     }
 }
 
-/**
- * @brief Function showVfsContextMenu.
- */
+/** * @brief Draws the context menu for items listed in the right-pane virtual file explorer. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::showVfsContextMenu(const QPoint& pos) {
     QModelIndex index = vfsExplorer->indexAt(pos);
     QStandardItem* item = nullptr;
@@ -1626,9 +1588,7 @@ void MainWindow::showVfsContextMenu(const QPoint& pos) {
     }
 }
 
-/**
- * @brief Function onBookSelected.
- */
+/** * @brief Handles loading a database file when double-clicked in the books list view. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::onBookSelected(const QModelIndex& index) {
     QString fileName = bookList->item(index.row())->text();
     QString filePath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + "/" + fileName;
@@ -1769,9 +1729,7 @@ void MainWindow::populateDocumentFolders(QStandardItem* parentItem, int folderId
     }
 }
 
-/**
- * @brief Function addPhantomItem.
- */
+/** * @brief Ijects a temporary visual placeholder item while a node is still being drafted to the database. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::addPhantomItem(QStandardItem* folderItem, const QString& type) {
     if (!folderItem && openBooksModel && openBooksModel->rowCount() > 0) {
         QStandardItem* book = openBooksModel->item(0);
@@ -1809,9 +1767,7 @@ void MainWindow::addPhantomItem(QStandardItem* folderItem, const QString& type) 
     openBooksTree->setCurrentIndex(phantomItem->index());
 }
 
-/**
- * @brief Function loadSession.
- */
+/** * @brief Executes logic for loadSession. This function manages component initialization and handles state transitions for the UI. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::loadSession(int rootId) {
     chatModel->clear();
     chatTextArea->clear();
@@ -1834,9 +1790,7 @@ void MainWindow::loadSession(int rootId) {
     updateInputBehavior();
 }
 
-/**
- * @brief Function getPathToRoot.
- */
+/** * @brief Executes logic for getPathToRoot. This function manages component initialization and handles state transitions for the UI. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::getPathToRoot(int nodeId, const QList<MessageNode>& allMessages, QList<MessageNode>& path) {
     for (const auto& msg : allMessages) {
         if (msg.id == nodeId) {
@@ -1870,9 +1824,7 @@ int MainWindow::getEndOfLinearPath(int startId, const QList<MessageNode>& allMes
     return currentId;
 }
 
-/**
- * @brief Function getChatNodeTitle.
- */
+/** * @brief Executes logic for getChatNodeTitle. This function manages component initialization and handles state transitions for the UI. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 QString MainWindow::getChatNodeTitle(int nodeId, const QList<MessageNode>& allMessages) {
     if (!currentDb || !currentDb->isOpen()) return "New Chat";
 
@@ -1950,9 +1902,7 @@ void MainWindow::populateChatFolders(QStandardItem* parentItem, int folderId, co
     }
 }
 
-/**
- * @brief Function populateMessageForks.
- */
+/** * @brief Helper to recursively map conversation database records to the `chatModel` hierarchy. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::populateMessageForks(QStandardItem* parentItem, int parentId, const QList<MessageNode>& allMessages) {
     for (const auto& msg : allMessages) {
         if (msg.parentId == parentId) {
@@ -1978,9 +1928,7 @@ void MainWindow::populateMessageForks(QStandardItem* parentItem, int parentId, c
     }
 }
 
-/**
- * @brief Function updateLinearChatView.
- */
+/** * @brief Transforms the nonlinear chat forks into a single linear progression and renders it into the `chatTextArea`. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& allMessages) {
     m_newChatSystemPrompt.clear();
     m_newChatSendBehavior = "default";
@@ -2125,9 +2073,7 @@ void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& 
     updateBreadcrumbs();
 }
 
-/**
- * @brief Function updateBreadcrumbs.
- */
+/** * @brief Updates the header label to display the current conversation path string. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::updateBreadcrumbs() {
     if (!breadcrumbLayout) return;
 
@@ -2236,23 +2182,17 @@ void MainWindow::updateBreadcrumbs() {
     breadcrumbLayout->addStretch();
 }
 
-/**
- * @brief Function onBreadcrumbClicked.
- */
+/** * @brief Executes logic for onBreadcrumbClicked. This function manages component initialization and handles state transitions for the UI. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::onBreadcrumbClicked(const QString& type, int id) {
     // Allows jumping up the tree
 }
 
-/**
- * @brief Function onRenameCurrentItem.
- */
+/** * @brief Executes logic for onRenameCurrentItem. This function manages component initialization and handles state transitions for the UI. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::onRenameCurrentItem() {
     // Enables inline rename
 }
 
-/**
- * @brief Function onDiscardChanges.
- */
+/** * @brief Triggers a reload of the currently open document or note from the persistent database. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::onDiscardChanges() {
     if (!currentDb || currentLastNodeId == 0) return;
     updateLinearChatView(currentLastNodeId, currentDb->getMessages());
@@ -2260,9 +2200,7 @@ void MainWindow::onDiscardChanges() {
     statusBar->showMessage(tr("Changes discarded."), 3000);
 }
 
-/**
- * @brief Function populateTree.
- */
+/** * @brief Executes logic for populateTree. This function manages component initialization and handles state transitions for the UI. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::populateTree(QStandardItem* parentItem, int parentId, const QList<MessageNode>& allMessages) {
     for (const auto& msg : allMessages) {
         if (msg.parentId == parentId) {
@@ -2426,17 +2364,11 @@ void MainWindow::onSendMessage() {
     statusBar->showMessage(tr("Request queued."), 3000);
 }
 
-/**
- * @brief Function onOllamaChunk.
- */
+/** * @brief Executes logic for onOllamaChunk. This function manages component initialization and handles state transitions for the UI. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::onOllamaChunk(const QString& chunk) {}
-/**
- * @brief Function onOllamaComplete.
- */
+/** * @brief Executes logic for onOllamaComplete. This function manages component initialization and handles state transitions for the UI. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::onOllamaComplete(const QString& fullResponse) {}
-/**
- * @brief Function onOllamaError.
- */
+/** * @brief Executes logic for onOllamaError. This function manages component initialization and handles state transitions for the UI. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::onOllamaError(const QString& error) {}
 
 void MainWindow::onQueueChunk(std::shared_ptr<BookDatabase> db, int messageId, const QString& chunk,
@@ -2462,9 +2394,7 @@ void MainWindow::onQueueChunk(std::shared_ptr<BookDatabase> db, int messageId, c
     }
 }
 
-/**
- * @brief Function onProcessingStarted.
- */
+/** * @brief Clears the Global Spy UI whenever a new task is ingested. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::onProcessingStarted(std::shared_ptr<BookDatabase> db, int messageId, const QString& targetType) {
     if (currentDb == db) {
         if (targetType == "document" && currentDocumentId == messageId) {
@@ -2491,16 +2421,12 @@ void MainWindow::onProcessingFinished(std::shared_ptr<BookDatabase> db, int mess
     updateQueueStatus();
 }
 
-/**
- * @brief Function onPullProgressUpdated.
- */
+/** * @brief Receives download percentage increments from the Ollama model registry client. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::onPullProgressUpdated(const QString& modelName, int percent, const QString& status) {
     statusLabel->setText(QString("Downloading %1: %2% (%3)").arg(modelName).arg(percent).arg(status));
 }
 
-/**
- * @brief Function onPullFinished.
- */
+/** * @brief Fired when a model completes downloading, tearing down progress UI elements. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::onPullFinished(const QString& modelName) {
     statusLabel->setText(QString("Download complete: %1").arg(modelName));
     QTimer::singleShot(3000, this, [this]() {
@@ -2510,9 +2436,7 @@ void MainWindow::onPullFinished(const QString& modelName) {
     });
 }
 
-/**
- * @brief Function onItemChanged.
- */
+/** * @brief Callback that listens for inline text edits on standard tree items and flushes the title back to the DB. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::onItemChanged(QStandardItem* item) {
     if (!currentDb) return;
     int id = item->data(Qt::UserRole).toInt();
@@ -2524,9 +2448,7 @@ void MainWindow::onItemChanged(QStandardItem* item) {
     currentDb->updateMessage(id, newText);
 }
 
-/**
- * @brief Function onChatNodeSelected.
- */
+/** * @brief Fires when a distinct node is focused in the chat navigation tree, refreshing the right-pane. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::onChatNodeSelected(const QModelIndex& current, const QModelIndex& /*previous*/) {
     if (!current.isValid()) return;
     QStandardItem* item = chatModel->itemFromIndex(current);
@@ -2787,15 +2709,11 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
             }
         }
     }
-/**
- * @brief Function eventFilter.
- */
+/** * @brief Executes logic for eventFilter. This function manages component initialization and handles state transitions for the UI. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
     return KXmlGuiWindow::eventFilter(obj, event);
 }
 
-/**
- * @brief Function handleBookDrop.
- */
+/** * @brief Copies an external database file dropped into the application to the app data location and loads it. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::handleBookDrop(const QString& fileName) {
     // Find the item in bookList and click it programmatically or just replicate the open logic
     for (int i = 0; i < bookList->count(); ++i) {
@@ -2806,9 +2724,7 @@ void MainWindow::handleBookDrop(const QString& fileName) {
     }
 }
 
-/**
- * @brief Function closeBook.
- */
+/** * @brief Closes an active SQLite database and flushes it from the view. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::closeBook(const QString& fileName) {
     // Remove from tree
     for (int i = 0; i < openBooksModel->rowCount(); ++i) {
@@ -2836,9 +2752,7 @@ void MainWindow::closeBook(const QString& fileName) {
     }
 }
 
-/**
- * @brief Function showBookContextMenu.
- */
+/** * @brief Constructs the right-click menu for the raw database files view. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::showBookContextMenu(const QPoint& pos) {
     QListWidgetItem* item = bookList->itemAt(pos);
     if (!item) return;
@@ -2885,9 +2799,7 @@ void MainWindow::showBookContextMenu(const QPoint& pos) {
     }
 }
 
-/**
- * @brief Function refreshVfsExplorer.
- */
+/** * @brief Force-refreshes the virtual file explorer list. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::refreshVfsExplorer() {
     QModelIndex index = openBooksTree->currentIndex();
     if (!index.isValid()) return;
@@ -2911,9 +2823,7 @@ void MainWindow::refreshVfsExplorer() {
     }
 }
 
-/**
- * @brief Function onOpenBooksSelectionChanged.
- */
+/** * @brief Callback for item selection in the `openBooksTree`, which dynamically loads the `vfsExplorer` contents. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::onOpenBooksSelectionChanged(const QItemSelection& selected, const QItemSelection& deselected) {
     if (selected.indexes().isEmpty()) {
         mainContentStack->setCurrentWidget(emptyView);
@@ -3020,9 +2930,7 @@ void restoreExpandedState(QTreeView* tree, QStandardItem* item, const QSet<QStri
 }
 }  // namespace
 
-/**
- * @brief Function loadDocumentsAndNotes.
- */
+/** * @brief Reloads the primary side-pane `openBooksTree` showing all folders, documents, and chat records. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::loadDocumentsAndNotes() {
     if (!openBooksModel) return;
 
@@ -3298,9 +3206,7 @@ void MainWindow::showOpenBookContextMenu(const QPoint& pos) {
     }
 }
 
-/**
- * @brief Function getDocumentContent.
- */
+/** * @brief Executes logic for getDocumentContent. This function manages component initialization and handles state transitions for the UI. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::getDocumentContent(int id, const QString& type, QString& outTitle, QString& outContent) {
     if (!currentDb) return;
     if (type == "document") {
@@ -3324,9 +3230,7 @@ void MainWindow::getDocumentContent(int id, const QString& type, QString& outTit
     }
 }
 
-/**
- * @brief Function exportDocument.
- */
+/** * @brief Exports a selected document item into a standalone file on disk. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::exportDocument(int id, const QString& type) {
     if (!currentDb) return;
 
@@ -3360,9 +3264,7 @@ void MainWindow::exportDocument(int id, const QString& type) {
     }
 }
 
-/**
- * @brief Function exportChatSession.
- */
+/** * @brief Serializes a database conversation tree into an external file format. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::exportChatSession() {
     if (!currentDb) return;
 
@@ -3401,9 +3303,7 @@ void MainWindow::exportChatSession() {
     }
 }
 
-/**
- * @brief Function importChatSession.
- */
+/** * @brief Reads a JSON or standardized file containing conversation metadata into the active book. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::importChatSession() {
     if (!currentDb) {
         QMessageBox::warning(this, tr("Import Error"), tr("Please open a book first."));
@@ -3477,9 +3377,7 @@ QStandardItem* MainWindow::findItemById(QStandardItem* parent, int id) {
     return nullptr;
 }
 
-/**
- * @brief Function findItemInTree.
- */
+/** * @brief Executes logic for findItemInTree. This function manages component initialization and handles state transitions for the UI. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 QStandardItem* MainWindow::findItemInTree(int id, const QString& type) {
     if (!openBooksModel || openBooksModel->rowCount() == 0) return nullptr;
     return findItemRecursive(openBooksModel->invisibleRootItem(), id, type);
@@ -3504,9 +3402,7 @@ QStandardItem* MainWindow::findItemRecursive(QStandardItem* parent, int id, cons
     return nullptr;
 }
 
-/**
- * @brief Function updateQueueStatus.
- */
+/** * @brief Updates the UI counter and styles depending on whether the background worker queue has tasks. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::updateQueueStatus() {
     int total = QueueManager::instance().totalPendingCount();
     queueStatusBtn->setText(QString("Q: %1").arg(total));
@@ -3517,9 +3413,7 @@ void MainWindow::updateQueueStatus() {
     }
 }
 
-/**
- * @brief Function updateNotificationStatus.
- */
+/** * @brief Fills the notification tray menu indicating task progress states. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::updateNotificationStatus() {
     int total = 0;
     notificationMenu->clear();
@@ -3565,14 +3459,10 @@ void MainWindow::updateNotificationStatus() {
     openBooksModel->layoutChanged();
 }
 
-/**
- * @brief Function showNotificationMenu.
- */
+/** * @brief Executes logic for showNotificationMenu. This function manages component initialization and handles state transitions for the UI. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::showNotificationMenu() { notificationBtn->showMenu(); }
 
-/**
- * @brief Function showQueueWindow.
- */
+/** * @brief Raises and focuses the global tracking window indicating processing logs. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::showQueueWindow() {
     QueueWindow* existing = this->findChild<QueueWindow*>();
     if (existing) {
@@ -3586,9 +3476,7 @@ void MainWindow::showQueueWindow() {
     qw->show();
 }
 
-/**
- * @brief Function onQueueItemClicked.
- */
+/** * @brief Executes logic for onQueueItemClicked. This function manages component initialization and handles state transitions for the UI. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::onQueueItemClicked(std::shared_ptr<BookDatabase> db, int messageId) {
     if (!db) return;
 
@@ -3610,9 +3498,7 @@ void MainWindow::onQueueItemClicked(std::shared_ptr<BookDatabase> db, int messag
     updateNotificationStatus();
 }
 
-/**
- * @brief Function updateVfsMarkers.
- */
+/** * @brief Adds custom visual badges (like error or pending states) over items in the VFS explorer. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::updateVfsMarkers(const QList<Notification>& notifications) {
     if (vfsModel) {
         for (int i = 0; i < vfsModel->rowCount(); ++i) {
@@ -3644,9 +3530,7 @@ void MainWindow::updateVfsMarkers(const QList<Notification>& notifications) {
     }
 }
 
-/**
- * @brief Function updateTreeMarkersRecursive.
- */
+/** * @brief Executes logic for updateTreeMarkersRecursive. This function manages component initialization and handles state transitions for the UI. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::updateTreeMarkersRecursive(QStandardItem* parent, const QList<Notification>& notifications) {
     if (!parent) return;
     for (int i = 0; i < parent->rowCount(); ++i) {
@@ -3795,16 +3679,12 @@ bool MainWindow::moveItemToFolder(QStandardItem* draggedItem, QStandardItem* tar
     return false;
 }
 
-/**
- * @brief Function showDocumentAIToolsMenu.
- */
+/** * @brief Executes logic for showDocumentAIToolsMenu. This function manages component initialization and handles state transitions for the UI. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::showDocumentAIToolsMenu() {
     // Just a placeholder, actually we linked it via QMenu on the QToolButton
 }
 
-/**
- * @brief Function onDocumentCompleteText.
- */
+/** * @brief Sends a direct LLM generation request to append text to the current active Document. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::onDocumentCompleteText() {
     if (m_isGenerating || !currentDb) return;
 
@@ -3836,9 +3716,7 @@ void MainWindow::onDocumentCompleteText() {
     statusBar->showMessage(tr("AI completion task queued."), 3000);
 }
 
-/**
- * @brief Function onDocumentReplaceEntirely.
- */
+/** * @brief Replaces the entire body of the active Document using LLM context editing. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::onDocumentReplaceEntirely() {
     if (m_isGenerating || !currentDb) return;
 
@@ -3891,9 +3769,7 @@ void MainWindow::onDocumentReplaceEntirely() {
     statusBar->showMessage(tr("AI rewrite task queued."), 3000);
 }
 
-/**
- * @brief Function onDocumentReplaceInPlace.
- */
+/** * @brief Performs an inline LLM rewrite over the currently highlighted selection. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::onDocumentReplaceInPlace() {
     if (m_isGenerating || !currentDb) return;
 
