@@ -3715,7 +3715,7 @@ void MainWindow::showSpyWindow() {
 
     // Initial check for currently processing items
     for (const auto& mi : QueueManager::instance().getMergedQueue()) {
-        if (mi.item.status == "processing") {
+        if (mi.item.processingId > 0) {
             spyDialog->setWindowTitle("Global Spying: " + mi.item.model);
 
             QString currentContent;
