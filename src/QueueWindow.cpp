@@ -4,6 +4,7 @@
 #include <QHeaderView>
 #include <QInputDialog>
 #include <QMessageBox>
+#include <QTextEdit>
 
 QueueWindow::QueueWindow(QWidget* parent) : QDialog(parent) {
     setWindowTitle("LLM Request Queue");
@@ -20,6 +21,7 @@ QueueWindow::QueueWindow(QWidget* parent) : QDialog(parent) {
     m_cancelBtn = new QPushButton("Delete", this);
     m_retryBtn = new QPushButton("Retry", this);
     m_modifyBtn = new QPushButton("Modify", this);
+    m_spyBtn = new QPushButton("Spy", this);
     m_clearBtn = new QPushButton("Clear Completed", this);
 
     QPushButton* pauseBtn = new QPushButton(QueueManager::instance().isPaused() ? "Resume Queue" : "Pause Queue", this);
@@ -29,6 +31,7 @@ QueueWindow::QueueWindow(QWidget* parent) : QDialog(parent) {
     btnLayout->addWidget(m_cancelBtn);
     btnLayout->addWidget(m_retryBtn);
     btnLayout->addWidget(m_modifyBtn);
+    btnLayout->addWidget(m_spyBtn);
     btnLayout->addWidget(pauseBtn);
     btnLayout->addStretch();
     btnLayout->addWidget(m_clearBtn);
@@ -37,6 +40,7 @@ QueueWindow::QueueWindow(QWidget* parent) : QDialog(parent) {
     connect(m_cancelBtn, &QPushButton::clicked, this, &QueueWindow::onCancelItem);
     connect(m_retryBtn, &QPushButton::clicked, this, &QueueWindow::onRetryItem);
     connect(m_modifyBtn, &QPushButton::clicked, this, &QueueWindow::onModifyItem);
+    connect(m_spyBtn, &QPushButton::clicked, this, &QueueWindow::onSpyItem);
     connect(m_clearBtn, &QPushButton::clicked, this, &QueueWindow::onClearCompleted);
     connect(m_queueList, &QListWidget::itemSelectionChanged, this, &QueueWindow::updateButtons);
     connect(pauseBtn, &QPushButton::clicked, this, [this, pauseBtn]() {
@@ -64,6 +68,7 @@ void QueueWindow::updateButtons() {
     if (!item) {
         m_retryBtn->setEnabled(false);
         m_modifyBtn->setEnabled(false);
+        m_spyBtn->setEnabled(false);
         return;
     }
 
@@ -71,15 +76,18 @@ void QueueWindow::updateButtons() {
     QString path = item->data(Qt::UserRole + 1).toString();
 
     bool isError = false;
+    bool isProcessing = false;
     for (const auto& mi : QueueManager::instance().getMergedQueue()) {
         if (mi.item.id == id && mi.db->filepath() == path) {
             isError = (mi.item.status == "error");
+            isProcessing = (mi.item.status == "processing");
             break;
         }
     }
 
     m_retryBtn->setEnabled(isError);
     m_modifyBtn->setEnabled(isError);
+    m_spyBtn->setEnabled(isProcessing);
 }
 
 void QueueWindow::refresh() {
@@ -160,6 +168,74 @@ void QueueWindow::onCancelItem() {
             break;
         }
     }
+}
+
+void QueueWindow::onSpyItem() {
+    auto item = m_queueList->currentItem();
+    if (!item) return;
+    int id = item->data(Qt::UserRole).toInt();
+    QString path = item->data(Qt::UserRole + 1).toString();
+
+    std::shared_ptr<BookDatabase> targetDb = nullptr;
+    QueueItem qItem;
+    for (const auto& mi : QueueManager::instance().getMergedQueue()) {
+        if (mi.item.id == id && mi.db->filepath() == path) {
+            targetDb = mi.db;
+            qItem = mi.item;
+            break;
+        }
+    }
+
+    if (!targetDb || qItem.status != "processing") return;
+
+    QDialog* spyDialog = new QDialog(this);
+    spyDialog->setWindowTitle("Spying: " + qItem.model);
+    spyDialog->resize(500, 400);
+
+    QVBoxLayout* layout = new QVBoxLayout(spyDialog);
+    QTextEdit* textEdit = new QTextEdit(spyDialog);
+    textEdit->setReadOnly(true);
+    layout->addWidget(textEdit);
+
+    QString currentContent;
+    if (qItem.targetType == "document") {
+        auto docs = targetDb->getDocuments();
+        for (const auto& d : docs) {
+            if (d.id == qItem.messageId) {
+                currentContent = d.content;
+                break;
+            }
+        }
+    } else {
+        auto messages = targetDb->getMessages();
+        for (const auto& m : messages) {
+            if (m.id == qItem.messageId) {
+                currentContent = m.content;
+                break;
+            }
+        }
+    }
+    textEdit->setPlainText(currentContent);
+    textEdit->moveCursor(QTextCursor::End);
+
+    connect(&QueueManager::instance(), &QueueManager::processingChunk, spyDialog,
+            [textEdit, targetDb, messageId = qItem.messageId](std::shared_ptr<BookDatabase> db, int mId, const QString& chunk, const QString& type) {
+                if (db == targetDb && mId == messageId) {
+                    textEdit->moveCursor(QTextCursor::End);
+                    textEdit->insertPlainText(chunk);
+                    textEdit->moveCursor(QTextCursor::End);
+                }
+            });
+
+    connect(&QueueManager::instance(), &QueueManager::processingFinished, spyDialog,
+            [spyDialog, targetDb, messageId = qItem.messageId](std::shared_ptr<BookDatabase> db, int mId, bool success, const QString& type) {
+                if (db == targetDb && mId == messageId) {
+                    spyDialog->setWindowTitle(spyDialog->windowTitle() + (success ? " (Finished)" : " (Error)"));
+                }
+            });
+
+    spyDialog->setAttribute(Qt::WA_DeleteOnClose);
+    spyDialog->show();
 }
 
 void QueueWindow::onClearCompleted() { QueueManager::instance().clearCompleted(); }

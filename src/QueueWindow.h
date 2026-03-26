@@ -20,6 +20,7 @@ class QueueWindow : public QDialog {
     void onCancelItem();
     void onRetryItem();
     void onModifyItem();
+    void onSpyItem();
     void onMoveUp();
     void onMoveDown();
     void onClearCompleted();
@@ -29,6 +30,7 @@ class QueueWindow : public QDialog {
     QPushButton* m_cancelBtn;
     QPushButton* m_retryBtn;
     QPushButton* m_modifyBtn;
+    QPushButton* m_spyBtn;
     QPushButton* m_upBtn;
     QPushButton* m_downBtn;
     QPushButton* m_clearBtn;
