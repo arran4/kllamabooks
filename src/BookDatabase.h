@@ -3,6 +3,7 @@
 
 #include <QDateTime>
 #include <QList>
+#include <QSet>
 #include <QString>
 
 struct MessageNode {
@@ -23,6 +24,18 @@ struct DocumentNode {
     QString content;
     QDateTime timestamp;
     bool isFolder;  // Deprecated, but keeping for compatibility during migration if needed
+};
+
+struct ChatNode {
+    int id;  // Maps to message_id
+    QString title;
+    QString systemPrompt;
+    QString sendBehavior;
+    QString model;
+    QString multiLine;
+    QString draftPrompt;
+    QString userNote;
+    int version;
 };
 
 struct NoteNode {
@@ -90,6 +103,11 @@ class BookDatabase {
     QList<MessageNode> getMessages() const;
     int getRootMessageId(int messageId) const;
     QString getInheritedSetting(int messageId, const QString& key) const;
+
+    // Chats
+    ChatNode getChat(int messageId) const;
+    bool updateChat(const ChatNode& chat);
+    QSet<int> getAllChatIds() const;
 
     // Settings
     void setSetting(const QString& scope, int targetId, const QString& key, const QString& value);

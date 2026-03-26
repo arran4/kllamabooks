@@ -814,7 +814,9 @@ void MainWindow::setupUi() {
         if (currentDb && currentDb->isOpen()) {
             QString newMultiLine = checked ? "Multi Line" : "Single Line";
             if (currentLastNodeId != 0) {
-                currentDb->setSetting("chat", currentLastNodeId, "multiLine", newMultiLine);
+                ChatNode cnMulti = currentDb->getChat(currentLastNodeId);
+                cnMulti.multiLine = newMultiLine;
+                currentDb->updateChat(cnMulti);
             } else {
                 m_newChatMultiLine = newMultiLine;
             }
@@ -950,8 +952,14 @@ void MainWindow::setupUi() {
             QString textToSave =
                 !toggleInputModeBtn->isChecked() ? inputField->toPlainText() : multiLineInput->toPlainText();
 
-            if (currentLastNodeId != 0) {
-                currentDb->setSetting("chat", currentLastNodeId, "draftPrompt", textToSave);
+            if (m_activeDraftNodeId != 0) {
+                ChatNode cnDraft = currentDb->getChat(m_activeDraftNodeId);
+                if (cnDraft.version == m_activeDraftVersion) {
+                    cnDraft.draftPrompt = textToSave;
+                    if (currentDb->updateChat(cnDraft)) {
+                        m_activeDraftVersion++;  // keep in sync with optimistic lock
+                    }
+                }
             } else {
                 m_newChatDraftPrompt = textToSave;
             }
@@ -993,7 +1001,9 @@ void MainWindow::setupUi() {
             if (!selected.isEmpty()) {
                 if (currentDb && currentDb->isOpen()) {
                     if (currentLastNodeId != 0) {
-                        currentDb->setSetting("chat", currentLastNodeId, "model", selected);
+                        ChatNode cnMod = currentDb->getChat(currentLastNodeId);
+                        cnMod.model = selected;
+                        currentDb->updateChat(cnMod);
                     } else {
                         m_newChatModel = selected;
                     }
@@ -1187,7 +1197,7 @@ void MainWindow::showInputSettingsMenu() {
 
     if (currentDb && currentDb->isOpen()) {
         if (currentLastNodeId != 0) {
-            currentChatSetting = currentDb->getSetting("chat", currentLastNodeId, "sendBehavior", "default");
+            currentChatSetting = currentDb->getChat(currentLastNodeId).sendBehavior;
         } else {
             currentChatSetting = m_newChatSendBehavior;
         }
@@ -1219,7 +1229,9 @@ void MainWindow::showInputSettingsMenu() {
             if (currentLastNodeId == 0) {
                 m_newChatSendBehavior = newBehavior;
             } else {
-                currentDb->setSetting("chat", currentLastNodeId, "sendBehavior", newBehavior);
+                ChatNode cnBeh = currentDb->getChat(currentLastNodeId);
+                cnBeh.sendBehavior = newBehavior;
+                currentDb->updateChat(cnBeh);
             }
             updateInputBehavior();
         }
@@ -1247,7 +1259,7 @@ void MainWindow::showInputSettingsMenu() {
     QString currentChatModel = "default";
     if (currentDb && currentDb->isOpen()) {
         if (currentLastNodeId != 0) {
-            currentChatModel = currentDb->getSetting("chat", currentLastNodeId, "model", "default");
+            currentChatModel = currentDb->getChat(currentLastNodeId).model;
         } else {
             currentChatModel = m_newChatModel;
         }
@@ -1271,7 +1283,9 @@ void MainWindow::showInputSettingsMenu() {
             if (currentLastNodeId == 0) {
                 m_newChatModel = newModel;
             } else {
-                currentDb->setSetting("chat", currentLastNodeId, "model", newModel);
+                ChatNode cnMod = currentDb->getChat(currentLastNodeId);
+                cnMod.model = newModel;
+                currentDb->updateChat(cnMod);
             }
             updateInputBehavior();
         }
@@ -1296,7 +1310,7 @@ void MainWindow::showInputSettingsMenu() {
     QString currentInputMode = "default";
     if (currentDb && currentDb->isOpen()) {
         if (currentLastNodeId != 0) {
-            currentInputMode = currentDb->getSetting("chat", currentLastNodeId, "multiLine", "default");
+            currentInputMode = currentDb->getChat(currentLastNodeId).multiLine;
         } else {
             currentInputMode = m_newChatMultiLine;
         }
@@ -1317,7 +1331,9 @@ void MainWindow::showInputSettingsMenu() {
             if (currentLastNodeId == 0) {
                 m_newChatMultiLine = newMode;
             } else {
-                currentDb->setSetting("chat", currentLastNodeId, "multiLine", newMode);
+                ChatNode cnMulti = currentDb->getChat(currentLastNodeId);
+                cnMulti.multiLine = newMode;
+                currentDb->updateChat(cnMulti);
             }
             updateInputBehavior();
         }
@@ -1430,13 +1446,13 @@ void MainWindow::showChatSettingsDialog(int messageId) {
         currentDraftPrompt = m_newChatDraftPrompt;
         currentUserNote = m_newChatUserNote;
     } else {
-        currentTitle = currentDb->getSetting("chat", messageId, "title", "");
-        currentPrompt = currentDb->getSetting("chat", messageId, "systemPrompt", "");
-        currentBehavior = currentDb->getSetting("chat", messageId, "sendBehavior", "default");
-        currentModel = currentDb->getSetting("chat", messageId, "model", "default");
-        currentMultiLine = currentDb->getSetting("chat", messageId, "multiLine", "default");
-        currentDraftPrompt = currentDb->getSetting("chat", messageId, "draftPrompt", "");
-        currentUserNote = currentDb->getSetting("chat", messageId, "userNote", "");
+        currentTitle = currentDb->getChat(messageId).title;
+        currentPrompt = currentDb->getChat(messageId).systemPrompt;
+        currentBehavior = currentDb->getChat(messageId).sendBehavior;
+        currentModel = currentDb->getChat(messageId).model;
+        currentMultiLine = currentDb->getChat(messageId).multiLine;
+        currentDraftPrompt = currentDb->getChat(messageId).draftPrompt;
+        currentUserNote = currentDb->getChat(messageId).userNote;
     }
 
     ChatSettingsDialog dlg(currentTitle, currentPrompt, currentBehavior, currentModel, currentMultiLine,
@@ -1467,13 +1483,15 @@ void MainWindow::showChatSettingsDialog(int messageId) {
                 }
             }
         } else {
-            currentDb->setSetting("chat", messageId, "title", newTitle);
-            currentDb->setSetting("chat", messageId, "systemPrompt", newPrompt);
-            currentDb->setSetting("chat", messageId, "sendBehavior", newBehavior);
-            currentDb->setSetting("chat", messageId, "model", newModel);
-            currentDb->setSetting("chat", messageId, "multiLine", newMultiLine);
-            currentDb->setSetting("chat", messageId, "draftPrompt", newDraftPrompt);
-            currentDb->setSetting("chat", messageId, "userNote", newUserNote);
+            ChatNode cn = currentDb->getChat(messageId);
+            cn.title = newTitle;
+            cn.systemPrompt = newPrompt;
+            cn.sendBehavior = newBehavior;
+            cn.model = newModel;
+            cn.multiLine = newMultiLine;
+            cn.draftPrompt = newDraftPrompt;
+            cn.userNote = newUserNote;
+            currentDb->updateChat(cn);
             loadDocumentsAndNotes();  // Refresh UI to potentially show new title
         }
         updateInputBehavior();
@@ -2257,7 +2275,7 @@ QString MainWindow::getChatNodeTitle(int nodeId, const QList<MessageNode>& allMe
     // Look for a custom title in the settings database, starting from the leaf and going up
     for (int i = path.size() - 1; i >= 0; --i) {
         int currentId = path[i].id;
-        QString customTitle = currentDb->getSetting("chat", currentId, "title", "");
+        QString customTitle = currentDb->getChat(currentId).title;
         if (!customTitle.isEmpty()) {
             return customTitle;
         }
@@ -2305,6 +2323,10 @@ void MainWindow::populateChatFolders(QStandardItem* parentItem, int folderId, co
             QList<MessageNode> children;
             int endNodeId = getEndOfLinearPath(msg.id, allMessages, children);
 
+            if (!db->getAllChatIds().contains(endNodeId)) {
+                db->updateChat(db->getChat(endNodeId));  // This will initialize and save the node
+            }
+
             QString displayTitle = getChatNodeTitle(endNodeId, allMessages);
 
             QStandardItem* item = nullptr;
@@ -2330,6 +2352,10 @@ void MainWindow::populateMessageForks(QStandardItem* parentItem, int parentId, c
             // Find all children of this message
             QList<MessageNode> children;
             int endNodeId = getEndOfLinearPath(msg.id, allMessages, children);
+
+            if (currentDb && !currentDb->getAllChatIds().contains(endNodeId)) {
+                currentDb->updateChat(currentDb->getChat(endNodeId));
+            }
 
             QString displayTitle = getChatNodeTitle(endNodeId, allMessages);
 
@@ -2359,8 +2385,12 @@ void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& 
         QString textToSave =
             !toggleInputModeBtn->isChecked() ? inputField->toPlainText() : multiLineInput->toPlainText();
 
-        if (currentLastNodeId != 0) {
-            currentDb->setSetting("chat", currentLastNodeId, "draftPrompt", textToSave);
+        if (m_activeDraftNodeId != 0) {
+            ChatNode cnDraft = currentDb->getChat(m_activeDraftNodeId);
+            if (cnDraft.version == m_activeDraftVersion) {
+                cnDraft.draftPrompt = textToSave;
+                currentDb->updateChat(cnDraft);
+            }
         } else {
             m_newChatDraftPrompt = textToSave;
         }
@@ -2471,11 +2501,15 @@ void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& 
     if (discardChangesBtn) discardChangesBtn->hide();
 
     QString savedDraft = "";
+    m_activeDraftNodeId = tailNodeId;
     if (currentDb) {
         if (tailNodeId != 0) {
-            savedDraft = currentDb->getSetting("chat", tailNodeId, "draftPrompt", "");
+            ChatNode activeNode = currentDb->getChat(tailNodeId);
+            savedDraft = activeNode.draftPrompt;
+            m_activeDraftVersion = activeNode.version;
         } else {
             savedDraft = m_newChatDraftPrompt;
+            m_activeDraftVersion = 0;
         }
     }
 
@@ -2717,19 +2751,27 @@ void MainWindow::onSendMessage() {
 
     if (parentId == 0) {
         if (!m_newChatSystemPrompt.isEmpty()) {
-            currentDb->setSetting("chat", userMsgId, "systemPrompt", m_newChatSystemPrompt);
+            ChatNode cnSys = currentDb->getChat(userMsgId);
+            cnSys.systemPrompt = m_newChatSystemPrompt;
+            currentDb->updateChat(cnSys);
             m_newChatSystemPrompt.clear();
         }
         if (m_newChatSendBehavior != "default") {
-            currentDb->setSetting("chat", userMsgId, "sendBehavior", m_newChatSendBehavior);
+            ChatNode cnBeh = currentDb->getChat(userMsgId);
+            cnBeh.sendBehavior = m_newChatSendBehavior;
+            currentDb->updateChat(cnBeh);
             m_newChatSendBehavior = "default";
         }
         if (m_newChatModel != "default") {
-            currentDb->setSetting("chat", userMsgId, "model", m_newChatModel);
+            ChatNode cnMod = currentDb->getChat(userMsgId);
+            cnMod.model = m_newChatModel;
+            currentDb->updateChat(cnMod);
             m_newChatModel = "default";
         }
         if (m_newChatMultiLine != "default") {
-            currentDb->setSetting("chat", userMsgId, "multiLine", m_newChatMultiLine);
+            ChatNode cnMulti = currentDb->getChat(userMsgId);
+            cnMulti.multiLine = m_newChatMultiLine;
+            currentDb->updateChat(cnMulti);
             m_newChatMultiLine = "default";
         }
     }
@@ -2772,7 +2814,16 @@ void MainWindow::onSendMessage() {
 
     // 5. Update view
     if (currentDb) {
-        currentDb->setSetting("chat", currentLastNodeId, "draftPrompt", "");  // clear the draft after sending
+        ChatNode cnDraft = currentDb->getChat(currentLastNodeId);
+        // Note: the active draft logic only applies if currentLastNodeId is the active draft node
+        if (currentLastNodeId == m_activeDraftNodeId && cnDraft.version == m_activeDraftVersion) {
+            cnDraft.draftPrompt = "";
+            currentDb->updateChat(cnDraft);
+        } else if (currentLastNodeId != 0 && m_activeDraftNodeId == 0) {
+            // New chat - just clear it safely
+            cnDraft.draftPrompt = "";
+            currentDb->updateChat(cnDraft);
+        }
     }
     updateLinearChatView(currentLastNodeId, currentDb->getMessages());
     statusBar->showMessage(tr("Request queued."), 3000);

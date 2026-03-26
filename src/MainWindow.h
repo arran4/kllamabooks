@@ -186,7 +186,9 @@ class MainWindow : public KXmlGuiWindow {
     std::shared_ptr<BookDatabase> currentDb;
     OllamaClient ollamaClient;
 
-    int currentLastNodeId;               // ID of the last node in the current chat path
+    int currentLastNodeId;  // ID of the last node in the current chat path
+    int m_activeDraftNodeId = 0;
+    int m_activeDraftVersion = 0;
     QList<MessageNode> currentChatPath;  // Stores the current path for tracking edits/forks
 
     int currentDocumentId = 0;
