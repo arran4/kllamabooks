@@ -21,9 +21,7 @@ QString OllamaClient::getAuthKey() const { return m_authKey; }
 
 QString OllamaClient::getBaseUrl() const { return m_baseUrl; }
 
-void OllamaClient::setSystemPrompt(const QString& prompt) {
-    m_systemPrompt = prompt;
-}
+void OllamaClient::setSystemPrompt(const QString& prompt) { m_systemPrompt = prompt; }
 
 void OllamaClient::fetchModels() {
     QUrl url(m_baseUrl + "/api/tags");

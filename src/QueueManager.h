@@ -1,16 +1,17 @@
 #ifndef QUEUEMANAGER_H
 #define QUEUEMANAGER_H
 
-#include <QObject>
 #include <QList>
-#include <QTimer>
+#include <QObject>
 #include <QSettings>
+#include <QTimer>
+
 #include "BookDatabase.h"
 #include "OllamaClient.h"
 
 class QueueManager : public QObject {
     Q_OBJECT
-public:
+   public:
     static QueueManager& instance();
 
     void addDatabase(std::shared_ptr<BookDatabase> db);
@@ -19,7 +20,8 @@ public:
     QList<std::shared_ptr<BookDatabase>> databases() const { return m_databases; }
 
     void setClient(OllamaClient* client);
-    void enqueuePrompt(int messageId, const QString& model, const QString& prompt, int priority = 0);
+    void enqueuePrompt(int messageId, const QString& model, const QString& prompt, int priority = 0,
+                       const QString& targetType = "message");
 
     int totalPendingCount() const;
     int pendingCount(std::shared_ptr<BookDatabase> db) const;
@@ -42,19 +44,21 @@ public:
 
     bool isProcessing() const { return m_isProcessing; }
 
-signals:
+   signals:
     void queueChanged();
-    void processingStarted(std::shared_ptr<BookDatabase> db, int messageId);
-    void processingChunk(std::shared_ptr<BookDatabase> db, int messageId, const QString& chunk);
-    void processingFinished(std::shared_ptr<BookDatabase> db, int messageId, bool success);
+    void processingStarted(std::shared_ptr<BookDatabase> db, int messageId, const QString& targetType = "message");
+    void processingChunk(std::shared_ptr<BookDatabase> db, int messageId, const QString& chunk,
+                         const QString& targetType = "message");
+    void processingFinished(std::shared_ptr<BookDatabase> db, int messageId, bool success,
+                            const QString& targetType = "message");
 
-private slots:
+   private slots:
     void checkQueue();
     void onChunk(const QString& chunk);
     void onComplete(const QString& response);
     void onError(const QString& error);
 
-private:
+   private:
     explicit QueueManager(QObject* parent = nullptr);
     ~QueueManager() = default;
 
@@ -73,4 +77,4 @@ private:
     void processNext();
 };
 
-#endif // QUEUEMANAGER_H
+#endif  // QUEUEMANAGER_H

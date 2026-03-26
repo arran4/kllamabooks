@@ -40,6 +40,7 @@
 #include <QtGui/QAction>
 #include <limits>
 
+#include "AiActionDialog.h"
 #include "ChatSettingsDialog.h"
 #include "DatabaseSettingsDialog.h"
 #include "ModelSelectionDialog.h"
@@ -2685,32 +2686,51 @@ void MainWindow::onOllamaChunk(const QString& chunk) {}
 void MainWindow::onOllamaComplete(const QString& fullResponse) {}
 void MainWindow::onOllamaError(const QString& error) {}
 
-void MainWindow::onQueueChunk(std::shared_ptr<BookDatabase> db, int messageId, const QString& chunk) {
-    if (currentDb == db && currentLastNodeId == messageId) {
-        chatTextArea->blockSignals(true);
-        QTextCursor cursor = chatTextArea->textCursor();
-        cursor.movePosition(QTextCursor::End);
-        chatTextArea->setTextCursor(cursor);
-        chatTextArea->insertPlainText(chunk);
-        chatTextArea->blockSignals(false);
+void MainWindow::onQueueChunk(std::shared_ptr<BookDatabase> db, int messageId, const QString& chunk,
+                              const QString& targetType) {
+    if (currentDb == db) {
+        if (targetType == "document" && currentDocumentId == messageId) {
+            QTextCursor cursor = documentEditorView->textCursor();
+            cursor.movePosition(QTextCursor::End);
+            documentEditorView->setTextCursor(cursor);
+            documentEditorView->insertPlainText(chunk);
+        } else if (targetType == "message" && currentLastNodeId == messageId) {
+            chatTextArea->blockSignals(true);
+            QTextCursor cursor = chatTextArea->textCursor();
+            cursor.movePosition(QTextCursor::End);
+            chatTextArea->setTextCursor(cursor);
+            chatTextArea->insertPlainText(chunk);
+            chatTextArea->blockSignals(false);
 
-        if (!currentChatPath.isEmpty() && currentChatPath.last().id == messageId) {
-            currentChatPath.last().content += chunk;
+            if (!currentChatPath.isEmpty() && currentChatPath.last().id == messageId) {
+                currentChatPath.last().content += chunk;
+            }
         }
     }
 }
 
-void MainWindow::onProcessingStarted(std::shared_ptr<BookDatabase> db, int messageId) {
-    if (currentDb == db && currentLastNodeId == messageId) {
-        statusBar->showMessage(tr("LLM is responding..."));
+void MainWindow::onProcessingStarted(std::shared_ptr<BookDatabase> db, int messageId, const QString& targetType) {
+    if (currentDb == db) {
+        if (targetType == "document" && currentDocumentId == messageId) {
+            documentEditorView->setReadOnly(true);
+            statusBar->showMessage(tr("AI is editing document..."));
+        } else if (targetType == "message" && currentLastNodeId == messageId) {
+            statusBar->showMessage(tr("LLM is responding..."));
+        }
     }
     updateQueueStatus();
 }
 
-void MainWindow::onProcessingFinished(std::shared_ptr<BookDatabase> db, int messageId, bool success) {
-    if (currentDb == db && currentLastNodeId == messageId) {
-        statusBar->showMessage(success ? tr("Response complete.") : tr("Error in response."), 3000);
-        updateLinearChatView(currentLastNodeId, currentDb->getMessages());
+void MainWindow::onProcessingFinished(std::shared_ptr<BookDatabase> db, int messageId, bool success,
+                                      const QString& targetType) {
+    if (currentDb == db) {
+        if (targetType == "document" && currentDocumentId == messageId) {
+            documentEditorView->setReadOnly(false);
+            statusBar->showMessage(success ? tr("AI document edit complete.") : tr("Error editing document."), 3000);
+        } else if (targetType == "message" && currentLastNodeId == messageId) {
+            statusBar->showMessage(success ? tr("Response complete.") : tr("Error in response."), 3000);
+            updateLinearChatView(currentLastNodeId, currentDb->getMessages());
+        }
     }
     updateQueueStatus();
 }
@@ -3930,106 +3950,78 @@ void MainWindow::onDocumentCompleteText() {
         textBeforeCursor = documentEditorView->toPlainText();
     }
 
-    QString prompt = QString("Please complete the following text. Only output the continuation, nothing else:\n\n%1")
-                         .arg(textBeforeCursor);
+    QSettings settings;
+    QString defaultPrompt =
+        settings
+            .value("prompt_complete_text",
+                   "Please complete the following text. Only output the continuation, nothing else:\n\n{context}")
+            .toString();
 
-    m_isGenerating = true;
-    m_generationId++;
-    int currentGenId = m_generationId;
-    int targetDocumentId = currentDocumentId;
+    AiActionDialog dialog("Complete Text", "Edit the prompt for AI completion:", defaultPrompt, textBeforeCursor, this);
+    if (dialog.exec() != QDialog::Accepted) return;
 
-    documentEditorView->setReadOnly(true);
-    statusBar->showMessage(tr("AI is completing text..."));
+    QString prompt = dialog.getPrompt();
+    if (prompt.isEmpty()) return;
 
     QString model = m_selectedModel;
     if (model.isEmpty() && !m_availableModels.isEmpty()) {
         model = m_availableModels.first();
     }
 
-    QTextCursor insertionCursor = documentEditorView->textCursor();
-
-    ollamaClient.generate(
-        model, prompt,
-        [this, currentGenId, targetDocumentId, insertionCursor](const QString& chunk) mutable {
-            if (m_generationId != currentGenId || currentDocumentId != targetDocumentId) return;
-            insertionCursor.insertText(chunk);
-        },
-        [this, currentGenId, targetDocumentId](const QString& response) {
-            if (m_generationId == currentGenId) {
-                m_isGenerating = false;
-                if (currentDocumentId == targetDocumentId) {
-                    documentEditorView->setReadOnly(false);
-                    statusBar->showMessage(tr("AI completed text."), 3000);
-                    saveDocBtn->click();
-                }
-            }
-        },
-        [this, currentGenId, targetDocumentId](const QString& error) {
-            if (m_generationId == currentGenId) {
-                m_isGenerating = false;
-                if (currentDocumentId == targetDocumentId) {
-                    documentEditorView->setReadOnly(false);
-                    statusBar->showMessage(tr("AI Error: ") + error, 5000);
-                }
-            }
-        });
+    QueueManager::instance().enqueuePrompt(currentDocumentId, model, prompt, 0, "document");
+    statusBar->showMessage(tr("AI completion task queued."), 3000);
 }
 
 void MainWindow::onDocumentReplaceEntirely() {
     if (m_isGenerating || !currentDb) return;
 
-    bool ok;
-    QString instructions =
-        QInputDialog::getText(this, tr("Replace Entirely"), tr("Instructions for AI to rewrite the entire document:"),
-                              QLineEdit::Normal, "", &ok);
-    if (!ok || instructions.isEmpty()) return;
+    QSettings settings;
+    QString defaultPrompt =
+        settings
+            .value("prompt_replace_entirely",
+                   "Rewrite the following document according to your instructions. Only output the rewritten document, "
+                   "nothing else.\n\nInstructions: <your instructions here>\n\nDocument:\n{context}")
+            .toString();
 
-    QString prompt = QString(
-                         "Rewrite the following document according to these instructions: %1\n\nOnly output the "
-                         "rewritten document, nothing else.\n\nDocument:\n%2")
-                         .arg(instructions, documentEditorView->toPlainText());
+    AiActionDialog dialog("Replace Entirely", "Edit the prompt for rewriting the entire document:", defaultPrompt,
+                          documentEditorView->toPlainText(), this);
+    if (dialog.exec() != QDialog::Accepted) return;
 
-    m_isGenerating = true;
-    m_generationId++;
-    int currentGenId = m_generationId;
-    int targetDocumentId = currentDocumentId;
+    QString prompt = dialog.getPrompt();
+    if (prompt.isEmpty()) return;
 
-    documentEditorView->setReadOnly(true);
-    documentEditorView->clear();  // We are replacing entirely
-    statusBar->showMessage(tr("AI is rewriting document..."));
+    // Create a fork of the document instead of replacing
+    QString originalTitle = "";
+    int folderId = 0;
+    QList<DocumentNode> docs = currentDb->getDocuments();
+    for (const auto& doc : docs) {
+        if (doc.id == currentDocumentId) {
+            originalTitle = doc.title;
+            folderId = doc.folderId;
+            break;
+        }
+    }
+
+    int newDocumentId = currentDb->addDocument(folderId, originalTitle + " (Rewritten)", "", currentDocumentId);
+    if (newDocumentId > 0) {
+        currentDocumentId = newDocumentId;
+        loadDocumentsAndNotes();  // Reload tree to show the new fork
+        QStandardItem* newItem = findItemInTree(currentDocumentId, "document");
+        if (newItem) {
+            openBooksTree->setCurrentIndex(newItem->index());
+        }
+    } else {
+        QMessageBox::warning(this, tr("Error"), tr("Failed to create document fork."));
+        return;
+    }
 
     QString model = m_selectedModel;
     if (model.isEmpty() && !m_availableModels.isEmpty()) {
         model = m_availableModels.first();
     }
 
-    QTextCursor insertionCursor = documentEditorView->textCursor();
-
-    ollamaClient.generate(
-        model, prompt,
-        [this, currentGenId, targetDocumentId, insertionCursor](const QString& chunk) mutable {
-            if (m_generationId != currentGenId || currentDocumentId != targetDocumentId) return;
-            insertionCursor.insertText(chunk);
-        },
-        [this, currentGenId, targetDocumentId](const QString& response) {
-            if (m_generationId == currentGenId) {
-                m_isGenerating = false;
-                if (currentDocumentId == targetDocumentId) {
-                    documentEditorView->setReadOnly(false);
-                    statusBar->showMessage(tr("AI replaced document."), 3000);
-                    saveDocBtn->click();
-                }
-            }
-        },
-        [this, currentGenId, targetDocumentId](const QString& error) {
-            if (m_generationId == currentGenId) {
-                m_isGenerating = false;
-                if (currentDocumentId == targetDocumentId) {
-                    documentEditorView->setReadOnly(false);
-                    statusBar->showMessage(tr("AI Error: ") + error, 5000);
-                }
-            }
-        });
+    QueueManager::instance().enqueuePrompt(currentDocumentId, model, prompt, 0, "document");
+    statusBar->showMessage(tr("AI rewrite task queued."), 3000);
 }
 
 void MainWindow::onDocumentReplaceInPlace() {
@@ -4045,57 +4037,55 @@ void MainWindow::onDocumentReplaceInPlace() {
     // In QTextEdit, newlines in selected text are represented as QChar::ParagraphSeparator
     selectedText.replace(QChar::ParagraphSeparator, '\n');
 
-    bool ok;
-    QString instructions = QInputDialog::getText(
-        this, tr("Replace in place"), tr("Instructions to rewrite the selected text:"), QLineEdit::Normal, "", &ok);
-    if (!ok || instructions.isEmpty()) return;
+    QSettings settings;
+    QString defaultPrompt =
+        settings
+            .value("prompt_replace_in_place",
+                   "Rewrite the following text according to your instructions. Only output the rewritten text, nothing "
+                   "else.\n\nInstructions: <your instructions here>\n\nText:\n{context}")
+            .toString();
 
-    QString prompt = QString(
-                         "Rewrite the following text according to these instructions: %1\n\nOnly output the rewritten "
-                         "text, nothing else.\n\nText:\n%2")
-                         .arg(instructions, selectedText);
+    AiActionDialog dialog("Replace in place", "Edit the prompt for rewriting the selected text:", defaultPrompt,
+                          selectedText, this);
+    if (dialog.exec() != QDialog::Accepted) return;
 
-    m_isGenerating = true;
-    m_generationId++;
-    int currentGenId = m_generationId;
-    int targetDocumentId = currentDocumentId;
+    QString prompt = dialog.getPrompt();
+    if (prompt.isEmpty()) return;
 
-    documentEditorView->setReadOnly(true);
-    // Erase the selection
-    cursor.removeSelectedText();
+    // Create a fork of the document
+    QString originalTitle = "";
+    int folderId = 0;
+    QList<DocumentNode> docs = currentDb->getDocuments();
+    for (const auto& doc : docs) {
+        if (doc.id == currentDocumentId) {
+            originalTitle = doc.title;
+            folderId = doc.folderId;
+            break;
+        }
+    }
 
-    statusBar->showMessage(tr("AI is replacing text..."));
+    QString currentContent = documentEditorView->toPlainText();
+    int newDocumentId =
+        currentDb->addDocument(folderId, originalTitle + " (Modified)", currentContent, currentDocumentId);
+
+    if (newDocumentId > 0) {
+        currentDocumentId = newDocumentId;
+        loadDocumentsAndNotes();  // Reload tree to show the new fork
+        // Find and select the new item
+        QStandardItem* newItem = findItemInTree(currentDocumentId, "document");
+        if (newItem) {
+            openBooksTree->setCurrentIndex(newItem->index());
+        }
+    } else {
+        QMessageBox::warning(this, tr("Error"), tr("Failed to create document fork."));
+        return;
+    }
 
     QString model = m_selectedModel;
     if (model.isEmpty() && !m_availableModels.isEmpty()) {
         model = m_availableModels.first();
     }
 
-    QTextCursor insertionCursor = documentEditorView->textCursor();
-
-    ollamaClient.generate(
-        model, prompt,
-        [this, currentGenId, targetDocumentId, insertionCursor](const QString& chunk) mutable {
-            if (m_generationId != currentGenId || currentDocumentId != targetDocumentId) return;
-            insertionCursor.insertText(chunk);
-        },
-        [this, currentGenId, targetDocumentId](const QString& response) {
-            if (m_generationId == currentGenId) {
-                m_isGenerating = false;
-                if (currentDocumentId == targetDocumentId) {
-                    documentEditorView->setReadOnly(false);
-                    statusBar->showMessage(tr("AI replaced text."), 3000);
-                    saveDocBtn->click();
-                }
-            }
-        },
-        [this, currentGenId, targetDocumentId](const QString& error) {
-            if (m_generationId == currentGenId) {
-                m_isGenerating = false;
-                if (currentDocumentId == targetDocumentId) {
-                    documentEditorView->setReadOnly(false);
-                    statusBar->showMessage(tr("AI Error: ") + error, 5000);
-                }
-            }
-        });
+    QueueManager::instance().enqueuePrompt(currentDocumentId, model, prompt, 0, "document");
+    statusBar->showMessage(tr("AI replace in-place task queued."), 3000);
 }

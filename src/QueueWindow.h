@@ -2,19 +2,20 @@
 #define QUEUEWINDOW_H
 
 #include <QDialog>
+#include <QHBoxLayout>
+#include <QLabel>
 #include <QListWidget>
 #include <QPushButton>
 #include <QVBoxLayout>
-#include <QHBoxLayout>
-#include <QLabel>
+
 #include "QueueManager.h"
 
 class QueueWindow : public QDialog {
     Q_OBJECT
-public:
+   public:
     explicit QueueWindow(QWidget* parent = nullptr);
 
-private slots:
+   private slots:
     void refresh();
     void onCancelItem();
     void onRetryItem();
@@ -23,7 +24,7 @@ private slots:
     void onMoveDown();
     void onClearCompleted();
 
-private:
+   private:
     QListWidget* m_queueList;
     QPushButton* m_cancelBtn;
     QPushButton* m_retryBtn;
@@ -35,4 +36,4 @@ private:
     void updateButtons();
 };
 
-#endif // QUEUEWINDOW_H
+#endif  // QUEUEWINDOW_H
