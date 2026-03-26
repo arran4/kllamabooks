@@ -75,18 +75,10 @@ ChatSettingsDialog::ChatSettingsDialog(const QString& initialSystemPrompt, const
     connect(saveBtn, &QPushButton::clicked, this, &QDialog::accept);
 }
 
-QString ChatSettingsDialog::getSystemPrompt() const {
-    return m_systemPromptEdit->toPlainText().trimmed();
-}
+QString ChatSettingsDialog::getSystemPrompt() const { return m_systemPromptEdit->toPlainText().trimmed(); }
 
-QString ChatSettingsDialog::getSendBehavior() const {
-    return m_sendBehaviorCombo->currentData().toString();
-}
+QString ChatSettingsDialog::getSendBehavior() const { return m_sendBehaviorCombo->currentData().toString(); }
 
-QString ChatSettingsDialog::getModel() const {
-    return m_modelCombo->currentData().toString();
-}
+QString ChatSettingsDialog::getModel() const { return m_modelCombo->currentData().toString(); }
 
-QString ChatSettingsDialog::getMultiLine() const {
-    return m_multiLineCombo->currentData().toString();
-}
+QString ChatSettingsDialog::getMultiLine() const { return m_multiLineCombo->currentData().toString(); }

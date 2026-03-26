@@ -103,9 +103,9 @@ class MainWindow : public KXmlGuiWindow {
     void updateTreeMarkersRecursive(QStandardItem* parent, const QList<Notification>& notifications);
     void updateVfsMarkers(const QList<Notification>& notifications);
     bool moveItemToFolder(QStandardItem* draggedItem, QStandardItem* targetItem, bool isCopy = false);
-    void onQueueChunk(std::shared_ptr<BookDatabase> db, int messageId, const QString& chunk);
-    void onProcessingStarted(std::shared_ptr<BookDatabase> db, int messageId);
-    void onProcessingFinished(std::shared_ptr<BookDatabase> db, int messageId, bool success);
+    void onQueueChunk(std::shared_ptr<BookDatabase> db, int messageId, const QString& chunk, const QString& targetType);
+    void onProcessingStarted(std::shared_ptr<BookDatabase> db, int messageId, const QString& targetType);
+    void onProcessingFinished(std::shared_ptr<BookDatabase> db, int messageId, bool success, const QString& targetType);
 
    protected:
     void closeEvent(QCloseEvent* event) override;

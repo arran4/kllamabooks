@@ -43,6 +43,8 @@ add_executable(kllamabooks
     src/NotificationDelegate.h
     src/ChatInputWidget.cpp
     src/ChatInputWidget.h
+    src/AiActionDialog.cpp
+    src/AiActionDialog.h
     src/resources.qrc
 )
 

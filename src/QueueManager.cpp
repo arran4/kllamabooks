@@ -1,8 +1,8 @@
 #include "QueueManager.h"
 
 #include <QDebug>
-#include <QTimer>
 #include <QRegularExpression>
+#include <QTimer>
 
 QueueManager& QueueManager::instance() {
     static QueueManager instance;
@@ -59,9 +59,10 @@ void QueueManager::setActiveDatabase(std::shared_ptr<BookDatabase> db) {
 
 void QueueManager::setClient(OllamaClient* client) { m_client = client; }
 
-void QueueManager::enqueuePrompt(int messageId, const QString& model, const QString& prompt, int priority) {
+void QueueManager::enqueuePrompt(int messageId, const QString& model, const QString& prompt, int priority,
+                                 const QString& targetType) {
     if (m_activeDb && m_activeDb->isOpen()) {
-        m_activeDb->enqueuePrompt(messageId, model, prompt, priority);
+        m_activeDb->enqueuePrompt(messageId, model, prompt, priority, targetType);
         emit queueChanged();
         QTimer::singleShot(0, this, &QueueManager::checkQueue);
     }
@@ -169,41 +170,43 @@ void QueueManager::processNext() {
     };
 
     QString lastModel = m_lastProcessedModel;
-    std::sort(allPending.begin(), allPending.end(), [processingMode, getModelSize, prioritizeSameModel, lastModel](const QueueManager::MergedQueueItem& a, const QueueManager::MergedQueueItem& b) {
-        if (a.item.priority != b.item.priority) {
-            return a.item.priority > b.item.priority;
-        }
+    std::sort(allPending.begin(), allPending.end(),
+              [processingMode, getModelSize, prioritizeSameModel, lastModel](const QueueManager::MergedQueueItem& a,
+                                                                             const QueueManager::MergedQueueItem& b) {
+                  if (a.item.priority != b.item.priority) {
+                      return a.item.priority > b.item.priority;
+                  }
 
-        if (prioritizeSameModel && !lastModel.isEmpty()) {
-            bool aMatches = (a.item.model == lastModel);
-            bool bMatches = (b.item.model == lastModel);
-            if (aMatches && !bMatches) return true;
-            if (!aMatches && bMatches) return false;
-        }
+                  if (prioritizeSameModel && !lastModel.isEmpty()) {
+                      bool aMatches = (a.item.model == lastModel);
+                      bool bMatches = (b.item.model == lastModel);
+                      if (aMatches && !bMatches) return true;
+                      if (!aMatches && bMatches) return false;
+                  }
 
-        if (processingMode == "LCFS") {
-            return a.item.timestamp > b.item.timestamp;
-        } else if (processingMode == "Smallest message first") {
-            return a.item.prompt.length() < b.item.prompt.length();
-        } else if (processingMode == "Largest message first") {
-            return a.item.prompt.length() > b.item.prompt.length();
-        } else if (processingMode == "Smallest model first" || processingMode == "Largest model first") {
-            double sizeA = getModelSize(a.item.model);
-            double sizeB = getModelSize(b.item.model);
+                  if (processingMode == "LCFS") {
+                      return a.item.timestamp > b.item.timestamp;
+                  } else if (processingMode == "Smallest message first") {
+                      return a.item.prompt.length() < b.item.prompt.length();
+                  } else if (processingMode == "Largest message first") {
+                      return a.item.prompt.length() > b.item.prompt.length();
+                  } else if (processingMode == "Smallest model first" || processingMode == "Largest model first") {
+                      double sizeA = getModelSize(a.item.model);
+                      double sizeB = getModelSize(b.item.model);
 
-            if (sizeA != sizeB) {
-                if (processingMode == "Smallest model first") {
-                    return sizeA < sizeB;
-                } else {
-                    return sizeA > sizeB;
-                }
-            } else {
-                return a.item.model.compare(b.item.model) < 0; // Fallback to string comparison
-            }
-        } else { // FCFS
-            return a.item.timestamp < b.item.timestamp;
-        }
-    });
+                      if (sizeA != sizeB) {
+                          if (processingMode == "Smallest model first") {
+                              return sizeA < sizeB;
+                          } else {
+                              return sizeA > sizeB;
+                          }
+                      } else {
+                          return a.item.model.compare(b.item.model) < 0;  // Fallback to string comparison
+                      }
+                  } else {  // FCFS
+                      return a.item.timestamp < b.item.timestamp;
+                  }
+              });
 
     auto nextItem = allPending.first();
     m_currentDb = nextItem.db;
@@ -212,7 +215,7 @@ void QueueManager::processNext() {
     m_isProcessing = true;
     m_currentDb->updateQueueStatus(m_currentItem.id, "processing");
     m_lastProcessedModel = m_currentItem.model;
-    emit processingStarted(m_currentDb, m_currentItem.messageId);
+    emit processingStarted(m_currentDb, m_currentItem.messageId, m_currentItem.targetType);
     emit queueChanged();
 
     QString sysPrompt = m_currentDb->getInheritedSetting(m_currentItem.messageId, "systemPrompt");
@@ -233,30 +236,56 @@ void QueueManager::processNext() {
 void QueueManager::onChunk(const QString& chunk) {
     if (!m_isProcessing) return;
     if (m_currentDb && m_currentDb->isOpen()) {
-        // Get existing content and append
-        auto messages = m_currentDb->getMessages();
         QString currentContent;
-        for (const auto& m : messages) {
-            if (m.id == m_currentItem.messageId) {
-                currentContent = m.content;
-                break;
+        if (m_currentItem.targetType == "document") {
+            auto docs = m_currentDb->getDocuments();
+            QString title;
+            for (const auto& d : docs) {
+                if (d.id == m_currentItem.messageId) {
+                    currentContent = d.content;
+                    title = d.title;
+                    break;
+                }
             }
+            m_currentDb->updateDocument(m_currentItem.messageId, title, currentContent + chunk);
+        } else {
+            // Get existing content and append
+            auto messages = m_currentDb->getMessages();
+            for (const auto& m : messages) {
+                if (m.id == m_currentItem.messageId) {
+                    currentContent = m.content;
+                    break;
+                }
+            }
+            m_currentDb->updateMessage(m_currentItem.messageId, currentContent + chunk);
         }
-        m_currentDb->updateMessage(m_currentItem.messageId, currentContent + chunk);
-        emit processingChunk(m_currentDb, m_currentItem.messageId, chunk);
+        emit processingChunk(m_currentDb, m_currentItem.messageId, chunk, m_currentItem.targetType);
     }
 }
 
 void QueueManager::onComplete(const QString& response) {
     if (!m_isProcessing) return;
     if (m_currentDb && m_currentDb->isOpen()) {
-        m_currentDb->updateMessage(m_currentItem.messageId, response);
+        if (m_currentItem.targetType == "document") {
+            auto docs = m_currentDb->getDocuments();
+            QString title;
+            for (const auto& d : docs) {
+                if (d.id == m_currentItem.messageId) {
+                    title = d.title;
+                    break;
+                }
+            }
+            m_currentDb->updateDocument(m_currentItem.messageId, title, response);
+        } else {
+            m_currentDb->updateMessage(m_currentItem.messageId, response);
+        }
+
         m_currentItem.status = "completed";
         m_completedItems.append({m_currentDb, m_currentItem});
         m_currentDb->deleteQueueItem(m_currentItem.id);
         m_currentDb->addNotification(m_currentItem.messageId, "responded_to");
 
-        m_currentDb->setSetting("message", m_currentItem.messageId, "model", m_currentItem.model);
+        m_currentDb->setSetting(m_currentItem.targetType, m_currentItem.messageId, "model", m_currentItem.model);
 
         QString sysPrompt = m_currentDb->getInheritedSetting(m_currentItem.messageId, "systemPrompt");
         if (sysPrompt.isEmpty()) {
@@ -266,10 +295,10 @@ void QueueManager::onComplete(const QString& response) {
             QSettings settings;
             sysPrompt = settings.value("globalSystemPrompt", "").toString();
         }
-        m_currentDb->setSetting("message", m_currentItem.messageId, "systemPrompt", sysPrompt);
+        m_currentDb->setSetting(m_currentItem.targetType, m_currentItem.messageId, "systemPrompt", sysPrompt);
     }
     m_isProcessing = false;
-    emit processingFinished(m_currentDb, m_currentItem.messageId, true);
+    emit processingFinished(m_currentDb, m_currentItem.messageId, true, m_currentItem.targetType);
     emit queueChanged();
 
     // Pick up next item after a short delay to avoid tight loop issues
@@ -283,7 +312,7 @@ void QueueManager::onError(const QString& error) {
         m_currentDb->addNotification(m_currentItem.messageId, "error");
     }
     m_isProcessing = false;
-    emit processingFinished(m_currentDb, m_currentItem.messageId, false);
+    emit processingFinished(m_currentDb, m_currentItem.messageId, false, m_currentItem.targetType);
     emit queueChanged();
 
     QTimer::singleShot(500, this, &QueueManager::checkQueue);

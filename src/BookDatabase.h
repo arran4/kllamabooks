@@ -50,6 +50,7 @@ struct QueueItem {
     QString status;  // "pending", "processing", "completed", "error", "paused"
     int priority;
     QDateTime timestamp;
+    QString targetType;  // "message" or "document"
 };
 
 struct CommentNode {
@@ -126,7 +127,8 @@ class BookDatabase {
     bool moveFolder(int id, int newParentId);
 
     // Queue
-    int enqueuePrompt(int messageId, const QString& model, const QString& prompt, int priority = 0);
+    int enqueuePrompt(int messageId, const QString& model, const QString& prompt, int priority = 0,
+                      const QString& targetType = "message");
     QList<QueueItem> getQueue() const;
     bool updateQueueStatus(int id, const QString& status);
     bool updateQueueItemPrompt(int id, const QString& prompt);

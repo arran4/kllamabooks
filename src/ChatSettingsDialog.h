@@ -1,10 +1,10 @@
 #ifndef CHATSETTINGSDIALOG_H
 #define CHATSETTINGSDIALOG_H
 
-#include <QDialog>
-#include <QTextEdit>
 #include <QComboBox>
+#include <QDialog>
 #include <QString>
+#include <QTextEdit>
 
 class ChatSettingsDialog : public QDialog {
     Q_OBJECT
