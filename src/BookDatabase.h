@@ -132,6 +132,7 @@ class BookDatabase {
     QList<QueueItem> getQueue() const;
     bool updateQueueStatus(int id, const QString& status);
     bool updateQueueItemPrompt(int id, const QString& prompt);
+    void cleanupDeadProcessingItems();
     bool deleteQueueItem(int id);
 
     // Comments

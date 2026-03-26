@@ -150,6 +150,7 @@ void QueueManager::processNext() {
     QList<QueueManager::MergedQueueItem> allPending;
     for (auto db : m_databases) {
         if (!db || !db->isOpen()) continue;
+        db->cleanupDeadProcessingItems();
         auto items = db->getQueue();
         for (const auto& item : items) {
             if (item.status == "pending") {

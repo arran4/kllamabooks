@@ -2,13 +2,20 @@
 
 #include <sqlcipher/sqlite3.h>
 
+#include <QCoreApplication>
 #include <QDateTime>
 #include <QDebug>
 #include <QFile>
 #include <QVariant>
+#include <cerrno>
+
+#ifdef Q_OS_UNIX
+#include <signal.h>
+#include <sys/types.h>
+#endif
 
 namespace {
-constexpr int CURRENT_SCHEMA_VERSION = 9;
+constexpr int CURRENT_SCHEMA_VERSION = 10;
 }
 
 BookDatabase::BookDatabase(const QString& filepath) : m_filepath(filepath), m_db(nullptr), m_isOpen(false) {}
@@ -49,9 +56,7 @@ bool BookDatabase::open(const QString& password) {
     m_isOpen = true;
     initSchema();
 
-    // Reset processing queue items to pending on reconnect
-    sqlite3_exec((sqlite3*)m_db, "UPDATE queue SET status = 'pending' WHERE status = 'processing';", nullptr, nullptr,
-                 nullptr);
+    cleanupDeadProcessingItems();
 
     return true;
 }
@@ -291,6 +296,15 @@ bool BookDatabase::initSchema() {
                      nullptr);
         sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 9;", nullptr, nullptr, nullptr);
         userVersion = 9;
+    }
+
+    if (userVersion < 10) {
+        sqlite3_exec((sqlite3*)m_db, "ALTER TABLE queue ADD COLUMN processing_pid INTEGER DEFAULT 0;", nullptr, nullptr,
+                     nullptr);
+        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (10);", nullptr, nullptr,
+                     nullptr);
+        sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 10;", nullptr, nullptr, nullptr);
+        userVersion = 10;
     }
 
     return true;
@@ -959,13 +973,64 @@ QList<QueueItem> BookDatabase::getQueue() const {
     return items;
 }
 
+void BookDatabase::cleanupDeadProcessingItems() {
+    if (!m_isOpen) return;
+
+    // Reset processing queue items to pending if the processing process is dead
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2((sqlite3*)m_db, "SELECT id, processing_pid FROM queue WHERE status = 'processing';", -1,
+                           &stmt, nullptr) == SQLITE_OK) {
+        QList<int> idsToReset;
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            int id = sqlite3_column_int(stmt, 0);
+            int pid = sqlite3_column_int(stmt, 1);
+            if (pid == 0) {
+                idsToReset.append(id);
+            } else {
+#ifdef Q_OS_UNIX
+                if (kill(pid, 0) != 0 && errno == ESRCH) {
+                    idsToReset.append(id);
+                } else {
+                    // Check if the process name matches kllamabooks to handle PID reuse
+                    QFile commFile(QString("/proc/%1/comm").arg(pid));
+                    if (commFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                        QString processName = QString(commFile.readAll()).trimmed();
+                        if (processName != "kllamabooks") {
+                            idsToReset.append(id);
+                        }
+                    } else {
+                        // If we can't read /proc for some reason, assume it's safe to reset just in case
+                        // but normally /proc/pid/comm should be readable if the process belongs to us
+                        idsToReset.append(id);
+                    }
+                }
+#else
+                // Simple fallback for non-Unix if needed, though KllamaBooks is KDE/Linux targeted.
+                // You could check processes using Windows API, but for now we reset.
+                idsToReset.append(id);
+#endif
+            }
+        }
+        sqlite3_finalize(stmt);
+
+        for (int id : idsToReset) {
+            updateQueueStatus(id, "pending");
+        }
+    }
+}
+
 bool BookDatabase::updateQueueStatus(int id, const QString& status) {
     if (!m_isOpen) return false;
-    const char* sql = "UPDATE queue SET status = ? WHERE id = ?;";
+    const char* sql = "UPDATE queue SET status = ?, processing_pid = ? WHERE id = ?;";
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
     sqlite3_bind_text(stmt, 1, status.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int(stmt, 2, id);
+    if (status == "processing") {
+        sqlite3_bind_int(stmt, 2, QCoreApplication::applicationPid());
+    } else {
+        sqlite3_bind_int(stmt, 2, 0);
+    }
+    sqlite3_bind_int(stmt, 3, id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
     return rc == SQLITE_DONE;
