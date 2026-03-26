@@ -3806,11 +3806,14 @@ void MainWindow::updateVfsMarkers(const QList<Notification>& notifications) {
         for (int i = 0; i < vfsModel->rowCount(); ++i) {
             QStandardItem* item = vfsModel->item(i);
             int id = item->data(Qt::UserRole).toInt();
+            QString itemType = item->data(Qt::UserRole + 1).toString();
             int nType = 0;
-            for (const auto& n : notifications) {
-                if (n.messageId == id && !n.isDismissed) {
-                    nType = (n.type == "error") ? 2 : 1;
-                    break;
+            if (itemType == "chat_node") {
+                for (const auto& n : notifications) {
+                    if (n.messageId == id && !n.isDismissed) {
+                        nType = (n.type == "error") ? 2 : 1;
+                        break;
+                    }
                 }
             }
             item->setData(nType, Qt::UserRole + 10);
@@ -3820,11 +3823,14 @@ void MainWindow::updateVfsMarkers(const QList<Notification>& notifications) {
         for (int i = 0; i < forkExplorerModel->rowCount(); ++i) {
             QStandardItem* item = forkExplorerModel->item(i);
             int id = item->data(Qt::UserRole).toInt();
+            QString itemType = item->data(Qt::UserRole + 1).toString();
             int nType = 0;
-            for (const auto& n : notifications) {
-                if (n.messageId == id && !n.isDismissed) {
-                    nType = (n.type == "error") ? 2 : 1;
-                    break;
+            if (itemType == "chat_node") {
+                for (const auto& n : notifications) {
+                    if (n.messageId == id && !n.isDismissed) {
+                        nType = (n.type == "error") ? 2 : 1;
+                        break;
+                    }
                 }
             }
             item->setData(nType, Qt::UserRole + 10);
@@ -3838,11 +3844,14 @@ void MainWindow::updateTreeMarkersRecursive(QStandardItem* parent, const QList<N
         QStandardItem* child = parent->child(i);
         if (!child) continue;
         int messageId = child->data(Qt::UserRole).toInt();
+        QString itemType = child->data(Qt::UserRole + 1).toString();
         int notifyType = 0;
-        for (const auto& n : notifications) {
-            if (n.messageId == messageId && !n.isDismissed) {
-                notifyType = (n.type == "error") ? 2 : 1;
-                break;
+        if (itemType == "chat_node") {
+            for (const auto& n : notifications) {
+                if (n.messageId == messageId && !n.isDismissed) {
+                    notifyType = (n.type == "error") ? 2 : 1;
+                    break;
+                }
             }
         }
         child->setData(notifyType, Qt::UserRole + 10);
