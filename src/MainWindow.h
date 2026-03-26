@@ -86,6 +86,7 @@ class MainWindow : public KXmlGuiWindow {
     void onDocumentCompleteText();
     void onDocumentReplaceEntirely();
     void onDocumentReplaceInPlace();
+    void showItemContextMenu(QStandardItem* item, const QPoint& globalPos);
     void showOpenBookContextMenu(const QPoint& pos);
     void showVfsContextMenu(const QPoint& pos);
     void showInputSettingsMenu();
