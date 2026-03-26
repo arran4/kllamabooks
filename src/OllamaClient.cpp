@@ -23,6 +23,9 @@ QString OllamaClient::getBaseUrl() const { return m_baseUrl; }
 
 void OllamaClient::setSystemPrompt(const QString& prompt) { m_systemPrompt = prompt; }
 
+/**
+ * @brief Issues a REST GET to discover installed model tags on the local Ollama daemon.
+ */
 void OllamaClient::fetchModels() {
     QUrl url(m_baseUrl + "/api/tags");
     QNetworkRequest request(url);
@@ -54,6 +57,11 @@ void OllamaClient::fetchModels() {
     });
 }
 
+/**
+ * @brief Issues a REST POST to request downloading a model from the public Ollama registry.
+ *
+ * @param modelName The registry namespace tag.
+ */
 void OllamaClient::pullModel(const QString& modelName) {
     QUrl url(m_baseUrl + "/api/pull");
     QNetworkRequest request(url);
@@ -113,6 +121,15 @@ void OllamaClient::pullModel(const QString& modelName) {
     });
 }
 
+/**
+ * @brief Opens a POST stream sequence to the Ollama generate endpoint.
+ *
+ * @param model The target model hash or tag.
+ * @param prompt The complete inference string.
+ * @param onChunk Fired per JSON line received.
+ * @param onComplete Fired when the JSON EOF boolean is detected.
+ * @param onError Fired on socket or HTTP error conditions.
+ */
 void OllamaClient::generate(const QString& model, const QString& prompt, std::function<void(const QString&)> onChunk,
                             std::function<void(const QString&)> onComplete,
                             std::function<void(const QString&)> onError) {
