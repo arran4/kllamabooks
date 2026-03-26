@@ -1,5 +1,6 @@
 #include "QueueManager.h"
 
+#include <QCoreApplication>
 #include <QDebug>
 #include <QRegularExpression>
 #include <QTimer>
@@ -34,7 +35,7 @@ void QueueManager::removeDatabase(std::shared_ptr<BookDatabase> db) {
 
 void QueueManager::retryItem(std::shared_ptr<BookDatabase> db, int queueId) {
     if (db) {
-        db->updateQueueStatus(queueId, "pending");
+        db->updateQueueError(queueId, "");
         emit queueChanged();
         QTimer::singleShot(0, this, &QueueManager::checkQueue);
     }
@@ -43,7 +44,7 @@ void QueueManager::retryItem(std::shared_ptr<BookDatabase> db, int queueId) {
 void QueueManager::modifyItem(std::shared_ptr<BookDatabase> db, int queueId, const QString& newPrompt) {
     if (db) {
         db->updateQueueItemPrompt(queueId, newPrompt);
-        db->updateQueueStatus(queueId, "pending");
+        db->updateQueueError(queueId, "");
         emit queueChanged();
         QTimer::singleShot(0, this, &QueueManager::checkQueue);
     }
@@ -81,7 +82,7 @@ int QueueManager::pendingCount(std::shared_ptr<BookDatabase> db) const {
     auto queue = db->getQueue();
     int count = 0;
     for (const auto& item : queue) {
-        if (item.status == "pending") count++;
+        if (item.processingId == 0 && item.lastError.isEmpty()) count++;
     }
     return count;
 }
@@ -152,7 +153,7 @@ void QueueManager::processNext() {
         if (!db || !db->isOpen()) continue;
         auto items = db->getQueue();
         for (const auto& item : items) {
-            if (item.status == "pending") {
+            if (item.processingId == 0 && item.lastError.isEmpty()) {
                 allPending.append({db, item});
             }
         }
@@ -213,7 +214,8 @@ void QueueManager::processNext() {
     m_currentItem = nextItem.item;
 
     m_isProcessing = true;
-    m_currentDb->updateQueueStatus(m_currentItem.id, "processing");
+    m_currentItem.processingId = QCoreApplication::applicationPid();
+    m_currentDb->updateQueueProcessingId(m_currentItem.id, m_currentItem.processingId);
     m_lastProcessedModel = m_currentItem.model;
     emit processingStarted(m_currentDb, m_currentItem.messageId, m_currentItem.targetType);
     emit queueChanged();
@@ -280,7 +282,7 @@ void QueueManager::onComplete(const QString& response) {
             m_currentDb->updateMessage(m_currentItem.messageId, response);
         }
 
-        m_currentItem.status = "completed";
+        m_currentItem.processingId = 0;
         m_completedItems.append({m_currentDb, m_currentItem});
         m_currentDb->deleteQueueItem(m_currentItem.id);
         m_currentDb->addNotification(m_currentItem.messageId, "responded_to");
@@ -308,7 +310,7 @@ void QueueManager::onComplete(const QString& response) {
 void QueueManager::onError(const QString& error) {
     if (!m_isProcessing) return;
     if (m_currentDb && m_currentDb->isOpen()) {
-        m_currentDb->updateQueueStatus(m_currentItem.id, "error");
+        m_currentDb->updateQueueError(m_currentItem.id, error);
         m_currentDb->addNotification(m_currentItem.messageId, "error");
     }
     m_isProcessing = false;
