@@ -929,6 +929,7 @@ void MainWindow::setupUi() {
     connect(endpointComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
             &MainWindow::onActiveEndpointChanged);
     connect(&ollamaClient, &OllamaClient::connectionStatusChanged, this, &MainWindow::onConnectionStatusChanged);
+    connect(&ollamaClient, &OllamaClient::generationMetrics, this, &MainWindow::onGenerationMetrics);
 
     connect(newBookAction, &QAction::triggered, this, &MainWindow::onCreateBook);
     connect(bookList, &QListWidget::doubleClicked, this,
@@ -1130,6 +1131,10 @@ void MainWindow::onConnectionStatusChanged(bool isOk) {
         connectionStatusLabel->setText("🔴");
         connectionStatusLabel->setToolTip(tr("Disconnected / Error"));
     }
+}
+
+void MainWindow::onGenerationMetrics(double tokensPerSecond) {
+    statusLabel->setText(QString("Generation Speed: %1 tokens/sec").arg(tokensPerSecond, 0, 'f', 2));
 }
 
 void MainWindow::showSettingsDialog() {

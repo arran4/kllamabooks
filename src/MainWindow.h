@@ -75,6 +75,7 @@ class MainWindow : public KXmlGuiWindow {
     void onChatNodeSelected(const QModelIndex& current, const QModelIndex& previous);
     void onActiveEndpointChanged(int index);
     void onConnectionStatusChanged(bool isOk);
+    void onGenerationMetrics(double tokensPerSecond);
     void updateEndpointsList();
     void updateBreadcrumbs();
     void refreshVfsExplorer();
