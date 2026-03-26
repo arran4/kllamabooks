@@ -137,12 +137,21 @@ void OllamaClient::generate(const QString& model, const QString& prompt, std::fu
 
     QNetworkReply* reply = m_networkManager->post(request, data);
 
-    connect(reply, &QNetworkReply::readyRead, this, [reply, onChunk]() {
-        QByteArray chunk = reply->readAll();
-        // The stream gives us multiple JSON objects, often separated by newlines
-        QList<QByteArray> lines = chunk.split('\n');
-        for (const QByteArray& line : lines) {
+    // Create a persistent buffer for this request
+    std::shared_ptr<QByteArray> buffer = std::make_shared<QByteArray>();
+
+    connect(reply, &QNetworkReply::readyRead, this, [reply, onChunk, buffer]() {
+        buffer->append(reply->readAll());
+
+        while (true) {
+            int newlineIndex = buffer->indexOf('\n');
+            if (newlineIndex == -1) break;
+
+            QByteArray line = buffer->left(newlineIndex);
+            buffer->remove(0, newlineIndex + 1);
+
             if (line.trimmed().isEmpty()) continue;
+
             QJsonParseError error;
             QJsonDocument doc = QJsonDocument::fromJson(line, &error);
             if (error.error == QJsonParseError::NoError && doc.isObject()) {
@@ -154,11 +163,22 @@ void OllamaClient::generate(const QString& model, const QString& prompt, std::fu
         }
     });
 
-    connect(reply, &QNetworkReply::finished, this, [reply, onComplete, onError]() {
+    connect(reply, &QNetworkReply::finished, this, [reply, onChunk, onComplete, onError, buffer]() {
         if (reply->error() != QNetworkReply::NoError) {
             onError(reply->errorString());
         } else {
-            onComplete("");  // Pass empty string or full content if needed later
+            // Process any remaining data in the buffer
+            if (!buffer->trimmed().isEmpty()) {
+                QJsonParseError error;
+                QJsonDocument doc = QJsonDocument::fromJson(*buffer, &error);
+                if (error.error == QJsonParseError::NoError && doc.isObject()) {
+                    QString responsePart = doc.object().value("response").toString();
+                    if (!responsePart.isEmpty()) {
+                        onChunk(responsePart);
+                    }
+                }
+            }
+            onComplete("");  // Pass empty string since we handled chunks
         }
         reply->deleteLater();
     });

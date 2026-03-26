@@ -228,13 +228,16 @@ void QueueManager::processNext() {
     }
     m_client->setSystemPrompt(sysPrompt);
 
+    int currentQueueId = m_currentItem.id;
     m_client->generate(
-        m_currentItem.model, m_currentItem.prompt, [this](const QString& chunk) { onChunk(chunk); },
-        [this](const QString& response) { onComplete(response); }, [this](const QString& error) { onError(error); });
+        m_currentItem.model, m_currentItem.prompt,
+        [this, currentQueueId](const QString& chunk) { onChunk(currentQueueId, chunk); },
+        [this, currentQueueId](const QString& response) { onComplete(currentQueueId, response); },
+        [this, currentQueueId](const QString& error) { onError(currentQueueId, error); });
 }
 
-void QueueManager::onChunk(const QString& chunk) {
-    if (!m_isProcessing) return;
+void QueueManager::onChunk(int queueId, const QString& chunk) {
+    if (!m_isProcessing || m_currentItem.id != queueId) return;
     if (m_currentDb && m_currentDb->isOpen()) {
         QString currentContent;
         if (m_currentItem.targetType == "document") {
@@ -257,27 +260,44 @@ void QueueManager::onChunk(const QString& chunk) {
                     break;
                 }
             }
+            if (currentContent == "...") {
+                currentContent = "";
+            }
             m_currentDb->updateMessage(m_currentItem.messageId, currentContent + chunk);
         }
         emit processingChunk(m_currentDb, m_currentItem.messageId, chunk, m_currentItem.targetType);
     }
 }
 
-void QueueManager::onComplete(const QString& response) {
-    if (!m_isProcessing) return;
+void QueueManager::onComplete(int queueId, const QString& response) {
+    if (!m_isProcessing || m_currentItem.id != queueId) return;
     if (m_currentDb && m_currentDb->isOpen()) {
-        if (m_currentItem.targetType == "document") {
-            auto docs = m_currentDb->getDocuments();
-            QString title;
-            for (const auto& d : docs) {
-                if (d.id == m_currentItem.messageId) {
-                    title = d.title;
-                    break;
+        if (!response.isEmpty()) {
+            if (m_currentItem.targetType == "document") {
+                auto docs = m_currentDb->getDocuments();
+                QString title;
+                for (const auto& d : docs) {
+                    if (d.id == m_currentItem.messageId) {
+                        title = d.title;
+                        break;
+                    }
+                }
+                m_currentDb->updateDocument(m_currentItem.messageId, title, response);
+            } else {
+                m_currentDb->updateMessage(m_currentItem.messageId, response);
+            }
+        } else {
+            // If response is empty, it means chunks were correctly handled.
+            // But we should clean up the "..." if no chunks ever arrived.
+            if (m_currentItem.targetType == "message") {
+                auto messages = m_currentDb->getMessages();
+                for (const auto& m : messages) {
+                    if (m.id == m_currentItem.messageId && m.content == "...") {
+                        m_currentDb->updateMessage(m_currentItem.messageId, "");
+                        break;
+                    }
                 }
             }
-            m_currentDb->updateDocument(m_currentItem.messageId, title, response);
-        } else {
-            m_currentDb->updateMessage(m_currentItem.messageId, response);
         }
 
         m_currentItem.status = "completed";
@@ -305,8 +325,8 @@ void QueueManager::onComplete(const QString& response) {
     QTimer::singleShot(500, this, &QueueManager::checkQueue);
 }
 
-void QueueManager::onError(const QString& error) {
-    if (!m_isProcessing) return;
+void QueueManager::onError(int queueId, const QString& error) {
+    if (!m_isProcessing || m_currentItem.id != queueId) return;
     if (m_currentDb && m_currentDb->isOpen()) {
         m_currentDb->updateQueueStatus(m_currentItem.id, "error");
         m_currentDb->addNotification(m_currentItem.messageId, "error");

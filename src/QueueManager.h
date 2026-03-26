@@ -54,9 +54,9 @@ class QueueManager : public QObject {
 
    private slots:
     void checkQueue();
-    void onChunk(const QString& chunk);
-    void onComplete(const QString& response);
-    void onError(const QString& error);
+    void onChunk(int queueId, const QString& chunk);
+    void onComplete(int queueId, const QString& response);
+    void onError(int queueId, const QString& error);
 
    private:
     explicit QueueManager(QObject* parent = nullptr);
