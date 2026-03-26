@@ -21,7 +21,7 @@ QueueWindow::QueueWindow(QWidget* parent) : QDialog(parent) {
     m_cancelBtn = new QPushButton("Delete", this);
     m_retryBtn = new QPushButton("Retry", this);
     m_modifyBtn = new QPushButton("Modify", this);
-    m_spyBtn = new QPushButton("Spy", this);
+    m_spyBtn = new QPushButton("Global Spy", this);
     m_clearBtn = new QPushButton("Clear Completed", this);
 
     QPushButton* pauseBtn = new QPushButton(QueueManager::instance().isPaused() ? "Resume Queue" : "Pause Queue", this);
@@ -68,7 +68,6 @@ void QueueWindow::updateButtons() {
     if (!item) {
         m_retryBtn->setEnabled(false);
         m_modifyBtn->setEnabled(false);
-        m_spyBtn->setEnabled(false);
         return;
     }
 
@@ -76,18 +75,15 @@ void QueueWindow::updateButtons() {
     QString path = item->data(Qt::UserRole + 1).toString();
 
     bool isError = false;
-    bool isProcessing = false;
     for (const auto& mi : QueueManager::instance().getMergedQueue()) {
         if (mi.item.id == id && mi.db->filepath() == path) {
             isError = (mi.item.status == "error");
-            isProcessing = (mi.item.status == "processing");
             break;
         }
     }
 
     m_retryBtn->setEnabled(isError);
     m_modifyBtn->setEnabled(isError);
-    m_spyBtn->setEnabled(isProcessing);
 }
 
 void QueueWindow::refresh() {
@@ -171,25 +167,8 @@ void QueueWindow::onCancelItem() {
 }
 
 void QueueWindow::onSpyItem() {
-    auto item = m_queueList->currentItem();
-    if (!item) return;
-    int id = item->data(Qt::UserRole).toInt();
-    QString path = item->data(Qt::UserRole + 1).toString();
-
-    std::shared_ptr<BookDatabase> targetDb = nullptr;
-    QueueItem qItem;
-    for (const auto& mi : QueueManager::instance().getMergedQueue()) {
-        if (mi.item.id == id && mi.db->filepath() == path) {
-            targetDb = mi.db;
-            qItem = mi.item;
-            break;
-        }
-    }
-
-    if (!targetDb || qItem.status != "processing") return;
-
     QDialog* spyDialog = new QDialog(this);
-    spyDialog->setWindowTitle("Spying: " + qItem.model);
+    spyDialog->setWindowTitle("Global Spying");
     spyDialog->resize(500, 400);
 
     QVBoxLayout* layout = new QVBoxLayout(spyDialog);
@@ -197,41 +176,51 @@ void QueueWindow::onSpyItem() {
     textEdit->setReadOnly(true);
     layout->addWidget(textEdit);
 
-    QString currentContent;
-    if (qItem.targetType == "document") {
-        auto docs = targetDb->getDocuments();
-        for (const auto& d : docs) {
-            if (d.id == qItem.messageId) {
-                currentContent = d.content;
-                break;
+    // Initial check for currently processing items
+    for (const auto& mi : QueueManager::instance().getMergedQueue()) {
+        if (mi.item.status == "processing") {
+            spyDialog->setWindowTitle("Global Spying: " + mi.item.model);
+
+            QString currentContent;
+            if (mi.item.targetType == "document") {
+                auto docs = mi.db->getDocuments();
+                for (const auto& d : docs) {
+                    if (d.id == mi.item.messageId) {
+                        currentContent = d.content;
+                        break;
+                    }
+                }
+            } else {
+                auto messages = mi.db->getMessages();
+                for (const auto& m : messages) {
+                    if (m.id == mi.item.messageId) {
+                        currentContent = m.content;
+                        break;
+                    }
+                }
             }
-        }
-    } else {
-        auto messages = targetDb->getMessages();
-        for (const auto& m : messages) {
-            if (m.id == qItem.messageId) {
-                currentContent = m.content;
-                break;
-            }
+            textEdit->setPlainText(currentContent);
+            textEdit->moveCursor(QTextCursor::End);
+            break; // Just show the first processing one we find
         }
     }
-    textEdit->setPlainText(currentContent);
-    textEdit->moveCursor(QTextCursor::End);
+
+    connect(&QueueManager::instance(), &QueueManager::processingStarted, spyDialog,
+            [spyDialog, textEdit](std::shared_ptr<BookDatabase> db, int messageId, const QString& type) {
+                spyDialog->setWindowTitle("Global Spying (Generating...)");
+                textEdit->clear();
+            });
 
     connect(&QueueManager::instance(), &QueueManager::processingChunk, spyDialog,
-            [textEdit, targetDb, messageId = qItem.messageId](std::shared_ptr<BookDatabase> db, int mId, const QString& chunk, const QString& type) {
-                if (db == targetDb && mId == messageId) {
-                    textEdit->moveCursor(QTextCursor::End);
-                    textEdit->insertPlainText(chunk);
-                    textEdit->moveCursor(QTextCursor::End);
-                }
+            [textEdit](std::shared_ptr<BookDatabase> db, int mId, const QString& chunk, const QString& type) {
+                textEdit->moveCursor(QTextCursor::End);
+                textEdit->insertPlainText(chunk);
+                textEdit->moveCursor(QTextCursor::End);
             });
 
     connect(&QueueManager::instance(), &QueueManager::processingFinished, spyDialog,
-            [spyDialog, targetDb, messageId = qItem.messageId](std::shared_ptr<BookDatabase> db, int mId, bool success, const QString& type) {
-                if (db == targetDb && mId == messageId) {
-                    spyDialog->setWindowTitle(spyDialog->windowTitle() + (success ? " (Finished)" : " (Error)"));
-                }
+            [spyDialog](std::shared_ptr<BookDatabase> db, int mId, bool success, const QString& type) {
+                spyDialog->setWindowTitle("Global Spying (Idle)");
             });
 
     spyDialog->setAttribute(Qt::WA_DeleteOnClose);

@@ -2644,7 +2644,7 @@ void MainWindow::onSendMessage() {
     }
 
     // 2. Add Assistant placeholder
-    int aiId = currentDb->addMessage(userMsgId, "...", "assistant");
+    int aiId = currentDb->addMessage(userMsgId, "", "assistant");
     currentLastNodeId = aiId;
 
     // 3. Enqueue
