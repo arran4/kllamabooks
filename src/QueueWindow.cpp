@@ -4,8 +4,9 @@
 #include <QHeaderView>
 #include <QInputDialog>
 #include <QMessageBox>
+#include <QTextEdit>
 
-QueueWindow::QueueWindow(QWidget* parent) : QDialog(parent) {
+QueueWindow::QueueWindow(QWidget* parent) : QWidget(parent, Qt::Window) {
     setWindowTitle("LLM Request Queue");
     resize(600, 400);
 

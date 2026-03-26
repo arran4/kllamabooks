@@ -33,6 +33,8 @@
         </Menu>
         <Menu name="view">
             <text>&amp;View</text>
+            <Action name="show_queue" />
+            <Action name="show_spy" />
         </Menu>
         <Menu name="tools">
             <text>&amp;Tools</text>
@@ -62,5 +64,8 @@
         <Action name="new_draft" />
         <Separator />
         <Action name="create_folder" />
+        <Separator />
+        <Action name="show_queue" />
+        <Action name="show_spy" />
     </ToolBar>
 </gui>

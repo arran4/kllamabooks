@@ -1,16 +1,16 @@
 #ifndef QUEUEWINDOW_H
 #define QUEUEWINDOW_H
 
-#include <QDialog>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QListWidget>
 #include <QPushButton>
 #include <QVBoxLayout>
+#include <QWidget>
 
 #include "QueueManager.h"
 
-class QueueWindow : public QDialog {
+class QueueWindow : public QWidget {
     Q_OBJECT
    public:
     explicit QueueWindow(QWidget* parent = nullptr);
