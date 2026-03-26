@@ -2275,7 +2275,17 @@ void MainWindow::populateTree(QStandardItem* parentItem, int parentId, const QLi
 }
 
 /**
- * @brief Submits a user message from the input fields to the current chat session and triggers generation.
+ * @brief Core dispatch mechanism for ingesting user input and initiating the LLM generation cycle.
+ *
+ * Executed when the user hits the Enter key or Send button.
+ * 1. Resolves whether to pull text from the single-line input field or the multi-line editor box.
+ * 2. Enforces validation (e.g., ensuring a model is selected).
+ * 3. Commits the raw user string to the SQLite database as a new 'user' role message node.
+ *    - If starting a new session (currentLastNodeId == 0), it generates a short title and
+ *      places it in the correct chats folder.
+ *    - If continuing an existing session, it appends it as a child of the current leaf node.
+ * 4. Pushes the newly created interaction state to the QueueManager to begin background network processing.
+ * 5. Safely cleans the input buffers and synchronizes the UI views to reflect the new state.
  */
 void MainWindow::onSendMessage() {
     if (!currentDb) return;
@@ -4018,7 +4028,14 @@ void MainWindow::onVfsExplorerDoubleClicked(const QModelIndex& index) {
 }
 
 /**
- * @brief Saves the currently active document or draft to the database.
+ * @brief Persists the active document editor state back to the SQLite database.
+ *
+ * Activated by the 'Save Document' button or equivalent shortcuts. It evaluates whether the
+ * document is a newly minted unsaved buffer (isCreatingNewDoc) or an existing file being updated.
+ * It resolves the target parent folder ID and utilizes the respective BookDatabase method
+ * (addDocument, addTemplate, updateDocument, etc.) based on the item type metadata.
+ * If the document was being auto-saved as a transient draft, the temporary draft entry is purged
+ * upon successful explicit save.
  */
 void MainWindow::onSaveDocBtnClicked() {
     if (!currentDb) return;
@@ -4077,7 +4094,11 @@ void MainWindow::onSaveDocBtnClicked() {
 }
 
 /**
- * @brief Saves the currently active note or draft to the database.
+ * @brief Persists the active note editor state back to the SQLite database.
+ *
+ * Parallel in structure to onSaveDocBtnClicked, but exclusively targets the 'notes' schema.
+ * Determines if a new note record needs to be created or if an existing note (currentNoteId)
+ * should be updated. It identically cleans up any lingering auto-drafts associated with the session.
  */
 void MainWindow::onSaveNoteBtnClicked() {
     if (!currentDb) return;
