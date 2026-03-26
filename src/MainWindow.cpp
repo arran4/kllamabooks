@@ -10,6 +10,7 @@
 #include <QComboBox>
 #include <QCoreApplication>
 #include <QDate>
+#include <QDateTime>
 #include <QDebug>
 #include <QDesktopServices>
 #include <QDir>
@@ -17,6 +18,7 @@
 #include <QDragEnterEvent>
 #include <QDropEvent>
 #include <QFileDialog>
+#include <QGroupBox>
 #include <QGuiApplication>
 #include <QInputDialog>
 #include <QJsonArray>
@@ -30,6 +32,7 @@
 #include <QPointer>
 #include <QProcess>
 #include <QScreen>
+#include <QScrollArea>
 #include <QSettings>
 #include <QSpinBox>
 #include <QStandardPaths>
@@ -932,6 +935,7 @@ void MainWindow::setupUi() {
     connect(endpointComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
             &MainWindow::onActiveEndpointChanged);
     connect(&ollamaClient, &OllamaClient::connectionStatusChanged, this, &MainWindow::onConnectionStatusChanged);
+    connect(&ollamaClient, &OllamaClient::generationMetrics, this, &MainWindow::onGenerationMetrics);
 
     connect(newBookAction, &QAction::triggered, this, &MainWindow::onCreateBook);
     connect(bookList, &QListWidget::doubleClicked, this,
@@ -1035,6 +1039,14 @@ void MainWindow::setupUi() {
     QAction* aboutQtAction = new QAction(tr("About &Qt"), this);
     connect(aboutQtAction, &QAction::triggered, qApp, &QApplication::aboutQt);
     actionCollection()->addAction(QStringLiteral("about_qt"), aboutQtAction);
+
+    QAction* showQueueAction = new QAction(QIcon::fromTheme("view-list-details"), tr("Show Queue"), this);
+    connect(showQueueAction, &QAction::triggered, this, &MainWindow::showQueueWindow);
+    actionCollection()->addAction(QStringLiteral("show_queue"), showQueueAction);
+
+    QAction* showSpyAction = new QAction(QIcon::fromTheme("view-preview"), tr("Show Global Spy"), this);
+    connect(showSpyAction, &QAction::triggered, this, &MainWindow::showSpyWindow);
+    actionCollection()->addAction(QStringLiteral("show_spy"), showSpyAction);
 
     QAction* createFolderAction = new QAction(QIcon::fromTheme("folder-new"), tr("Create Folder"), this);
     actionCollection()->addAction(QStringLiteral("create_folder"), createFolderAction);
@@ -1141,6 +1153,10 @@ void MainWindow::onConnectionStatusChanged(bool isOk) {
         connectionStatusLabel->setText("🔴");
         connectionStatusLabel->setToolTip(tr("Disconnected / Error"));
     }
+}
+
+void MainWindow::onGenerationMetrics(double tokensPerSecond) {
+    statusLabel->setText(QString("Generation Speed: %1 tokens/sec").arg(tokensPerSecond, 0, 'f', 2));
 }
 
 void MainWindow::showSettingsDialog() {
@@ -1598,6 +1614,14 @@ void MainWindow::setupWindow() {
 
         QAction* showAction = trayMenu->addAction(tr("Show KLlamaBooks"));
         connect(showAction, &QAction::triggered, this, &MainWindow::show);
+
+        trayMenu->addSeparator();
+
+        QAction* showQueueMenuAction = trayMenu->addAction(QIcon::fromTheme("view-list-details"), tr("Show Queue"));
+        connect(showQueueMenuAction, &QAction::triggered, this, &MainWindow::showQueueWindow);
+
+        QAction* showSpyMenuAction = trayMenu->addAction(QIcon::fromTheme("view-preview"), tr("Show Global Spy"));
+        connect(showSpyMenuAction, &QAction::triggered, this, &MainWindow::showSpyWindow);
 
         trayMenu->addSeparator();
 
@@ -2753,7 +2777,7 @@ void MainWindow::onSendMessage() {
     }
 
     // 2. Add Assistant placeholder
-    int aiId = currentDb->addMessage(userMsgId, "...", "assistant");
+    int aiId = currentDb->addMessage(userMsgId, "", "assistant");
     currentLastNodeId = aiId;
 
     // 3. Enqueue
@@ -3647,10 +3671,41 @@ void MainWindow::updateNotificationStatus() {
             QString typeStr = (n.type == "error") ? tr("Error") : tr("Finished");
             QAction* action = notificationMenu->addAction(
                 QString("[%1] %2: Msg %3").arg(bookName, typeStr, QString::number(n.messageId)));
-            connect(action, &QAction::triggered, this, [this, db, n]() {
-                onQueueItemClicked(db, n.messageId);
-                db->dismissNotification(n.id);
-                updateNotificationStatus();
+            connect(action, &QAction::triggered, this, [this, db, n, bookName]() {
+                QDialog dialog(this);
+                dialog.setWindowTitle(tr("Notification Summary"));
+                QVBoxLayout* layout = new QVBoxLayout(&dialog);
+
+                QString typeStr = (n.type == "error") ? tr("Error") : tr("Finished");
+                QLabel* summary = new QLabel(QString("<b>Book:</b> %1<br><b>Status:</b> %2<br><b>Message ID:</b> %3")
+                                                 .arg(bookName, typeStr, QString::number(n.messageId)));
+                summary->setWordWrap(true);
+                layout->addWidget(summary);
+
+                QHBoxLayout* btnLayout = new QHBoxLayout();
+                QPushButton* gotoBtn = new QPushButton(tr("Goto Item"), &dialog);
+                QPushButton* dismissBtn = new QPushButton(tr("Dismiss"), &dialog);
+                QPushButton* closeBtn = new QPushButton(tr("Close"), &dialog);
+
+                btnLayout->addWidget(gotoBtn);
+                btnLayout->addWidget(dismissBtn);
+                btnLayout->addWidget(closeBtn);
+                layout->addLayout(btnLayout);
+
+                connect(gotoBtn, &QPushButton::clicked, [&]() {
+                    onQueueItemClicked(db, n.messageId);
+                    dialog.accept();
+                });
+
+                connect(dismissBtn, &QPushButton::clicked, [&]() {
+                    db->dismissNotification(n.id);
+                    updateNotificationStatus();
+                    dialog.accept();
+                });
+
+                connect(closeBtn, &QPushButton::clicked, &dialog, &QDialog::reject);
+
+                dialog.exec();
             });
         }
     }
@@ -3683,16 +3738,152 @@ void MainWindow::updateNotificationStatus() {
 void MainWindow::showNotificationMenu() { notificationBtn->showMenu(); }
 
 void MainWindow::showQueueWindow() {
-    QueueWindow* existing = this->findChild<QueueWindow*>();
-    if (existing) {
-        existing->show();
-        existing->raise();
-        existing->activateWindow();
+    if (m_queueWindow) {
+        m_queueWindow->show();
+        m_queueWindow->raise();
+        m_queueWindow->activateWindow();
         return;
     }
-    QueueWindow* qw = new QueueWindow(this);
+    QueueWindow* qw = new QueueWindow(nullptr);
     qw->setAttribute(Qt::WA_DeleteOnClose);
     qw->show();
+    m_queueWindow = qw;
+}
+
+class GlobalSpyWindow : public QWidget {
+   public:
+    GlobalSpyWindow(QWidget* parent = nullptr) : QWidget(parent, Qt::Window) {
+        setWindowTitle(tr("Global Spying"));
+        resize(600, 500);
+        setAttribute(Qt::WA_DeleteOnClose);
+
+        QVBoxLayout* baseLayout = new QVBoxLayout(this);
+        QScrollArea* scrollArea = new QScrollArea(this);
+        scrollArea->setWidgetResizable(true);
+        m_container = new QWidget(scrollArea);
+        m_layout = new QVBoxLayout(m_container);
+        m_layout->setAlignment(Qt::AlignTop);
+        scrollArea->setWidget(m_container);
+        baseLayout->addWidget(scrollArea);
+
+        // Initial check for currently processing items
+        for (const auto& mi : QueueManager::instance().getMergedQueue()) {
+            if (mi.item.processingId > 0) {
+                QString currentContent;
+                if (mi.item.targetType == "document") {
+                    auto docs = mi.db->getDocuments();
+                    for (const auto& d : docs) {
+                        if (d.id == mi.item.messageId) {
+                            currentContent = d.content;
+                            break;
+                        }
+                    }
+                } else {
+                    auto messages = mi.db->getMessages();
+                    for (const auto& m : messages) {
+                        if (m.id == mi.item.messageId) {
+                            currentContent = m.content;
+                            break;
+                        }
+                    }
+                }
+                addProcessBox(mi.db, mi.item.messageId, mi.item.model, currentContent);
+            }
+        }
+
+        connect(&QueueManager::instance(), &QueueManager::processingStarted, this,
+                [this](std::shared_ptr<BookDatabase> db, int messageId, const QString& type) {
+                    addProcessBox(db, messageId, "Generating...", "");
+                });
+
+        connect(&QueueManager::instance(), &QueueManager::processingChunk, this,
+                [this](std::shared_ptr<BookDatabase> db, int messageId, const QString& chunk, const QString& type) {
+                    QString key = QString("%1_%2").arg(reinterpret_cast<quintptr>(db.get())).arg(messageId);
+                    if (m_textEdits.contains(key)) {
+                        QTextEdit* textEdit = m_textEdits[key];
+                        textEdit->moveCursor(QTextCursor::End);
+                        textEdit->insertPlainText(chunk);
+                        textEdit->moveCursor(QTextCursor::End);
+
+                        if (m_startTimes[key] == 0) {
+                            m_startTimes[key] = QDateTime::currentMSecsSinceEpoch();
+                        }
+                        m_tokenCounts[key]++;
+                        qint64 elapsed = QDateTime::currentMSecsSinceEpoch() - m_startTimes[key];
+                        if (elapsed > 500) {
+                            double tps = (m_tokenCounts[key] * 1000.0) / elapsed;
+                            m_groupBoxes[key]->setTitle(m_baseTitles[key] + QString(" | %1 tps").arg(tps, 0, 'f', 1));
+                        }
+                    }
+                });
+
+        connect(&QueueManager::instance(), &QueueManager::processingFinished, this,
+                [this](std::shared_ptr<BookDatabase> db, int messageId, bool success, const QString& type) {
+                    QString key = QString("%1_%2").arg(reinterpret_cast<quintptr>(db.get())).arg(messageId);
+                    if (m_groupBoxes.contains(key)) {
+                        QGroupBox* box = m_groupBoxes[key];
+                        box->setTitle(m_baseTitles[key] + (success ? " (Finished)" : " (Error)"));
+                    }
+                });
+    }
+
+   private:
+    QWidget* m_container;
+    QVBoxLayout* m_layout;
+    QMap<QString, QTextEdit*> m_textEdits;
+    QMap<QString, QGroupBox*> m_groupBoxes;
+    QMap<QString, qint64> m_startTimes;
+    QMap<QString, int> m_tokenCounts;
+    QMap<QString, QString> m_baseTitles;
+
+    void addProcessBox(std::shared_ptr<BookDatabase> db, int messageId, const QString& model,
+                       const QString& initialText) {
+        QString key = QString("%1_%2").arg(reinterpret_cast<quintptr>(db.get())).arg(messageId);
+
+        m_startTimes[key] = 0;
+        m_tokenCounts[key] = 0;
+
+        QString title = QString("DB: %1 | Msg: %2 | Model: %3")
+                            .arg(QFileInfo(db->filepath()).fileName())
+                            .arg(messageId)
+                            .arg(model);
+        m_baseTitles[key] = title;
+
+        if (m_textEdits.contains(key)) {
+            m_textEdits[key]->clear();
+            if (!initialText.isEmpty()) {
+                m_textEdits[key]->setPlainText(initialText);
+            }
+            m_groupBoxes[key]->setTitle(title);
+            return;
+        }
+
+        QGroupBox* groupBox = new QGroupBox(title, m_container);
+        QVBoxLayout* gbLayout = new QVBoxLayout(groupBox);
+        QTextEdit* textEdit = new QTextEdit(groupBox);
+        textEdit->setReadOnly(true);
+        textEdit->setPlainText(initialText);
+        textEdit->moveCursor(QTextCursor::End);
+        textEdit->setMinimumHeight(150);
+
+        gbLayout->addWidget(textEdit);
+        m_layout->addWidget(groupBox);
+
+        m_textEdits[key] = textEdit;
+        m_groupBoxes[key] = groupBox;
+    }
+};
+
+void MainWindow::showSpyWindow() {
+    if (m_spyWindow) {
+        m_spyWindow->show();
+        m_spyWindow->raise();
+        m_spyWindow->activateWindow();
+        return;
+    }
+
+    m_spyWindow = new GlobalSpyWindow(nullptr);
+    m_spyWindow->show();
 }
 
 void MainWindow::onQueueItemClicked(std::shared_ptr<BookDatabase> db, int messageId) {
@@ -3709,9 +3900,24 @@ void MainWindow::onQueueItemClicked(std::shared_ptr<BookDatabase> db, int messag
         }
     }
 
-    currentLastNodeId = messageId;
-    updateLinearChatView(currentLastNodeId, currentDb->getMessages());
-    mainContentStack->setCurrentWidget(chatWindowView);
+    QStringList types = {"chat_node", "document", "note", "template", "draft"};
+    QStandardItem* foundItem = nullptr;
+    for (const QString& type : types) {
+        foundItem = findItemInTree(messageId, type);
+        if (foundItem) break;
+    }
+
+    if (foundItem) {
+        openBooksTree->setCurrentIndex(foundItem->index());
+        openBooksTree->selectionModel()->select(foundItem->index(), QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Current);
+        openBooksTree->scrollTo(foundItem->index());
+    } else {
+        // Fallback to chat node logic just in case it wasn't rendered yet
+        currentLastNodeId = messageId;
+        updateLinearChatView(currentLastNodeId, currentDb->getMessages());
+        mainContentStack->setCurrentWidget(chatWindowView);
+    }
+
     db->dismissNotificationByMessageId(messageId);
     updateNotificationStatus();
 }
@@ -3721,11 +3927,14 @@ void MainWindow::updateVfsMarkers(const QList<Notification>& notifications) {
         for (int i = 0; i < vfsModel->rowCount(); ++i) {
             QStandardItem* item = vfsModel->item(i);
             int id = item->data(Qt::UserRole).toInt();
+            QString itemType = item->data(Qt::UserRole + 1).toString();
             int nType = 0;
-            for (const auto& n : notifications) {
-                if (n.messageId == id && !n.isDismissed) {
-                    nType = (n.type == "error") ? 2 : 1;
-                    break;
+            if (itemType == "chat_node") {
+                for (const auto& n : notifications) {
+                    if (n.messageId == id && !n.isDismissed) {
+                        nType = (n.type == "error") ? 2 : 1;
+                        break;
+                    }
                 }
             }
             item->setData(nType, Qt::UserRole + 10);
@@ -3735,11 +3944,14 @@ void MainWindow::updateVfsMarkers(const QList<Notification>& notifications) {
         for (int i = 0; i < forkExplorerModel->rowCount(); ++i) {
             QStandardItem* item = forkExplorerModel->item(i);
             int id = item->data(Qt::UserRole).toInt();
+            QString itemType = item->data(Qt::UserRole + 1).toString();
             int nType = 0;
-            for (const auto& n : notifications) {
-                if (n.messageId == id && !n.isDismissed) {
-                    nType = (n.type == "error") ? 2 : 1;
-                    break;
+            if (itemType == "chat_node") {
+                for (const auto& n : notifications) {
+                    if (n.messageId == id && !n.isDismissed) {
+                        nType = (n.type == "error") ? 2 : 1;
+                        break;
+                    }
                 }
             }
             item->setData(nType, Qt::UserRole + 10);
@@ -3753,11 +3965,14 @@ void MainWindow::updateTreeMarkersRecursive(QStandardItem* parent, const QList<N
         QStandardItem* child = parent->child(i);
         if (!child) continue;
         int messageId = child->data(Qt::UserRole).toInt();
+        QString itemType = child->data(Qt::UserRole + 1).toString();
         int notifyType = 0;
-        for (const auto& n : notifications) {
-            if (n.messageId == messageId && !n.isDismissed) {
-                notifyType = (n.type == "error") ? 2 : 1;
-                break;
+        if (itemType == "chat_node") {
+            for (const auto& n : notifications) {
+                if (n.messageId == messageId && !n.isDismissed) {
+                    notifyType = (n.type == "error") ? 2 : 1;
+                    break;
+                }
             }
         }
         child->setData(notifyType, Qt::UserRole + 10);
