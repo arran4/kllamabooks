@@ -65,6 +65,9 @@ struct QueueItem {
     int priority;
     QDateTime timestamp;
     QString targetType;  // "message" or "document"
+    QString state;       // "pending", "processing", "completed", "failed"
+    QString response;
+    int parentId;        // Reference to original document / chat for forks
 };
 
 struct CommentNode {
@@ -147,7 +150,8 @@ class BookDatabase {
 
     // Queue
     int enqueuePrompt(int messageId, const QString& model, const QString& prompt, int priority = 0,
-                      const QString& targetType = "message");
+                      const QString& targetType = "message", int parentId = 0);
+    bool updateQueueStateAndResponse(int id, const QString& state, const QString& response);
     QList<QueueItem> getQueue() const;
     bool updateQueueProcessingId(int id, int processingId);
     bool updateQueueError(int id, const QString& error);

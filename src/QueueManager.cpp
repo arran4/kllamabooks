@@ -70,9 +70,9 @@ void QueueManager::setClient(OllamaClient* client) { m_client = client; }
  * @param targetType The semantic class of generation (e.g. document, message).
  */
 void QueueManager::enqueuePrompt(int messageId, const QString& model, const QString& prompt, int priority,
-                                 const QString& targetType) {
+                                 const QString& targetType, int parentId) {
     if (m_activeDb && m_activeDb->isOpen()) {
-        m_activeDb->enqueuePrompt(messageId, model, prompt, priority, targetType);
+        m_activeDb->enqueuePrompt(messageId, model, prompt, priority, targetType, parentId);
         emit queueChanged();
         QTimer::singleShot(0, this, &QueueManager::checkQueue);
     }
@@ -295,24 +295,19 @@ void QueueManager::onChunk(const QString& chunk) {
 void QueueManager::onComplete(const QString& response) {
     if (!m_isProcessing) return;
     if (m_currentDb && m_currentDb->isOpen()) {
+        m_currentItem.processingId = 0;
+
         if (m_currentItem.targetType == "document") {
-            auto docs = m_currentDb->getDocuments();
-            QString title;
-            for (const auto& d : docs) {
-                if (d.id == m_currentItem.messageId) {
-                    title = d.title;
-                    break;
-                }
-            }
-            m_currentDb->updateDocument(m_currentItem.messageId, title, response);
+            m_currentItem.state = "completed";
+            m_currentItem.response = response;
+            m_currentDb->updateQueueStateAndResponse(m_currentItem.id, m_currentItem.state, m_currentItem.response);
+            m_currentDb->addNotification(m_currentItem.messageId, "document_completed");
         } else {
             m_currentDb->updateMessage(m_currentItem.messageId, response);
+            m_completedItems.append({m_currentDb, m_currentItem});
+            m_currentDb->deleteQueueItem(m_currentItem.id);
+            m_currentDb->addNotification(m_currentItem.messageId, "responded_to");
         }
-
-        m_currentItem.processingId = 0;
-        m_completedItems.append({m_currentDb, m_currentItem});
-        m_currentDb->deleteQueueItem(m_currentItem.id);
-        m_currentDb->addNotification(m_currentItem.messageId, "responded_to");
 
         m_currentDb->setSetting(m_currentItem.targetType, m_currentItem.messageId, "model", m_currentItem.model);
 

@@ -3458,44 +3458,155 @@ void MainWindow::updateNotificationStatus() {
         total += notifications.size();
         for (const auto& n : notifications) {
             QString bookName = QFileInfo(db->filepath()).fileName();
-            QString typeStr = (n.type == "error") ? tr("Error") : tr("Finished");
+            QString typeStr = (n.type == "error") ? tr("Error") : (n.type == "document_completed" ? tr("Document Review") : tr("Finished"));
             QAction* action = notificationMenu->addAction(
                 QString("[%1] %2: Msg %3").arg(bookName, typeStr, QString::number(n.messageId)));
             connect(action, &QAction::triggered, this, [this, db, n, bookName]() {
-                QDialog dialog(this);
-                dialog.setWindowTitle(tr("Notification Summary"));
-                QVBoxLayout* layout = new QVBoxLayout(&dialog);
+                if (n.type == "document_completed") {
+                    // Custom dialog for Document Review
+                    QDialog dialog(this);
+                    dialog.setWindowTitle(tr("Review Generated Document"));
+                    dialog.resize(800, 600);
+                    QVBoxLayout* layout = new QVBoxLayout(&dialog);
 
-                QString typeStr = (n.type == "error") ? tr("Error") : tr("Finished");
-                QLabel* summary = new QLabel(QString("<b>Book:</b> %1<br><b>Status:</b> %2<br><b>Message ID:</b> %3")
-                                                 .arg(bookName, typeStr, QString::number(n.messageId)));
-                summary->setWordWrap(true);
-                layout->addWidget(summary);
+                    // Find the queue item to get the response and original prompt
+                    auto queueItems = db->getQueue();
+                    QueueItem targetItem;
+                    bool found = false;
+                    for (const auto& qi : queueItems) {
+                        if (qi.messageId == n.messageId && qi.state == "completed" && qi.targetType == "document") {
+                            targetItem = qi;
+                            found = true;
+                            break;
+                        }
+                    }
 
-                QHBoxLayout* btnLayout = new QHBoxLayout();
-                QPushButton* gotoBtn = new QPushButton(tr("Goto Item"), &dialog);
-                QPushButton* dismissBtn = new QPushButton(tr("Dismiss"), &dialog);
-                QPushButton* closeBtn = new QPushButton(tr("Close"), &dialog);
+                    if (!found) {
+                        QMessageBox::warning(this, tr("Not found"), tr("Queue item not found or already processed."));
+                        db->dismissNotification(n.id);
+                        updateNotificationStatus();
+                        return;
+                    }
 
-                btnLayout->addWidget(gotoBtn);
-                btnLayout->addWidget(dismissBtn);
-                btnLayout->addWidget(closeBtn);
-                layout->addLayout(btnLayout);
+                    QLabel* infoLabel = new QLabel(QString("Review the generated response for document ID: %1").arg(n.messageId));
+                    layout->addWidget(infoLabel);
 
-                connect(gotoBtn, &QPushButton::clicked, [&]() {
-                    onQueueItemClicked(db, n.messageId);
-                    dialog.accept();
-                });
+                    QSplitter* splitter = new QSplitter(Qt::Vertical, &dialog);
 
-                connect(dismissBtn, &QPushButton::clicked, [&]() {
-                    db->dismissNotification(n.id);
-                    updateNotificationStatus();
-                    dialog.accept();
-                });
+                    QGroupBox* promptGroup = new QGroupBox(tr("Prompt"), splitter);
+                    QVBoxLayout* promptLayout = new QVBoxLayout(promptGroup);
+                    QTextEdit* promptEdit = new QTextEdit(targetItem.prompt, promptGroup);
+                    promptLayout->addWidget(promptEdit);
 
-                connect(closeBtn, &QPushButton::clicked, &dialog, &QDialog::reject);
+                    QGroupBox* responseGroup = new QGroupBox(tr("Generated Response"), splitter);
+                    QVBoxLayout* responseLayout = new QVBoxLayout(responseGroup);
+                    QTextEdit* responseEdit = new QTextEdit(targetItem.response, responseGroup);
+                    responseLayout->addWidget(responseEdit);
 
-                dialog.exec();
+                    layout->addWidget(splitter);
+
+                    QHBoxLayout* btnLayout = new QHBoxLayout();
+                    QPushButton* regenBtn = new QPushButton(tr("Change prompt and regenerate"), &dialog);
+                    QPushButton* replaceBtn = new QPushButton(tr("Modify and replace/append"), &dialog);
+                    QPushButton* newDocBtn = new QPushButton(tr("Create new document from results"), &dialog);
+                    QPushButton* discardBtn = new QPushButton(tr("Discard"), &dialog);
+                    QPushButton* cancelBtn = new QPushButton(tr("Cancel"), &dialog);
+
+                    btnLayout->addWidget(regenBtn);
+                    btnLayout->addWidget(replaceBtn);
+                    btnLayout->addWidget(newDocBtn);
+                    btnLayout->addWidget(discardBtn);
+                    btnLayout->addWidget(cancelBtn);
+                    layout->addLayout(btnLayout);
+
+                    connect(regenBtn, &QPushButton::clicked, [&]() {
+                        // Update the prompt, reset state to pending, clear response
+                        QString newPrompt = promptEdit->toPlainText();
+                        db->updateQueueItemPrompt(targetItem.id, newPrompt);
+                        db->updateQueueStateAndResponse(targetItem.id, "pending", "");
+                        db->dismissNotification(n.id);
+                        updateNotificationStatus();
+                        // QueueManager will automatically pick it up via its timer or signal
+                        emit QueueManager::instance().queueChanged();
+                        dialog.accept();
+                    });
+
+                    connect(replaceBtn, &QPushButton::clicked, [&]() {
+                        // Get original doc title
+                        auto docs = db->getDocuments();
+                        QString title = "Document";
+                        for (const auto& d : docs) {
+                            if (d.id == targetItem.messageId) {
+                                title = d.title;
+                                break;
+                            }
+                        }
+                        db->updateDocument(targetItem.messageId, title, responseEdit->toPlainText());
+                        db->deleteQueueItem(targetItem.id);
+                        db->dismissNotification(n.id);
+                        updateNotificationStatus();
+                        if (currentDb == db && currentDocumentId == targetItem.messageId) {
+                            documentEditorView->setPlainText(responseEdit->toPlainText());
+                        }
+                        dialog.accept();
+                    });
+
+                    connect(newDocBtn, &QPushButton::clicked, [&]() {
+                        db->addDocument(targetItem.parentId, "New from Generation", responseEdit->toPlainText());
+                        db->deleteQueueItem(targetItem.id);
+                        db->dismissNotification(n.id);
+                        updateNotificationStatus();
+                        loadDocumentsAndNotes();
+                        dialog.accept();
+                    });
+
+                    connect(discardBtn, &QPushButton::clicked, [&]() {
+                        db->deleteQueueItem(targetItem.id);
+                        db->dismissNotification(n.id);
+                        updateNotificationStatus();
+                        dialog.accept();
+                    });
+
+                    connect(cancelBtn, &QPushButton::clicked, &dialog, &QDialog::reject);
+
+                    dialog.exec();
+                } else {
+                    // Standard notification dialog
+                    QDialog dialog(this);
+                    dialog.setWindowTitle(tr("Notification Summary"));
+                    QVBoxLayout* layout = new QVBoxLayout(&dialog);
+
+                    QString typeStr = (n.type == "error") ? tr("Error") : tr("Finished");
+                    QLabel* summary = new QLabel(QString("<b>Book:</b> %1<br><b>Status:</b> %2<br><b>Message ID:</b> %3")
+                                                     .arg(bookName, typeStr, QString::number(n.messageId)));
+                    summary->setWordWrap(true);
+                    layout->addWidget(summary);
+
+                    QHBoxLayout* btnLayout = new QHBoxLayout();
+                    QPushButton* gotoBtn = new QPushButton(tr("Goto Item"), &dialog);
+                    QPushButton* dismissBtn = new QPushButton(tr("Dismiss"), &dialog);
+                    QPushButton* closeBtn = new QPushButton(tr("Close"), &dialog);
+
+                    btnLayout->addWidget(gotoBtn);
+                    btnLayout->addWidget(dismissBtn);
+                    btnLayout->addWidget(closeBtn);
+                    layout->addLayout(btnLayout);
+
+                    connect(gotoBtn, &QPushButton::clicked, [&]() {
+                        onQueueItemClicked(db, n.messageId);
+                        dialog.accept();
+                    });
+
+                    connect(dismissBtn, &QPushButton::clicked, [&]() {
+                        db->dismissNotification(n.id);
+                        updateNotificationStatus();
+                        dialog.accept();
+                    });
+
+                    connect(closeBtn, &QPushButton::clicked, &dialog, &QDialog::reject);
+
+                    dialog.exec();
+                }
             });
         }
     }

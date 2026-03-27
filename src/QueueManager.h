@@ -21,7 +21,7 @@ class QueueManager : public QObject {
 
     void setClient(OllamaClient* client);
     void enqueuePrompt(int messageId, const QString& model, const QString& prompt, int priority = 0,
-                       const QString& targetType = "message");
+                       const QString& targetType = "message", int parentId = 0);
 
     int totalPendingCount() const;
     int pendingCount(std::shared_ptr<BookDatabase> db) const;

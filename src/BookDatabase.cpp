@@ -404,6 +404,19 @@ bool BookDatabase::initSchema() {
         userVersion = 12;
     }
 
+    if (userVersion < 13) {
+        sqlite3_exec((sqlite3*)m_db, "ALTER TABLE queue ADD COLUMN state TEXT DEFAULT 'pending';", nullptr, nullptr, nullptr);
+        sqlite3_exec((sqlite3*)m_db, "ALTER TABLE queue ADD COLUMN response TEXT DEFAULT '';", nullptr, nullptr, nullptr);
+        sqlite3_exec((sqlite3*)m_db, "ALTER TABLE queue ADD COLUMN parent_id INTEGER DEFAULT 0;", nullptr, nullptr, nullptr);
+
+        // Ensure existing rows map their "processing_id" properly to "state" if needed, though they shouldn't be 'completed'
+        sqlite3_exec((sqlite3*)m_db, "UPDATE queue SET state = 'processing' WHERE processing_id > 0;", nullptr, nullptr, nullptr);
+
+        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (13);", nullptr, nullptr, nullptr);
+        sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 13;", nullptr, nullptr, nullptr);
+        userVersion = 13;
+    }
+
     return true;
 }
 
@@ -1029,11 +1042,11 @@ QList<FolderNode> BookDatabase::getFolders(const QString& type) const {
 }
 
 int BookDatabase::enqueuePrompt(int messageId, const QString& model, const QString& prompt, int priority,
-                                const QString& targetType) {
+                                const QString& targetType, int parentId) {
     if (!m_isOpen) return -1;
 
     const char* sql =
-        "INSERT INTO queue (message_id, model, prompt, priority, target_type) VALUES (?, ?, ?, ?, ?);";
+        "INSERT INTO queue (message_id, model, prompt, priority, target_type, parent_id, state) VALUES (?, ?, ?, ?, ?, ?, 'pending');";
     sqlite3_stmt* stmt;
     int rc = sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return -1;
@@ -1043,6 +1056,7 @@ int BookDatabase::enqueuePrompt(int messageId, const QString& model, const QStri
     sqlite3_bind_text(stmt, 3, prompt.toUtf8().constData(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_int(stmt, 4, priority);
     sqlite3_bind_text(stmt, 5, targetType.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 6, parentId);
 
     rc = sqlite3_step(stmt);
     if (rc != SQLITE_DONE) {
@@ -1055,14 +1069,28 @@ int BookDatabase::enqueuePrompt(int messageId, const QString& model, const QStri
     return id;
 }
 
+bool BookDatabase::updateQueueStateAndResponse(int id, const QString& state, const QString& response) {
+    if (!m_isOpen) return false;
+    const char* sql = "UPDATE queue SET state = ?, response = ? WHERE id = ?;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+
+    sqlite3_bind_text(stmt, 1, state.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, response.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 3, id);
+
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
+}
+
 QList<QueueItem> BookDatabase::getQueue() const {
     QList<QueueItem> items;
     if (!m_isOpen) return items;
 
     const char* sql =
-        "SELECT id, message_id, model, prompt, processing_id, last_error, priority, created_at, target_type FROM queue ORDER BY priority "
-        "DESC, "
-        "created_at DESC;";
+        "SELECT id, message_id, model, prompt, processing_id, last_error, priority, created_at, target_type, state, response, parent_id "
+        "FROM queue ORDER BY priority DESC, created_at DESC;";
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return items;
 
