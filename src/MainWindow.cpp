@@ -485,15 +485,12 @@ void MainWindow::setupUi() {
     splitter->setStretchFactor(0, 0);
     splitter->setStretchFactor(1, 1);
 
-    QToolBar* toolbar = addToolBar("Main");
-    toolbar->setObjectName("MainToolBar");
     QAction* newBookAction = new QAction(QIcon::fromTheme("document-new"), tr("New Book"), this);
     QAction* exportChatAction = new QAction(QIcon::fromTheme("document-export"), tr("Export Chat Session"), this);
     actionCollection()->addAction(QStringLiteral("export_chat_session"), exportChatAction);
     connect(exportChatAction, &QAction::triggered, this, &MainWindow::exportChatSession);
 
     actionCollection()->addAction(QStringLiteral("new_book"), newBookAction);
-    toolbar->addAction(newBookAction);
 
     QAction* openBookAction = new QAction(QIcon::fromTheme("document-open"), tr("Open Book"), this);
     actionCollection()->addAction(QStringLiteral("open_book"), openBookAction);
@@ -567,23 +564,13 @@ void MainWindow::setupUi() {
         }
     });
 
-    // Endpoints in toolbar
-    QWidget* spacer = new QWidget(this);
-    spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-    toolbar->addWidget(spacer);
-
-    QLabel* endpointLabel = new QLabel(tr("Endpoint: "), this);
-    toolbar->addWidget(endpointLabel);
-
     endpointComboBox = new QComboBox(this);
     endpointComboBox->setMinimumWidth(150);
-    toolbar->addWidget(endpointComboBox);
 
     connectionStatusLabel = new QLabel(this);
     connectionStatusLabel->setMargin(4);
     connectionStatusLabel->setCursor(Qt::PointingHandCursor);
     connectionStatusLabel->installEventFilter(this);
-    toolbar->addWidget(connectionStatusLabel);
     onConnectionStatusChanged(false);  // Initially disconnected
 
     connect(endpointComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
@@ -713,6 +700,20 @@ void MainWindow::setupUi() {
     });
 
     setupGUI(Default, ":/kllamabooksui.rc");
+
+    QToolBar* mainToolBar = toolBar("mainToolBar");
+    if (mainToolBar) {
+        // Endpoints in toolbar
+        QWidget* spacer = new QWidget(this);
+        spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+        mainToolBar->addWidget(spacer);
+
+        QLabel* endpointLabel = new QLabel(tr("Endpoint: "), this);
+        mainToolBar->addWidget(endpointLabel);
+
+        mainToolBar->addWidget(endpointComboBox);
+        mainToolBar->addWidget(connectionStatusLabel);
+    }
 
     // Status Bar
     statusBar = new QStatusBar(this);
