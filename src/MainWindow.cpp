@@ -2362,10 +2362,71 @@ void MainWindow::onSendMessage() {
     if (!toggleInputModeBtn->isChecked()) {
         text = inputField->toPlainText().trimmed();
         if (text.isEmpty()) return;
-        inputField->clear();
     } else {
         text = multiLineInput->toPlainText();
         if (text.isEmpty()) return;
+    }
+
+    // Check if the current chat already has an active generation
+    if (!isCreatingNewChat && currentLastNodeId != 0 && QueueManager::instance().isProcessing()) {
+        QueueItem activeItem = QueueManager::instance().activeItem();
+        if (activeItem.targetType == "message") {
+            // Check if the active item belongs to the current chat path
+            bool isActiveInCurrentChat = false;
+            for (const auto& msg : currentChatPath) {
+                if (msg.id == activeItem.messageId) {
+                    isActiveInCurrentChat = true;
+                    break;
+                }
+            }
+            if (activeItem.messageId == currentLastNodeId) {
+                isActiveInCurrentChat = true;
+            }
+
+            if (isActiveInCurrentChat) {
+                QMessageBox msgBox(this);
+                msgBox.setWindowTitle(tr("Chat is Generating"));
+                msgBox.setText(tr("This chat is currently generating a response. What would you like to do?"));
+
+                QPushButton* queueBtn = msgBox.addButton(tr("Queue to automatically send"), QMessageBox::ActionRole);
+                QPushButton* forkBtn = msgBox.addButton(tr("Fork and send"), QMessageBox::ActionRole);
+                QPushButton* cancelReplaceBtn = msgBox.addButton(tr("Cancel previous message and replace with this"), QMessageBox::ActionRole);
+                QPushButton* saveDraftBtn = msgBox.addButton(tr("Save to drafts"), QMessageBox::ActionRole);
+                QPushButton* ignoreClearBtn = msgBox.addButton(tr("Ignore text and clear"), QMessageBox::ActionRole);
+                QPushButton* cancelBtn = msgBox.addButton(tr("Cancel (and leave in prompt)"), QMessageBox::RejectRole);
+
+                msgBox.exec();
+
+                if (msgBox.clickedButton() == queueBtn) {
+                    // Just proceed, it will queue
+                } else if (msgBox.clickedButton() == forkBtn) {
+                    // Fork from the parent of the currently generating message
+                    ChatNode generatingNode = currentDb->getChat(activeItem.messageId);
+                    currentLastNodeId = generatingNode.parentId; // The user prompt that spawned it
+                } else if (msgBox.clickedButton() == cancelReplaceBtn) {
+                    // Cancel current generation and proceed
+                    QueueManager::instance().cancelItem(currentDb, activeItem.id);
+                    ChatNode generatingNode = currentDb->getChat(activeItem.messageId);
+                    currentLastNodeId = generatingNode.parentId; // The user prompt that spawned it
+                    currentDb->deleteMessage(activeItem.messageId); // Delete the assistant placeholder
+                } else if (msgBox.clickedButton() == saveDraftBtn) {
+                    currentDb->addDraft(0, "New Draft", text);
+                    statusBar->showMessage(tr("Draft saved."), 3000);
+                    return;
+                } else if (msgBox.clickedButton() == ignoreClearBtn) {
+                    if (!toggleInputModeBtn->isChecked()) inputField->clear();
+                    else multiLineInput->clear();
+                    return;
+                } else { // cancelBtn or closed
+                    return;
+                }
+            }
+        }
+    }
+
+    if (!toggleInputModeBtn->isChecked()) {
+        inputField->clear();
+    } else {
         multiLineInput->clear();
     }
 
@@ -4212,6 +4273,8 @@ void MainWindow::onChatTextAreaContextMenu(const QPoint& pos) {
     QAction* forkAction = nullptr;
     QAction* copyAction = nullptr;
     QAction* infoAction = nullptr;
+    QAction* reuseAction = nullptr;
+    QAction* quoteAction = nullptr;
 
     if (msgIndex >= 0 && msgIndex < currentChatPath.size()) {
         menu->addSeparator();
@@ -4219,6 +4282,13 @@ void MainWindow::onChatTextAreaContextMenu(const QPoint& pos) {
         copyAction = menu->addAction(QIcon::fromTheme("edit-copy"), "Copy message");
 
         bool isAssistant = (currentChatPath[msgIndex].role == "assistant");
+
+        reuseAction = menu->addAction(QIcon::fromTheme("edit-redo"), "Reuse this");
+        bool inputEmpty = toggleInputModeBtn->isChecked() ? multiLineInput->toPlainText().trimmed().isEmpty() : inputField->toPlainText().trimmed().isEmpty();
+        reuseAction->setEnabled(inputEmpty);
+
+        quoteAction = menu->addAction(QIcon::fromTheme("format-text-blockquote"), "Quote this");
+
         infoAction =
             menu->addAction(QIcon::fromTheme("dialog-information"), isAssistant ? "Response info" : "Message info");
     }
@@ -4228,7 +4298,25 @@ void MainWindow::onChatTextAreaContextMenu(const QPoint& pos) {
     QAction* saveTemplateAction = menu->addAction(QIcon::fromTheme("document-save-as"), "Save chat as template");
 
     QAction* selectedAction = menu->exec(chatTextArea->viewport()->mapToGlobal(pos));
-    if (selectedAction == saveDraftAction) {
+
+    if (reuseAction && selectedAction == reuseAction) {
+        QString textToReuse = currentChatPath[msgIndex].content.trimmed();
+        if (currentChatPath[msgIndex].role == "assistant" && msgIndex > 0) {
+            textToReuse = currentChatPath[msgIndex - 1].content.trimmed();
+        }
+        if (toggleInputModeBtn->isChecked()) {
+            multiLineInput->setPlainText(textToReuse);
+        } else {
+            inputField->setPlainText(textToReuse);
+        }
+    } else if (quoteAction && selectedAction == quoteAction) {
+        QString quotedText = "> " + currentChatPath[msgIndex].content.trimmed().replace("\n", "\n> ") + "\n\n";
+        if (toggleInputModeBtn->isChecked()) {
+            multiLineInput->insertPlainText(quotedText);
+        } else {
+            inputField->insertPlainText(quotedText);
+        }
+    } else if (selectedAction == saveDraftAction) {
         bool ok;
         QString name = QInputDialog::getText(this, "Save as Draft", "Draft Name:", QLineEdit::Normal, "New Draft", &ok);
         if (ok && !name.isEmpty() && currentDb) {

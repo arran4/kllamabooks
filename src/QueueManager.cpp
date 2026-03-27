@@ -130,7 +130,9 @@ QList<QueueManager::MergedQueueItem> QueueManager::getMergedQueue() const {
 void QueueManager::cancelItem(std::shared_ptr<BookDatabase> db, int queueId) {
     if (db) db->deleteQueueItem(queueId);
     if (m_currentDb == db && m_currentItem.id == queueId) {
-        // Ideally we'd abort the network request here
+        if (m_client) {
+            m_client->abortGenerations();
+        }
         m_isProcessing = false;
         m_currentDb = nullptr;
     }

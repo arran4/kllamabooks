@@ -43,6 +43,7 @@ class QueueManager : public QObject {
     bool isPaused() const { return m_isPaused; }
 
     bool isProcessing() const { return m_isProcessing; }
+    QueueItem activeItem() const { return m_currentItem; }
 
    signals:
     void queueChanged();

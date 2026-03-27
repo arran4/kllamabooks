@@ -153,6 +153,7 @@ void OllamaClient::generate(const QString& model, const QString& prompt, std::fu
     QByteArray data = doc.toJson();
 
     QNetworkReply* reply = m_networkManager->post(request, data);
+    m_activeGenerations.append(reply);
 
     // Shared pointer to accumulate the full response safely
     auto fullResponse = std::make_shared<QString>();
@@ -193,7 +194,8 @@ void OllamaClient::generate(const QString& model, const QString& prompt, std::fu
         }
     });
 
-    connect(reply, &QNetworkReply::finished, this, [reply, onComplete, onError, fullResponse]() {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, onComplete, onError, fullResponse]() {
+        m_activeGenerations.removeOne(reply);
         if (reply->error() != QNetworkReply::NoError) {
             onError(reply->errorString());
         } else {
@@ -201,4 +203,13 @@ void OllamaClient::generate(const QString& model, const QString& prompt, std::fu
         }
         reply->deleteLater();
     });
+}
+
+void OllamaClient::abortGenerations() {
+    for (QNetworkReply* reply : m_activeGenerations) {
+        if (reply && reply->isRunning()) {
+            reply->abort();
+        }
+    }
+    m_activeGenerations.clear();
 }
