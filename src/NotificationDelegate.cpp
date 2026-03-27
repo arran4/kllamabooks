@@ -7,7 +7,7 @@ NotificationDelegate::NotificationDelegate(QObject* parent) : QStyledItemDelegat
 void NotificationDelegate::paint(QPainter* painter, const QStyleOptionViewItem& option,
                                  const QModelIndex& index) const {
     // notifyType Role: UserRole + 10
-    // 0: none, 1: responded_to, 2: error
+    // 0: none, 1: responded_to, 2: error, 3: document_generated
     int notifyType = index.data(Qt::UserRole + 10).toInt();
 
     QStyleOptionViewItem opt = option;
@@ -31,6 +31,8 @@ void NotificationDelegate::paint(QPainter* painter, const QStyleOptionViewItem& 
         painter->setBrush(QColor(0, 255, 0, 200));  // Bright green
     } else if (notifyType == 2) {                   // error
         painter->setBrush(QColor(255, 0, 0, 200));  // Bright red
+    } else if (notifyType == 3) {                   // document_generated
+        painter->setBrush(QColor(0, 150, 255, 200)); // Bright blue
     }
 
     painter->setPen(QPen(Qt::white, 1));

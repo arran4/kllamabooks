@@ -111,9 +111,18 @@ QList<QueueManager::MergedQueueItem> QueueManager::getMergedQueue() const {
         }
     }
 
-    // Add completed items
+    // Add completed items that are not in the DB (messages)
     for (const auto& item : m_completedItems) {
-        result.append(item);
+        bool found = false;
+        for (const auto& r : result) {
+            if (r.db == item.db && r.item.id == item.item.id) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            result.append(item);
+        }
     }
 
     // Sort merged result by priority then timestamp
@@ -260,16 +269,7 @@ void QueueManager::onChunk(const QString& chunk) {
     if (m_currentDb && m_currentDb->isOpen()) {
         QString currentContent;
         if (m_currentItem.targetType == "document") {
-            auto docs = m_currentDb->getDocuments();
-            QString title;
-            for (const auto& d : docs) {
-                if (d.id == m_currentItem.messageId) {
-                    currentContent = d.content;
-                    title = d.title;
-                    break;
-                }
-            }
-            m_currentDb->updateDocument(m_currentItem.messageId, title, currentContent + chunk);
+            // Do not update document content during stream for documents
         } else {
             // Get existing content and append
             auto messages = m_currentDb->getMessages();
@@ -294,23 +294,24 @@ void QueueManager::onComplete(const QString& response) {
     if (!m_isProcessing) return;
     if (m_currentDb && m_currentDb->isOpen()) {
         if (m_currentItem.targetType == "document") {
-            auto docs = m_currentDb->getDocuments();
-            QString title;
-            for (const auto& d : docs) {
-                if (d.id == m_currentItem.messageId) {
-                    title = d.title;
-                    break;
-                }
-            }
-            m_currentDb->updateDocument(m_currentItem.messageId, title, response);
+            m_currentDb->updateQueueStatusAndResponse(m_currentItem.id, "completed", response);
         } else {
             m_currentDb->updateMessage(m_currentItem.messageId, response);
+            m_currentDb->updateQueueStatusAndResponse(m_currentItem.id, "completed", response);
         }
 
         m_currentItem.processingId = 0;
+        m_currentItem.status = "completed";
+        m_currentItem.response = response;
+
         m_completedItems.append({m_currentDb, m_currentItem});
-        m_currentDb->deleteQueueItem(m_currentItem.id);
-        m_currentDb->addNotification(m_currentItem.messageId, "responded_to");
+
+        if (m_currentItem.targetType != "document") {
+            m_currentDb->deleteQueueItem(m_currentItem.id);
+            m_currentDb->addNotification(m_currentItem.messageId, "responded_to");
+        } else {
+            m_currentDb->addNotification(m_currentItem.messageId, "document_generated");
+        }
 
         m_currentDb->setSetting(m_currentItem.targetType, m_currentItem.messageId, "model", m_currentItem.model);
 

@@ -65,6 +65,8 @@ struct QueueItem {
     int priority;
     QDateTime timestamp;
     QString targetType;  // "message" or "document"
+    QString response;
+    QString status;
 };
 
 struct CommentNode {
@@ -152,6 +154,7 @@ class BookDatabase {
     bool updateQueueProcessingId(int id, int processingId);
     bool updateQueueError(int id, const QString& error);
     bool updateQueueItemPrompt(int id, const QString& prompt);
+    bool updateQueueStatusAndResponse(int id, const QString& status, const QString& response);
     bool deleteQueueItem(int id);
 
     // Comments
