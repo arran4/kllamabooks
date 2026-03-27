@@ -34,6 +34,7 @@
 #include <QScreen>
 #include <QScrollArea>
 #include <QSettings>
+#include <KToolBar>
 #include <QSpinBox>
 #include <QStandardPaths>
 #include <QStyle>
@@ -701,7 +702,7 @@ void MainWindow::setupUi() {
 
     setupGUI(Default, ":/kllamabooksui.rc");
 
-    QToolBar* mainToolBar = toolBar("mainToolBar");
+    KToolBar* mainToolBar = toolBar("mainToolBar");
     if (mainToolBar) {
         // Endpoints in toolbar
         QWidget* spacer = new QWidget(this);
