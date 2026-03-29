@@ -1,0 +1,27 @@
+Plan exploration:
+1. Active chat generation conflict handling.
+When user tries to send new prompt while active generating.
+Choices: Queue to auto send, Fork and send, Cancel and replace, Save to drafts, Ignore and clear, Cancel.
+
+2. Chat context menu improvements:
+"Reuse this" for chat messages.
+
+3. Safe document AI generation
+Document targeted AI generation should not directly overwrite document. Keep live document unchanged. Context preview. Output editable on its own.
+
+4. Document generation review flow.
+Review flow allows: Replace, Append, Create new/copy/fork, Regenerate, Discard, Edit generated text.
+All these choices should be available pre-generation too.
+
+5. Unify notification types.
+Awaiting review notification.
+
+6. Queue model unification
+Choose state or status. Add response field. Ensure crash recovery.
+
+7. Queue manager completion unification.
+Message targets update message. Document targets keep in queue/history for review.
+
+8. Database migration
+Add document_history table.
+Update queue table: choose state, add response, add parent/fork lineage metadata.

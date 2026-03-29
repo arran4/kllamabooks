@@ -1,0 +1,24 @@
+Let's see the queue table schema...
+Queue_new at v11:
+id, message_id, model, prompt, processing_id, last_error, priority, created_at, target_type.
+We need to add: state, response, parent_id.
+
+State values: pending, processing, completed, error.
+Parent_id: for "Fork and send".
+
+Also document_history:
+id, document_id, action_type, content, parent_id, queue_id, created_at.
+
+Wait, the instructions say:
+"Choose one canonical field name for queue lifecycle state, either state or status, but not both."
+There is `state` or `status`?
+Wait, `status` was in v5: "status TEXT". But in v11 queue_new it was dropped! `processing_id` was kept, and `last_error`. Let's use `state` TEXT.
+Wait, "Choose one canonical field name for queue lifecycle state, either state or status, but not both." Let's choose `state`.
+
+For "Safe Document AI Generation", it states:
+"The generated result should be editable on its own before final apply/discard actions."
+"Do not stream directly into the canonical live document."
+"Provide one unified review flow for completed AI document results."
+"Use one canonical notification/event type for 'document generation completed and awaiting review'." Let's call it "review_needed".
+
+Let's do a request_plan_review with these details.

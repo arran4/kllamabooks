@@ -70,9 +70,9 @@ void QueueManager::setClient(OllamaClient* client) { m_client = client; }
  * @param targetType The semantic class of generation (e.g. document, message).
  */
 void QueueManager::enqueuePrompt(int messageId, const QString& model, const QString& prompt, int priority,
-                                 const QString& targetType) {
+                                 const QString& targetType, int parentId) {
     if (m_activeDb && m_activeDb->isOpen()) {
-        m_activeDb->enqueuePrompt(messageId, model, prompt, priority, targetType);
+        m_activeDb->enqueuePrompt(messageId, model, prompt, priority, targetType, parentId);
         emit queueChanged();
         QTimer::singleShot(0, this, &QueueManager::checkQueue);
     }
@@ -111,11 +111,6 @@ QList<QueueManager::MergedQueueItem> QueueManager::getMergedQueue() const {
         }
     }
 
-    // Add completed items
-    for (const auto& item : m_completedItems) {
-        result.append(item);
-    }
-
     // Sort merged result by priority then timestamp
     std::sort(result.begin(), result.end(), [](const MergedQueueItem& a, const MergedQueueItem& b) {
         if (a.item.priority != b.item.priority) return a.item.priority > b.item.priority;
@@ -138,7 +133,19 @@ void QueueManager::cancelItem(std::shared_ptr<BookDatabase> db, int queueId) {
 }
 
 void QueueManager::clearCompleted() {
-    m_completedItems.clear();
+    for (auto db : m_databases) {
+        if (!db || !db->isOpen()) continue;
+        auto items = db->getQueue();
+        for (const auto& item : items) {
+            if (item.state == "completed" || item.state == "error") {
+                if (item.targetType == "document" && item.state == "completed") {
+                    // Do not delete completed document generations automatically so user can review them.
+                    continue;
+                }
+                db->deleteQueueItem(item.id);
+            }
+        }
+    }
     emit queueChanged();
 }
 
@@ -260,16 +267,8 @@ void QueueManager::onChunk(const QString& chunk) {
     if (m_currentDb && m_currentDb->isOpen()) {
         QString currentContent;
         if (m_currentItem.targetType == "document") {
-            auto docs = m_currentDb->getDocuments();
-            QString title;
-            for (const auto& d : docs) {
-                if (d.id == m_currentItem.messageId) {
-                    currentContent = d.content;
-                    title = d.title;
-                    break;
-                }
-            }
-            m_currentDb->updateDocument(m_currentItem.messageId, title, currentContent + chunk);
+            // For documents, we do not update the document directly.
+            // Just emit the chunk for the preview.
         } else {
             // Get existing content and append
             auto messages = m_currentDb->getMessages();
@@ -294,23 +293,19 @@ void QueueManager::onComplete(const QString& response) {
     if (!m_isProcessing) return;
     if (m_currentDb && m_currentDb->isOpen()) {
         if (m_currentItem.targetType == "document") {
-            auto docs = m_currentDb->getDocuments();
-            QString title;
-            for (const auto& d : docs) {
-                if (d.id == m_currentItem.messageId) {
-                    title = d.title;
-                    break;
-                }
-            }
-            m_currentDb->updateDocument(m_currentItem.messageId, title, response);
+            // Document results are queued for review, NOT applied immediately.
+            m_currentDb->updateQueueItemState(m_currentItem.id, "completed", response);
+            m_currentDb->addNotification(m_currentItem.id, "review_needed");
         } else {
             m_currentDb->updateMessage(m_currentItem.messageId, response);
+            m_currentDb->deleteQueueItem(m_currentItem.id);
+            m_currentDb->addNotification(m_currentItem.messageId, "responded_to");
         }
 
         m_currentItem.processingId = 0;
-        m_completedItems.append({m_currentDb, m_currentItem});
-        m_currentDb->deleteQueueItem(m_currentItem.id);
-        m_currentDb->addNotification(m_currentItem.messageId, "responded_to");
+
+        // Remove tracking completed items in memory to let DB act as source of truth.
+        // m_completedItems.append({m_currentDb, m_currentItem}); // deprecated
 
         m_currentDb->setSetting(m_currentItem.targetType, m_currentItem.messageId, "model", m_currentItem.model);
 

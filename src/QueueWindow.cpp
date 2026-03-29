@@ -40,6 +40,35 @@ QueueWindow::QueueWindow(QWidget* parent) : QWidget(parent, Qt::Window) {
     connect(m_modifyBtn, &QPushButton::clicked, this, &QueueWindow::onModifyItem);
     connect(m_clearBtn, &QPushButton::clicked, this, &QueueWindow::onClearCompleted);
     connect(m_queueList, &QListWidget::itemSelectionChanged, this, &QueueWindow::updateButtons);
+
+    connect(m_queueList, &QListWidget::itemDoubleClicked, this, [this](QListWidgetItem* item) {
+        if (!item) return;
+        int id = item->data(Qt::UserRole).toInt();
+        QString path = item->data(Qt::UserRole + 1).toString();
+        for (auto db : QueueManager::instance().databases()) {
+            if (db->filepath() == path) {
+                for (const auto& mi : QueueManager::instance().getMergedQueue()) {
+                    if (mi.item.id == id && mi.db == db) {
+                        QWidget* mainWin = nullptr;
+                        for (QWidget* widget : QApplication::topLevelWidgets()) {
+                            if (widget->inherits("MainWindow")) {
+                                mainWin = widget;
+                                break;
+                            }
+                        }
+                        if (mainWin) {
+                            QMetaObject::invokeMethod(mainWin, "onQueueItemClicked",
+                                                      Q_ARG(std::shared_ptr<BookDatabase>, db),
+                                                      Q_ARG(int, mi.item.messageId));
+                        }
+                        break;
+                    }
+                }
+                break;
+            }
+        }
+    });
+
     connect(pauseBtn, &QPushButton::clicked, this, [this, pauseBtn]() {
         if (QueueManager::instance().isPaused()) {
             QueueManager::instance().resumeQueue();
@@ -87,23 +116,11 @@ void QueueWindow::refresh() {
     m_queueList->clear();
     auto items = QueueManager::instance().getMergedQueue();
     for (const auto& mi : items) {
-        QString statusStr = "PENDING";
-        if (mi.item.processingId > 0) {
-            statusStr = "PROCESSING";
-        } else if (!mi.item.lastError.isEmpty()) {
-            statusStr = "ERROR";
-        }
-
-        // Actually, we can check if the item is still in the DB queue.
-        bool inDb = false;
-        for (const auto& q : mi.db->getQueue()) {
-            if (q.id == mi.item.id) {
-                inDb = true;
-                break;
-            }
-        }
-        if (!inDb) {
-            statusStr = "COMPLETED";
+        QString statusStr = mi.item.state.toUpper();
+        if (statusStr.isEmpty()) {
+            statusStr = "PENDING";
+            if (mi.item.processingId > 0) statusStr = "PROCESSING";
+            else if (!mi.item.lastError.isEmpty()) statusStr = "ERROR";
         }
 
         QString text = QString("[%1] %2: %3 (%4)")

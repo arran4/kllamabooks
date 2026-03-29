@@ -45,6 +45,8 @@
 #include <limits>
 
 #include "AiActionDialog.h"
+#include "DocumentReviewDialog.h"
+#include "DocumentHistoryDialog.h"
 #include "ChatSettingsDialog.h"
 #include "DatabaseSettingsDialog.h"
 #include "ModelSelectionDialog.h"
@@ -240,11 +242,17 @@ void MainWindow::setupUi() {
     aiMenu->addAction("Replace in place", this, &MainWindow::onDocumentReplaceInPlace);
     aiOperationsBtn->setMenu(aiMenu);
 
+    QPushButton* docHistoryBtn = new QPushButton(QIcon::fromTheme("view-history"), "History", this);
+    connect(docHistoryBtn, &QPushButton::clicked, this, &MainWindow::onDocumentHistory);
+
     docToolbar->addWidget(backToDocsBtn);
     docToolbar->addWidget(saveDocBtn);
     docToolbar->addWidget(previewDocBtn);
+    docToolbar->addWidget(docHistoryBtn);
     docToolbar->addWidget(aiOperationsBtn);
     docLayout->addWidget(docToolbar);
+
+    documentSplitter = new QSplitter(Qt::Horizontal, this);
 
     documentStack = new QStackedWidget(this);
     documentEditorView = new QTextEdit(this);
@@ -253,7 +261,22 @@ void MainWindow::setupUi() {
     documentStack->addWidget(documentEditorView);
     documentStack->addWidget(documentPreviewView);
 
-    docLayout->addWidget(documentStack);
+    documentSplitter->addWidget(documentStack);
+
+    QWidget* aiPreviewContainer = new QWidget(this);
+    QVBoxLayout* aiPreviewLayout = new QVBoxLayout(aiPreviewContainer);
+    aiPreviewLayout->setContentsMargins(0, 0, 0, 0);
+    documentAIPreviewLabel = new QLabel("AI Generation Preview", this);
+    documentAIPreviewLabel->setStyleSheet("background-color: #ffeb3b; color: black; padding: 2px;");
+    documentAIPreviewView = new QTextEdit(this);
+    documentAIPreviewView->setReadOnly(true);
+    aiPreviewLayout->addWidget(documentAIPreviewLabel);
+    aiPreviewLayout->addWidget(documentAIPreviewView);
+
+    documentSplitter->addWidget(aiPreviewContainer);
+    aiPreviewContainer->hide();
+
+    docLayout->addWidget(documentSplitter);
     mainContentStack->addWidget(docContainer);
 
     connect(previewDocBtn, &QPushButton::toggled, this, [this](bool checked) {
@@ -2364,10 +2387,72 @@ void MainWindow::onSendMessage() {
     if (!toggleInputModeBtn->isChecked()) {
         text = inputField->toPlainText().trimmed();
         if (text.isEmpty()) return;
-        inputField->clear();
     } else {
         text = multiLineInput->toPlainText();
         if (text.isEmpty()) return;
+    }
+
+    if (QueueManager::instance().isProcessing() && QueueManager::instance().currentProcessingDb() == currentDb) {
+        QueueItem item = QueueManager::instance().currentProcessingItem();
+        if (item.targetType == "message") {
+            bool isInCurrentPath = false;
+            if (item.messageId == currentLastNodeId) {
+                isInCurrentPath = true;
+            } else {
+                for (const auto& msg : currentChatPath) {
+                    if (msg.id == item.messageId) {
+                        isInCurrentPath = true;
+                        break;
+                    }
+                }
+            }
+
+            if (isInCurrentPath) {
+                QMessageBox msgBox(this);
+                msgBox.setWindowTitle(tr("Active Generation Conflict"));
+                msgBox.setText(tr("This chat is currently generating a response.\nWhat would you like to do with your new message?"));
+
+                QPushButton* queueBtn = msgBox.addButton(tr("Queue to send later"), QMessageBox::AcceptRole);
+                QPushButton* forkBtn = msgBox.addButton(tr("Fork and send"), QMessageBox::AcceptRole);
+                QPushButton* cancelReplaceBtn = msgBox.addButton(tr("Cancel previous and replace"), QMessageBox::AcceptRole);
+                QPushButton* draftsBtn = msgBox.addButton(tr("Save to drafts"), QMessageBox::ActionRole);
+                QPushButton* ignoreBtn = msgBox.addButton(tr("Ignore text and clear"), QMessageBox::DestructiveRole);
+                QPushButton* cancelBtn = msgBox.addButton(tr("Cancel"), QMessageBox::RejectRole);
+
+                msgBox.exec();
+
+                QAbstractButton* clicked = msgBox.clickedButton();
+                if (clicked == draftsBtn) {
+                    currentDb->addDraft(0, text.left(30) + "...", text);
+                    if (!toggleInputModeBtn->isChecked()) inputField->clear();
+                    else multiLineInput->clear();
+                    loadDocumentsAndNotes();
+                    return;
+                } else if (clicked == ignoreBtn) {
+                    if (!toggleInputModeBtn->isChecked()) inputField->clear();
+                    else multiLineInput->clear();
+                    return;
+                } else if (clicked == cancelBtn) {
+                    return; // Abort sending, keep text
+                } else if (clicked == cancelReplaceBtn) {
+                    QueueManager::instance().cancelItem(currentDb, item.id);
+                } else if (clicked == forkBtn) {
+                    // To fork from the parent of the currently generating node:
+                    int forkParentId = 0;
+                    if (currentChatPath.size() >= 2) {
+                        forkParentId = currentChatPath[currentChatPath.size() - 2].id;
+                    }
+                    currentLastNodeId = forkParentId; // This forces the new message to branch from there.
+                } else if (clicked == queueBtn) {
+                    // Fallthrough to normal send, it will queue naturally because it is an enqueuePrompt call.
+                }
+            }
+        }
+    }
+
+    if (!toggleInputModeBtn->isChecked()) {
+        inputField->clear();
+    } else {
         multiLineInput->clear();
     }
 
@@ -2524,10 +2609,14 @@ void MainWindow::onQueueChunk(std::shared_ptr<BookDatabase> db, int messageId, c
                               const QString& targetType) {
     if (currentDb == db) {
         if (targetType == "document" && currentDocumentId == messageId) {
-            QTextCursor cursor = documentEditorView->textCursor();
+            QWidget* aiPreviewContainer = documentSplitter->widget(1);
+            if (aiPreviewContainer && aiPreviewContainer->isHidden()) {
+                aiPreviewContainer->show();
+            }
+            QTextCursor cursor = documentAIPreviewView->textCursor();
             cursor.movePosition(QTextCursor::End);
-            documentEditorView->setTextCursor(cursor);
-            documentEditorView->insertPlainText(chunk);
+            documentAIPreviewView->setTextCursor(cursor);
+            documentAIPreviewView->insertPlainText(chunk);
         } else if (targetType == "message" && currentLastNodeId == messageId) {
             chatTextArea->blockSignals(true);
             QTextCursor cursor = chatTextArea->textCursor();
@@ -2547,8 +2636,14 @@ void MainWindow::onQueueChunk(std::shared_ptr<BookDatabase> db, int messageId, c
 void MainWindow::onProcessingStarted(std::shared_ptr<BookDatabase> db, int messageId, const QString& targetType) {
     if (currentDb == db) {
         if (targetType == "document" && currentDocumentId == messageId) {
-            documentEditorView->setReadOnly(true);
-            statusBar->showMessage(tr("AI is editing document..."));
+            // Document Editor is no longer set to ReadOnly during AI processing,
+            // as the AI streams to the separate preview pane instead.
+            documentAIPreviewView->clear();
+            QWidget* aiPreviewContainer = documentSplitter->widget(1);
+            if (aiPreviewContainer) {
+                aiPreviewContainer->show();
+            }
+            statusBar->showMessage(tr("AI is generating document changes..."));
         } else if (targetType == "message" && currentLastNodeId == messageId) {
             statusBar->showMessage(tr("LLM is responding..."));
         }
@@ -2560,8 +2655,8 @@ void MainWindow::onProcessingFinished(std::shared_ptr<BookDatabase> db, int mess
                                       const QString& targetType) {
     if (currentDb == db) {
         if (targetType == "document" && currentDocumentId == messageId) {
-            documentEditorView->setReadOnly(false);
-            statusBar->showMessage(success ? tr("AI document edit complete.") : tr("Error editing document."), 3000);
+            // Keep AI preview open for review, just update status
+            statusBar->showMessage(success ? tr("AI document generation complete. Pending review.") : tr("Error generating document changes."), 3000);
         } else if (targetType == "message" && currentLastNodeId == messageId) {
             statusBar->showMessage(success ? tr("Response complete.") : tr("Error in response."), 3000);
             updateLinearChatView(currentLastNodeId, currentDb->getMessages());
@@ -3399,44 +3494,51 @@ void MainWindow::updateNotificationStatus() {
         total += notifications.size();
         for (const auto& n : notifications) {
             QString bookName = QFileInfo(db->filepath()).fileName();
-            QString typeStr = (n.type == "error") ? tr("Error") : tr("Finished");
+            QString typeStr = (n.type == "error") ? tr("Error") : (n.type == "review_needed" ? tr("Review Needed") : tr("Finished"));
             QAction* action = notificationMenu->addAction(
                 QString("[%1] %2: Msg %3").arg(bookName, typeStr, QString::number(n.messageId)));
             connect(action, &QAction::triggered, this, [this, db, n, bookName]() {
-                QDialog dialog(this);
-                dialog.setWindowTitle(tr("Notification Summary"));
-                QVBoxLayout* layout = new QVBoxLayout(&dialog);
-
-                QString typeStr = (n.type == "error") ? tr("Error") : tr("Finished");
-                QLabel* summary = new QLabel(QString("<b>Book:</b> %1<br><b>Status:</b> %2<br><b>Message ID:</b> %3")
-                                                 .arg(bookName, typeStr, QString::number(n.messageId)));
-                summary->setWordWrap(true);
-                layout->addWidget(summary);
-
-                QHBoxLayout* btnLayout = new QHBoxLayout();
-                QPushButton* gotoBtn = new QPushButton(tr("Goto Item"), &dialog);
-                QPushButton* dismissBtn = new QPushButton(tr("Dismiss"), &dialog);
-                QPushButton* closeBtn = new QPushButton(tr("Close"), &dialog);
-
-                btnLayout->addWidget(gotoBtn);
-                btnLayout->addWidget(dismissBtn);
-                btnLayout->addWidget(closeBtn);
-                layout->addLayout(btnLayout);
-
-                connect(gotoBtn, &QPushButton::clicked, [&]() {
-                    onQueueItemClicked(db, n.messageId);
-                    dialog.accept();
-                });
-
-                connect(dismissBtn, &QPushButton::clicked, [&]() {
+                if (n.type == "review_needed") {
+                    DocumentReviewDialog reviewDlg(db, n.messageId, this);
+                    reviewDlg.exec();
                     db->dismissNotification(n.id);
                     updateNotificationStatus();
-                    dialog.accept();
-                });
+                } else {
+                    QDialog dialog(this);
+                    dialog.setWindowTitle(tr("Notification Summary"));
+                    QVBoxLayout* layout = new QVBoxLayout(&dialog);
 
-                connect(closeBtn, &QPushButton::clicked, &dialog, &QDialog::reject);
+                    QString typeStr = (n.type == "error") ? tr("Error") : tr("Finished");
+                    QLabel* summary = new QLabel(QString("<b>Book:</b> %1<br><b>Status:</b> %2<br><b>Message ID:</b> %3")
+                                                     .arg(bookName, typeStr, QString::number(n.messageId)));
+                    summary->setWordWrap(true);
+                    layout->addWidget(summary);
 
-                dialog.exec();
+                    QHBoxLayout* btnLayout = new QHBoxLayout();
+                    QPushButton* gotoBtn = new QPushButton(tr("Goto Item"), &dialog);
+                    QPushButton* dismissBtn = new QPushButton(tr("Dismiss"), &dialog);
+                    QPushButton* closeBtn = new QPushButton(tr("Close"), &dialog);
+
+                    btnLayout->addWidget(gotoBtn);
+                    btnLayout->addWidget(dismissBtn);
+                    btnLayout->addWidget(closeBtn);
+                    layout->addLayout(btnLayout);
+
+                    connect(gotoBtn, &QPushButton::clicked, [&]() {
+                        onQueueItemClicked(db, n.messageId);
+                        dialog.accept();
+                    });
+
+                    connect(dismissBtn, &QPushButton::clicked, [&]() {
+                        db->dismissNotification(n.id);
+                        updateNotificationStatus();
+                        dialog.accept();
+                    });
+
+                    connect(closeBtn, &QPushButton::clicked, &dialog, &QDialog::reject);
+
+                    dialog.exec();
+                }
             });
         }
     }
@@ -3623,6 +3725,20 @@ void MainWindow::showSpyWindow() {
 void MainWindow::onQueueItemClicked(std::shared_ptr<BookDatabase> db, int messageId) {
     if (!db) return;
 
+    // Check if this is a document queue item that is completed.
+    // If we double-click a queue item, the "messageId" parameter might actually be the queue ID
+    // or the target document ID. Let's find the queue item to be safe.
+    // Wait, the signal sends messageId. Let's look up if there's a queue item with this messageId that is completed.
+    bool openedReview = false;
+    for (const auto& item : db->getQueue()) {
+        if (item.messageId == messageId && item.targetType == "document" && item.state == "completed") {
+            DocumentReviewDialog reviewDlg(db, item.id, this);
+            reviewDlg.exec();
+            openedReview = true;
+            break;
+        }
+    }
+
     // Find book index
     QString bookFileName = QFileInfo(db->filepath()).fileName();
     for (int i = 0; i < openBooksModel->rowCount(); ++i) {
@@ -3645,7 +3761,7 @@ void MainWindow::onQueueItemClicked(std::shared_ptr<BookDatabase> db, int messag
         openBooksTree->setCurrentIndex(foundItem->index());
         openBooksTree->selectionModel()->select(foundItem->index(), QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Current);
         openBooksTree->scrollTo(foundItem->index());
-    } else {
+    } else if (!openedReview) {
         // Fallback to chat node logic just in case it wasn't rendered yet
         currentLastNodeId = messageId;
         updateLinearChatView(currentLastNodeId, currentDb->getMessages());
@@ -4003,6 +4119,20 @@ void MainWindow::onDocumentReplaceInPlace() {
     statusBar->showMessage(tr("AI replace in-place task queued."), 3000);
 }
 
+void MainWindow::onDocumentHistory() {
+    if (!currentDb || currentDocumentId == 0) return;
+    DocumentHistoryDialog dialog(currentDb, currentDocumentId, this);
+    if (dialog.exec() == QDialog::Accepted) {
+        // Refresh the document view to show restored content
+        QString outTitle, outContent;
+        getDocumentContent(currentDocumentId, "document", outTitle, outContent);
+        documentEditorView->blockSignals(true);
+        documentEditorView->setPlainText(outContent);
+        documentEditorView->blockSignals(false);
+        statusBar->showMessage(tr("Document history restored."), 3000);
+    }
+}
+
 /**
  * @brief Handles double-click events on the main tree view to open documents or chats.
  *
@@ -4214,11 +4344,13 @@ void MainWindow::onChatTextAreaContextMenu(const QPoint& pos) {
     QAction* forkAction = nullptr;
     QAction* copyAction = nullptr;
     QAction* infoAction = nullptr;
+    QAction* reuseAction = nullptr;
 
     if (msgIndex >= 0 && msgIndex < currentChatPath.size()) {
         menu->addSeparator();
         forkAction = menu->addAction(QIcon::fromTheme("call-start"), "Reply to this and fork here");
         copyAction = menu->addAction(QIcon::fromTheme("edit-copy"), "Copy message");
+        reuseAction = menu->addAction(QIcon::fromTheme("edit-redo"), "Reuse this");
 
         bool isAssistant = (currentChatPath[msgIndex].role == "assistant");
         infoAction =
@@ -4260,6 +4392,29 @@ void MainWindow::onChatTextAreaContextMenu(const QPoint& pos) {
     } else if (selectedAction == copyAction && copyAction) {
         QApplication::clipboard()->setText(currentChatPath[msgIndex].content);
         statusBar->showMessage(tr("Message copied to clipboard."), 3000);
+    } else if (selectedAction == reuseAction && reuseAction) {
+        QString textToReuse;
+        if (currentChatPath[msgIndex].role == "user") {
+            textToReuse = currentChatPath[msgIndex].content;
+        } else {
+            for (int i = msgIndex - 1; i >= 0; --i) {
+                if (currentChatPath[i].role == "user") {
+                    textToReuse = currentChatPath[i].content;
+                    break;
+                }
+            }
+            if (textToReuse.isEmpty()) {
+                textToReuse = currentChatPath[msgIndex].content; // fallback
+            }
+        }
+        if (!toggleInputModeBtn->isChecked() && !textToReuse.contains('\n')) {
+            inputField->setPlainText(textToReuse);
+            inputField->setFocus();
+        } else {
+            if (!toggleInputModeBtn->isChecked()) toggleInputModeBtn->setChecked(true);
+            multiLineInput->setPlainText(textToReuse);
+            multiLineInput->setFocus();
+        }
     } else if (selectedAction == infoAction && infoAction) {
         QDialog infoDialog(this);
         bool isAssistant = (currentChatPath[msgIndex].role == "assistant");
