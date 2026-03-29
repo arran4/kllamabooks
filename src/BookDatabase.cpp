@@ -405,16 +405,16 @@ bool BookDatabase::initSchema() {
     }
 
 
-    if (userVersion < 13) {
+    if (userVersion < 14) {
         const char* sql =
             "ALTER TABLE queue ADD COLUMN response TEXT DEFAULT '';"
             "ALTER TABLE queue ADD COLUMN status TEXT DEFAULT 'pending';";
         sqlite3_exec((sqlite3*)m_db, sql, nullptr, nullptr, nullptr);
 
-        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (13);", nullptr, nullptr,
+        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (14);", nullptr, nullptr,
                      nullptr);
-        sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 13;", nullptr, nullptr, nullptr);
-        userVersion = 13;
+        sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 14;", nullptr, nullptr, nullptr);
+        userVersion = 14;
     }
 
     return true;
