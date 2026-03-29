@@ -2401,13 +2401,21 @@ void MainWindow::onSendMessage() {
                     // Just proceed, it will queue
                 } else if (msgBox.clickedButton() == forkBtn) {
                     // Fork from the parent of the currently generating message
-                    ChatNode generatingNode = currentDb->getChat(activeItem.messageId);
-                    currentLastNodeId = generatingNode.parentId; // The user prompt that spawned it
+                    for (const auto& msg : currentDb->getMessages()) {
+                        if (msg.id == activeItem.messageId) {
+                            currentLastNodeId = msg.parentId; // The user prompt that spawned it
+                            break;
+                        }
+                    }
                 } else if (msgBox.clickedButton() == cancelReplaceBtn) {
                     // Cancel current generation and proceed
                     QueueManager::instance().cancelItem(currentDb, activeItem.id);
-                    ChatNode generatingNode = currentDb->getChat(activeItem.messageId);
-                    currentLastNodeId = generatingNode.parentId; // The user prompt that spawned it
+                    for (const auto& msg : currentDb->getMessages()) {
+                        if (msg.id == activeItem.messageId) {
+                            currentLastNodeId = msg.parentId; // The user prompt that spawned it
+                            break;
+                        }
+                    }
                     currentDb->deleteMessage(activeItem.messageId); // Delete the assistant placeholder
                 } else if (msgBox.clickedButton() == saveDraftBtn) {
                     currentDb->addDraft(0, "New Draft", text);
