@@ -2585,8 +2585,12 @@ void MainWindow::onQueueChunk(std::shared_ptr<BookDatabase> db, int messageId, c
                               const QString& targetType) {
     if (currentDb == db) {
         if (targetType == "document" && currentDocumentId == messageId) {
-            // Document AI generation chunk. We just let it silently process.
-            // Queue tracking handles status updates.
+            documentEditorView->blockSignals(true);
+            QTextCursor cursor = documentEditorView->textCursor();
+            cursor.movePosition(QTextCursor::End);
+            documentEditorView->setTextCursor(cursor);
+            documentEditorView->insertPlainText(chunk);
+            documentEditorView->blockSignals(false);
         } else if (targetType == "message" && currentLastNodeId == messageId) {
             chatTextArea->blockSignals(true);
             QTextCursor cursor = chatTextArea->textCursor();
@@ -2606,6 +2610,22 @@ void MainWindow::onQueueChunk(std::shared_ptr<BookDatabase> db, int messageId, c
 void MainWindow::onProcessingStarted(std::shared_ptr<BookDatabase> db, int messageId, const QString& targetType) {
     if (currentDb == db) {
         if (targetType == "document" && currentDocumentId == messageId) {
+            documentEditorView->setReadOnly(true);
+
+            QueueItem item = QueueManager::instance().currentProcessingItem();
+            if (item.targetAction == "replace") {
+                documentEditorView->blockSignals(true);
+                documentEditorView->clear();
+                documentEditorView->blockSignals(false);
+            } else if (item.targetAction == "append") {
+                documentEditorView->blockSignals(true);
+                QTextCursor cursor = documentEditorView->textCursor();
+                cursor.movePosition(QTextCursor::End);
+                documentEditorView->setTextCursor(cursor);
+                documentEditorView->insertPlainText("\n");
+                documentEditorView->blockSignals(false);
+            }
+
             statusBar->showMessage(tr("AI is generating document changes..."));
         } else if (targetType == "message" && currentLastNodeId == messageId) {
             statusBar->showMessage(tr("LLM is responding..."));
@@ -2618,6 +2638,7 @@ void MainWindow::onProcessingFinished(std::shared_ptr<BookDatabase> db, int mess
                                       const QString& targetType) {
     if (currentDb == db) {
         if (targetType == "document" && currentDocumentId == messageId) {
+            documentEditorView->setReadOnly(false);
             statusBar->showMessage(success ? tr("AI document generation complete. Pending review.") : tr("Error generating document changes."), 3000);
         } else if (targetType == "message" && currentLastNodeId == messageId) {
             statusBar->showMessage(success ? tr("Response complete.") : tr("Error in response."), 3000);
@@ -3465,6 +3486,15 @@ void MainWindow::updateNotificationStatus() {
                     reviewDlg.exec();
                     db->dismissNotification(n.id);
                     updateNotificationStatus();
+
+                    if (currentDb == db && currentDocumentId != 0) {
+                        // Re-fetch document content in case the review dialog changed it or we need to clear live preview.
+                        QString outTitle, outContent;
+                        getDocumentContent(currentDocumentId, "document", outTitle, outContent);
+                        documentEditorView->blockSignals(true);
+                        documentEditorView->setPlainText(outContent);
+                        documentEditorView->blockSignals(false);
+                    }
                 } else {
                     QDialog dialog(this);
                     dialog.setWindowTitle(tr("Notification Summary"));
@@ -3697,6 +3727,16 @@ void MainWindow::onQueueItemClicked(std::shared_ptr<BookDatabase> db, int messag
             DocumentReviewDialog reviewDlg(db, item.id, this);
             reviewDlg.exec();
             openedReview = true;
+
+            // Reload document editor view just in case the dialog made edits (replace/append)
+            // or to revert a live preview if the user discarded.
+            if (currentDocumentId == messageId) {
+                QString outTitle, outContent;
+                getDocumentContent(currentDocumentId, "document", outTitle, outContent);
+                documentEditorView->blockSignals(true);
+                documentEditorView->setPlainText(outContent);
+                documentEditorView->blockSignals(false);
+            }
             break;
         }
     }
