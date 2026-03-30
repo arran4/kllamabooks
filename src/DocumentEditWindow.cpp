@@ -14,6 +14,7 @@
 #include <QStatusBar>
 #include <QInputDialog>
 #include <QLabel>
+#include <QRegularExpression>
 
 DocumentEditWindow::DocumentEditWindow(std::shared_ptr<BookDatabase> db, int documentId, const QString& title, QWidget* parent)
     : KXmlGuiWindow(parent, Qt::Window), m_db(db), m_documentId(documentId), m_title(title) {
