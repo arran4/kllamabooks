@@ -292,9 +292,29 @@ void MainWindow::setupUi() {
     noteLayout->addWidget(noteEditorView);
     mainContentStack->addWidget(noteContainer);
 
-    connect(backToDocsBtn, &QPushButton::clicked, this, [this]() { mainContentStack->setCurrentWidget(vfsExplorer); });
+    connect(backToDocsBtn, &QPushButton::clicked, this, [this]() {
+        mainContentStack->setCurrentWidget(vfsExplorer);
+        QModelIndex currentIdx = openBooksTree->currentIndex();
+        if (currentIdx.isValid()) {
+            QStandardItem* currentItem = openBooksModel->itemFromIndex(currentIdx);
+            if (currentItem && currentItem->parent()) {
+                openBooksTree->setCurrentIndex(currentItem->parent()->index());
+                openBooksTree->selectionModel()->select(currentItem->parent()->index(), QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Current);
+            }
+        }
+    });
 
-    connect(backToNotesBtn, &QPushButton::clicked, this, [this]() { mainContentStack->setCurrentWidget(vfsExplorer); });
+    connect(backToNotesBtn, &QPushButton::clicked, this, [this]() {
+        mainContentStack->setCurrentWidget(vfsExplorer);
+        QModelIndex currentIdx = openBooksTree->currentIndex();
+        if (currentIdx.isValid()) {
+            QStandardItem* currentItem = openBooksModel->itemFromIndex(currentIdx);
+            if (currentItem && currentItem->parent()) {
+                openBooksTree->setCurrentIndex(currentItem->parent()->index());
+                openBooksTree->selectionModel()->select(currentItem->parent()->index(), QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Current);
+            }
+        }
+    });
 
     // Remove old folder view connections
 
