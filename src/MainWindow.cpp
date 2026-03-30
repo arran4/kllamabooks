@@ -2418,7 +2418,25 @@ void MainWindow::onSendMessage() {
                     if (currentChatPath.size() >= 2) {
                         forkParentId = currentChatPath[currentChatPath.size() - 2].id;
                     }
-                    currentLastNodeId = forkParentId; // This forces the new message to branch from there.
+
+                    if (!toggleInputModeBtn->isChecked()) inputField->clear();
+                    else multiLineInput->clear();
+
+                    int userMsgId = currentDb->addMessage(forkParentId, text, "user");
+                    int aiId = currentDb->addMessage(userMsgId, "", "assistant");
+                    currentLastNodeId = aiId;
+
+                    QString model = m_selectedModel;
+                    if (model.isEmpty() && !m_availableModels.isEmpty()) {
+                        model = m_availableModels.first();
+                    }
+
+                    QueueManager::instance().enqueuePrompt(aiId, model, text);
+
+                    loadDocumentsAndNotes(); // Refresh tree
+                    updateLinearChatView(currentLastNodeId, currentDb->getMessages());
+                    statusBar->showMessage(tr("Fork task queued."), 3000);
+                    return;
                 } else if (clicked == queueBtn) {
                     // Fallthrough to normal send, it will queue naturally because it is an enqueuePrompt call.
                 }
