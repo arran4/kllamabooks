@@ -45,6 +45,9 @@ class QueueManager : public QObject {
     QueueItem currentProcessingItem() const { return m_currentItem; }
     std::shared_ptr<BookDatabase> currentProcessingDb() const { return m_currentDb; }
 
+   public slots:
+    void checkQueue();
+
    signals:
     void queueChanged();
     void processingStarted(std::shared_ptr<BookDatabase> db, int messageId, const QString& targetType = "message");
@@ -54,7 +57,6 @@ class QueueManager : public QObject {
                             const QString& targetType = "message");
 
    private slots:
-    void checkQueue();
     void onChunk(const QString& chunk);
     void onComplete(const QString& response);
     void onError(const QString& error);
