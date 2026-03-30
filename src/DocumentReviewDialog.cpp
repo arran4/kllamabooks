@@ -65,18 +65,40 @@ void DocumentReviewDialog::loadData() {
             m_promptEdit->setPlainText(item.prompt);
             m_resultEdit->setPlainText(item.response);
 
-            if (item.targetAction == "replace") {
-                m_replaceBtn->setDefault(true);
-                m_replaceBtn->setFocus();
-                m_replaceBtn->setStyleSheet("border: 2px solid #2196F3; font-weight: bold;");
-            } else if (item.targetAction == "append") {
-                m_appendBtn->setDefault(true);
-                m_appendBtn->setFocus();
-                m_appendBtn->setStyleSheet("border: 2px solid #2196F3; font-weight: bold;");
-            } else if (item.targetAction == "fork") {
-                m_forkBtn->setDefault(true);
-                m_forkBtn->setFocus();
-                m_forkBtn->setStyleSheet("border: 2px solid #2196F3; font-weight: bold;");
+            // Check if document was modified while the prompt was in queue/processing
+            bool isModified = false;
+            auto history = m_db->getDocumentHistory(m_documentId);
+            for (const auto& entry : history) {
+                QDateTime editTime = QDateTime::fromString(entry.timestamp, Qt::ISODate);
+                if (editTime > item.timestamp) {
+                    isModified = true;
+                    break;
+                }
+            }
+
+            if (isModified) {
+                m_replaceBtn->setEnabled(false);
+                m_replaceBtn->setToolTip(tr("Document was edited after this AI task started. Replace is disabled to prevent data loss."));
+                // Fallback to fork if they originally wanted replace
+                if (item.targetAction == "replace") {
+                    m_forkBtn->setDefault(true);
+                    m_forkBtn->setFocus();
+                    m_forkBtn->setStyleSheet("border: 2px solid #2196F3; font-weight: bold;");
+                }
+            } else {
+                if (item.targetAction == "replace") {
+                    m_replaceBtn->setDefault(true);
+                    m_replaceBtn->setFocus();
+                    m_replaceBtn->setStyleSheet("border: 2px solid #2196F3; font-weight: bold;");
+                } else if (item.targetAction == "append") {
+                    m_appendBtn->setDefault(true);
+                    m_appendBtn->setFocus();
+                    m_appendBtn->setStyleSheet("border: 2px solid #2196F3; font-weight: bold;");
+                } else if (item.targetAction == "fork") {
+                    m_forkBtn->setDefault(true);
+                    m_forkBtn->setFocus();
+                    m_forkBtn->setStyleSheet("border: 2px solid #2196F3; font-weight: bold;");
+                }
             }
 
             break;

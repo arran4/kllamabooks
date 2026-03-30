@@ -227,7 +227,11 @@ void MainWindow::setupUi() {
     docLayout->setContentsMargins(0, 0, 0, 0);
 
     QToolBar* docToolbar = new QToolBar(this);
+    // saveDocBtn is now unused in the main view, replaced by editDocBtn
+    editDocBtn = new QPushButton(QIcon::fromTheme("document-edit"), "Edit Document", this);
     saveDocBtn = new QPushButton(QIcon::fromTheme("document-save"), "Save Document", this);
+    saveDocBtn->hide(); // kept just in case but we don't need it on this toolbar
+
     QPushButton* backToDocsBtn = new QPushButton(QIcon::fromTheme("go-previous"), "Back to Documents", this);
     previewDocBtn = new QPushButton(QIcon::fromTheme("view-preview"), "Preview", this);
     previewDocBtn->setCheckable(true);
@@ -239,7 +243,7 @@ void MainWindow::setupUi() {
     connect(docHistoryBtn, &QPushButton::clicked, this, &MainWindow::onDocumentHistory);
 
     docToolbar->addWidget(backToDocsBtn);
-    docToolbar->addWidget(saveDocBtn);
+    docToolbar->addWidget(editDocBtn);
     docToolbar->addWidget(previewDocBtn);
     docToolbar->addWidget(docHistoryBtn);
     docToolbar->addWidget(aiOperationsBtn);
@@ -247,6 +251,7 @@ void MainWindow::setupUi() {
 
     documentStack = new QStackedWidget(this);
     documentEditorView = new QTextEdit(this);
+    documentEditorView->setReadOnly(true); // User requirement: non-editable
     documentPreviewView = new QTextBrowser(this);
 
     documentStack->addWidget(documentEditorView);
@@ -255,16 +260,37 @@ void MainWindow::setupUi() {
     docLayout->addWidget(documentStack);
     mainContentStack->addWidget(docContainer);
 
+    connect(editDocBtn, &QPushButton::clicked, this, &MainWindow::onEditDocument);
+
     connect(previewDocBtn, &QPushButton::toggled, this, [this](bool checked) {
         if (checked) {
             documentPreviewView->setMarkdown(documentEditorView->toPlainText());
             documentStack->setCurrentWidget(documentPreviewView);
-            previewDocBtn->setText("Edit");
+            previewDocBtn->setText("View Source");
         } else {
             documentStack->setCurrentWidget(documentEditorView);
             previewDocBtn->setText("Preview");
         }
     });
+
+    // --- Document Edit Container ---
+    docEditContainer = new QWidget(this);
+    QVBoxLayout* docEditLayout = new QVBoxLayout(docEditContainer);
+    docEditLayout->setContentsMargins(0, 0, 0, 0);
+
+    QToolBar* docEditToolbar = new QToolBar(this);
+    confirmDocEditBtn = new QPushButton(QIcon::fromTheme("document-save"), "Save Changes", this);
+    cancelDocEditBtn = new QPushButton(QIcon::fromTheme("dialog-cancel"), "Cancel", this);
+    docEditToolbar->addWidget(confirmDocEditBtn);
+    docEditToolbar->addWidget(cancelDocEditBtn);
+
+    docEditLayout->addWidget(docEditToolbar);
+    docEditView = new QTextEdit(this);
+    docEditLayout->addWidget(docEditView);
+    mainContentStack->addWidget(docEditContainer);
+
+    connect(confirmDocEditBtn, &QPushButton::clicked, this, &MainWindow::onSaveDocBtnClicked);
+    connect(cancelDocEditBtn, &QPushButton::clicked, this, &MainWindow::onCancelEditDocument);
 
     noteContainer = new QWidget(this);
     QVBoxLayout* noteLayout = new QVBoxLayout(noteContainer);
@@ -1498,7 +1524,18 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
         else if (type == "drafts_folder")
             actionName = "New Draft";
 
-        QAction* newAction = menu.addAction(actionName);
+        QAction* newAction = nullptr;
+        QAction* newFromTemplateAction = nullptr;
+        QAction* newFromPromptAction = nullptr;
+
+        if (type == "docs_folder") {
+            QMenu* newDocMenu = menu.addMenu(QIcon::fromTheme("document-new"), "New Document");
+            newAction = newDocMenu->addAction("Blank Document");
+            newFromTemplateAction = newDocMenu->addAction("From Template");
+            newFromPromptAction = newDocMenu->addAction("From AI Prompt");
+        } else {
+            newAction = menu.addAction(actionName);
+        }
 
         QAction* createFolderAction = nullptr;
         QAction* importFileAction = nullptr;
@@ -4148,6 +4185,15 @@ void MainWindow::onVfsExplorerDoubleClicked(const QModelIndex& index) {
  * If the document was being auto-saved as a transient draft, the temporary draft entry is purged
  * upon successful explicit save.
  */
+void MainWindow::onEditDocument() {
+    docEditView->setPlainText(documentEditorView->toPlainText());
+    mainContentStack->setCurrentWidget(docEditContainer);
+}
+
+void MainWindow::onCancelEditDocument() {
+    mainContentStack->setCurrentWidget(docContainer);
+}
+
 void MainWindow::onSaveDocBtnClicked() {
     if (!currentDb) return;
 
@@ -4162,13 +4208,13 @@ void MainWindow::onSaveDocBtnClicked() {
 
         int newId = 0;
         if (type == "document")
-            newId = currentDb->addDocument(folderId, currentTitle, documentEditorView->toPlainText());
+            newId = currentDb->addDocument(folderId, currentTitle, docEditView->toPlainText());
         else if (type == "template")
-            newId = currentDb->addTemplate(folderId, currentTitle, documentEditorView->toPlainText());
+            newId = currentDb->addTemplate(folderId, currentTitle, docEditView->toPlainText());
         else if (type == "draft")
-            newId = currentDb->addDraft(folderId, currentTitle, documentEditorView->toPlainText());
+            newId = currentDb->addDraft(folderId, currentTitle, docEditView->toPlainText());
         else
-            newId = currentDb->addDocument(folderId, currentTitle, documentEditorView->toPlainText());
+            newId = currentDb->addDocument(folderId, currentTitle, docEditView->toPlainText());
 
         statusBar->showMessage(tr("Document saved."), 3000);
         if (currentAutoDraftId != 0) {
@@ -4183,23 +4229,39 @@ void MainWindow::onSaveDocBtnClicked() {
         f.setItalic(false);
         item->setFont(f);
         isCreatingNewDoc = false;
+
+        currentDocumentId = newId;
+        documentEditorView->blockSignals(true);
+        documentEditorView->setPlainText(docEditView->toPlainText());
+        documentEditorView->blockSignals(false);
+
+        mainContentStack->setCurrentWidget(docContainer);
         return;
     }
 
     if (currentDocumentId == 0) return;
 
     QString type = item ? item->data(Qt::UserRole + 1).toString() : "document";
-    if (type == "document")
-        currentDb->updateDocument(currentDocumentId, currentTitle, documentEditorView->toPlainText());
-    else if (type == "template")
-        currentDb->updateTemplate(currentDocumentId, currentTitle, documentEditorView->toPlainText());
-    else if (type == "draft")
-        currentDb->updateDraft(currentDocumentId, currentTitle, documentEditorView->toPlainText());
+    if (type == "document") {
+        currentDb->addDocumentHistory(currentDocumentId, "manual_edit_pre", documentEditorView->toPlainText());
+        currentDb->updateDocument(currentDocumentId, currentTitle, docEditView->toPlainText());
+    } else if (type == "template") {
+        currentDb->updateTemplate(currentDocumentId, currentTitle, docEditView->toPlainText());
+    } else if (type == "draft") {
+        currentDb->updateDraft(currentDocumentId, currentTitle, docEditView->toPlainText());
+    }
 
     if (currentAutoDraftId != 0) {
         currentDb->deleteDraft(currentAutoDraftId);
         currentAutoDraftId = 0;
     }
+
+    documentEditorView->blockSignals(true);
+    documentEditorView->setPlainText(docEditView->toPlainText());
+    documentEditorView->blockSignals(false);
+
+    mainContentStack->setCurrentWidget(docContainer);
+
     statusBar->showMessage(tr("Document saved."), 3000);
     if (item) item->setText(currentTitle);
 }
