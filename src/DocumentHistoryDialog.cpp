@@ -133,6 +133,23 @@ void DocumentHistoryDialog::onRestore() {
         int newId = m_db->addDocument(folderId, title + " (" + displayTime + ")", m_entries[idx].content, m_documentId);
         if (newId > 0) {
             DocumentEditWindow* editWin = new DocumentEditWindow(m_db, newId, title + " (" + displayTime + ")");
+
+            // We need to wire it up to MainWindow to refresh tree.
+            // We can emit a signal or invoke MainWindow.
+            QWidget* mainWin = nullptr;
+            for (QWidget* widget : QApplication::topLevelWidgets()) {
+                if (widget->inherits("MainWindow")) {
+                    mainWin = widget;
+                    break;
+                }
+            }
+            if (mainWin) {
+                QObject::connect(editWin, SIGNAL(documentModified(int)), mainWin, SLOT(loadDocumentsAndNotes()));
+                QObject::connect(editWin, SIGNAL(newDocumentCreated(int)), mainWin, SLOT(loadDocumentsAndNotes()));
+                // We should also trigger a tree reload immediately for the new fork
+                QMetaObject::invokeMethod(mainWin, "loadDocumentsAndNotes");
+            }
+
             editWin->show();
             accept();
         }

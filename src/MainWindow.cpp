@@ -4188,6 +4188,22 @@ void MainWindow::onEditDocument() {
 
     DocumentEditWindow* editWin = new DocumentEditWindow(currentDb, currentDocumentId, currentTitle);
     m_openDocEditors.insert(currentDocumentId, editWin);
+
+    connect(editWin, &DocumentEditWindow::documentModified, this, [this](int docId) {
+        loadDocumentsAndNotes(); // Refresh tree
+        if (currentDocumentId == docId) {
+            QString outTitle, outContent;
+            getDocumentContent(docId, "document", outTitle, outContent);
+            documentEditorView->blockSignals(true);
+            documentEditorView->setPlainText(outContent);
+            documentEditorView->blockSignals(false);
+        }
+    });
+
+    connect(editWin, &DocumentEditWindow::newDocumentCreated, this, [this](int) {
+        loadDocumentsAndNotes(); // Refresh tree
+    });
+
     connect(editWin, &QObject::destroyed, this, [this, id = currentDocumentId]() {
         m_openDocEditors.remove(id);
     });

@@ -16,6 +16,10 @@ public:
     explicit DocumentEditWindow(std::shared_ptr<BookDatabase> db, int documentId, const QString& title, QWidget* parent = nullptr);
     ~DocumentEditWindow() override;
 
+signals:
+    void documentModified(int documentId);
+    void newDocumentCreated(int newDocumentId);
+
 protected:
     void closeEvent(QCloseEvent* event) override;
 
