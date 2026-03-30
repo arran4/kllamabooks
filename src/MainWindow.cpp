@@ -45,6 +45,7 @@
 #include <limits>
 
 #include "AiActionDialog.h"
+#include "AIOperationsDialog.h"
 #include "DocumentReviewDialog.h"
 #include "DocumentHistoryDialog.h"
 #include "ChatSettingsDialog.h"
@@ -231,16 +232,8 @@ void MainWindow::setupUi() {
     previewDocBtn = new QPushButton(QIcon::fromTheme("view-preview"), "Preview", this);
     previewDocBtn->setCheckable(true);
 
-    QToolButton* aiOperationsBtn = new QToolButton(this);
-    aiOperationsBtn->setIcon(QIcon::fromTheme("tools-wizard"));
-    aiOperationsBtn->setText("AI Operations");
-    aiOperationsBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-    aiOperationsBtn->setPopupMode(QToolButton::InstantPopup);
-    QMenu* aiMenu = new QMenu(this);
-    aiMenu->addAction("Complete this text", this, &MainWindow::onDocumentCompleteText);
-    aiMenu->addAction("Replace entirely", this, &MainWindow::onDocumentReplaceEntirely);
-    aiMenu->addAction("Replace in place", this, &MainWindow::onDocumentReplaceInPlace);
-    aiOperationsBtn->setMenu(aiMenu);
+    QPushButton* aiOperationsBtn = new QPushButton(QIcon::fromTheme("tools-wizard"), "AI Operations", this);
+    connect(aiOperationsBtn, &QPushButton::clicked, this, &MainWindow::onDocumentAIOperations);
 
     QPushButton* docHistoryBtn = new QPushButton(QIcon::fromTheme("view-history"), "History", this);
     connect(docHistoryBtn, &QPushButton::clicked, this, &MainWindow::onDocumentHistory);
@@ -252,8 +245,6 @@ void MainWindow::setupUi() {
     docToolbar->addWidget(aiOperationsBtn);
     docLayout->addWidget(docToolbar);
 
-    documentSplitter = new QSplitter(Qt::Horizontal, this);
-
     documentStack = new QStackedWidget(this);
     documentEditorView = new QTextEdit(this);
     documentPreviewView = new QTextBrowser(this);
@@ -261,22 +252,7 @@ void MainWindow::setupUi() {
     documentStack->addWidget(documentEditorView);
     documentStack->addWidget(documentPreviewView);
 
-    documentSplitter->addWidget(documentStack);
-
-    QWidget* aiPreviewContainer = new QWidget(this);
-    QVBoxLayout* aiPreviewLayout = new QVBoxLayout(aiPreviewContainer);
-    aiPreviewLayout->setContentsMargins(0, 0, 0, 0);
-    documentAIPreviewLabel = new QLabel("AI Generation Preview", this);
-    documentAIPreviewLabel->setStyleSheet("background-color: #ffeb3b; color: black; padding: 2px;");
-    documentAIPreviewView = new QTextEdit(this);
-    documentAIPreviewView->setReadOnly(true);
-    aiPreviewLayout->addWidget(documentAIPreviewLabel);
-    aiPreviewLayout->addWidget(documentAIPreviewView);
-
-    documentSplitter->addWidget(aiPreviewContainer);
-    aiPreviewContainer->hide();
-
-    docLayout->addWidget(documentSplitter);
+    docLayout->addWidget(documentStack);
     mainContentStack->addWidget(docContainer);
 
     connect(previewDocBtn, &QPushButton::toggled, this, [this](bool checked) {
@@ -2609,14 +2585,8 @@ void MainWindow::onQueueChunk(std::shared_ptr<BookDatabase> db, int messageId, c
                               const QString& targetType) {
     if (currentDb == db) {
         if (targetType == "document" && currentDocumentId == messageId) {
-            QWidget* aiPreviewContainer = documentSplitter->widget(1);
-            if (aiPreviewContainer && aiPreviewContainer->isHidden()) {
-                aiPreviewContainer->show();
-            }
-            QTextCursor cursor = documentAIPreviewView->textCursor();
-            cursor.movePosition(QTextCursor::End);
-            documentAIPreviewView->setTextCursor(cursor);
-            documentAIPreviewView->insertPlainText(chunk);
+            // Document AI generation chunk. We just let it silently process.
+            // Queue tracking handles status updates.
         } else if (targetType == "message" && currentLastNodeId == messageId) {
             chatTextArea->blockSignals(true);
             QTextCursor cursor = chatTextArea->textCursor();
@@ -2636,13 +2606,6 @@ void MainWindow::onQueueChunk(std::shared_ptr<BookDatabase> db, int messageId, c
 void MainWindow::onProcessingStarted(std::shared_ptr<BookDatabase> db, int messageId, const QString& targetType) {
     if (currentDb == db) {
         if (targetType == "document" && currentDocumentId == messageId) {
-            // Document Editor is no longer set to ReadOnly during AI processing,
-            // as the AI streams to the separate preview pane instead.
-            documentAIPreviewView->clear();
-            QWidget* aiPreviewContainer = documentSplitter->widget(1);
-            if (aiPreviewContainer) {
-                aiPreviewContainer->show();
-            }
             statusBar->showMessage(tr("AI is generating document changes..."));
         } else if (targetType == "message" && currentLastNodeId == messageId) {
             statusBar->showMessage(tr("LLM is responding..."));
@@ -2655,7 +2618,6 @@ void MainWindow::onProcessingFinished(std::shared_ptr<BookDatabase> db, int mess
                                       const QString& targetType) {
     if (currentDb == db) {
         if (targetType == "document" && currentDocumentId == messageId) {
-            // Keep AI preview open for review, just update status
             statusBar->showMessage(success ? tr("AI document generation complete. Pending review.") : tr("Error generating document changes."), 3000);
         } else if (targetType == "message" && currentLastNodeId == messageId) {
             statusBar->showMessage(success ? tr("Response complete.") : tr("Error in response."), 3000);
@@ -3964,160 +3926,56 @@ bool MainWindow::moveItemToFolder(QStandardItem* draggedItem, QStandardItem* tar
 
 /** * @brief Executes logic for showDocumentAIToolsMenu. This function manages component initialization and handles state transitions for the UI. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
 void MainWindow::showDocumentAIToolsMenu() {
-    // Just a placeholder, actually we linked it via QMenu on the QToolButton
 }
 
-/** * @brief Sends a direct LLM generation request to append text to the current active Document. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
-void MainWindow::onDocumentCompleteText() {
-    if (m_isGenerating || !currentDb) return;
-
-    QTextCursor cursor = documentEditorView->textCursor();
-    QString textBeforeCursor = documentEditorView->toPlainText().left(cursor.position());
-    if (textBeforeCursor.isEmpty()) {
-        textBeforeCursor = documentEditorView->toPlainText();
-    }
-
-    QSettings settings;
-    QString defaultPrompt =
-        settings
-            .value("prompt_complete_text",
-                   "Please complete the following text. Only output the continuation, nothing else:\n\n{context}")
-            .toString();
-
-    AiActionDialog dialog("Complete Text", "Edit the prompt for AI completion:", defaultPrompt, textBeforeCursor, this);
-    if (dialog.exec() != QDialog::Accepted) return;
-
-    QString prompt = dialog.getPrompt();
-    if (prompt.isEmpty()) return;
-
-    QString model = m_selectedModel;
-    if (model.isEmpty() && !m_availableModels.isEmpty()) {
-        model = m_availableModels.first();
-    }
-
-    QueueManager::instance().enqueuePrompt(currentDocumentId, model, prompt, 0, "document");
-    statusBar->showMessage(tr("AI completion task queued."), 3000);
-}
-
-/** * @brief Replaces the entire body of the active Document using LLM context editing. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
-void MainWindow::onDocumentReplaceEntirely() {
+void MainWindow::onDocumentAIOperations() {
     if (m_isGenerating || !currentDb) return;
 
     QSettings settings;
-    QString defaultPrompt =
-        settings
-            .value("prompt_replace_entirely",
-                   "Rewrite the following document according to your instructions. Only output the rewritten document, "
-                   "nothing else.\n\nInstructions: <your instructions here>\n\nDocument:\n{context}")
-            .toString();
+    QString defaultPrompt = settings.value("prompt_complete_text", "Complete the following text naturally. Only output the continuation.\n\nText:\n{context}").toString();
 
-    AiActionDialog dialog("Replace Entirely", "Edit the prompt for rewriting the entire document:", defaultPrompt,
-                          documentEditorView->toPlainText(), this);
-    if (dialog.exec() != QDialog::Accepted) return;
+    AIOperationsDialog dialog(defaultPrompt, this);
+    if (dialog.exec() == QDialog::Accepted) {
+        QString op = dialog.getOperation();
+        QString promptTpl = dialog.getPrompt();
+        QString contextText;
 
-    QString prompt = dialog.getPrompt();
-    if (prompt.isEmpty()) return;
-
-    // Create a fork of the document instead of replacing
-    QString originalTitle = "";
-    int folderId = 0;
-    QList<DocumentNode> docs = currentDb->getDocuments();
-    for (const auto& doc : docs) {
-        if (doc.id == currentDocumentId) {
-            originalTitle = doc.title;
-            folderId = doc.folderId;
-            break;
+        if (op == "complete") {
+            QTextCursor cursor = documentEditorView->textCursor();
+            contextText = documentEditorView->toPlainText().left(cursor.position());
+            if (contextText.isEmpty()) {
+                contextText = documentEditorView->toPlainText();
+            }
+        } else if (op == "replace") {
+            contextText = documentEditorView->toPlainText();
+        } else if (op == "replace_in_place") {
+            QTextCursor cursor = documentEditorView->textCursor();
+            if (!cursor.hasSelection()) {
+                QMessageBox::information(this, tr("Replace in place"), tr("Please select some text first."));
+                return;
+            }
+            contextText = cursor.selectedText();
+            contextText.replace(QChar::ParagraphSeparator, '\n');
         }
-    }
 
-    int newDocumentId = currentDb->addDocument(folderId, originalTitle + " (Rewritten)", "", currentDocumentId);
-    if (newDocumentId > 0) {
-        currentDocumentId = newDocumentId;
-        loadDocumentsAndNotes();  // Reload tree to show the new fork
-        QStandardItem* newItem = findItemInTree(currentDocumentId, "document");
-        if (newItem) {
-            openBooksTree->setCurrentIndex(newItem->index());
+        QString prompt = promptTpl;
+        prompt.replace("{context}", contextText);
+
+        QString model = m_selectedModel;
+        if (model.isEmpty() && !m_availableModels.isEmpty()) {
+            model = m_availableModels.first();
         }
-    } else {
-        QMessageBox::warning(this, tr("Error"), tr("Failed to create document fork."));
-        return;
-    }
 
-    QString model = m_selectedModel;
-    if (model.isEmpty() && !m_availableModels.isEmpty()) {
-        model = m_availableModels.first();
+        QueueManager::instance().enqueuePrompt(currentDocumentId, model, prompt, 0, "document");
+        statusBar->showMessage(tr("AI document task queued."), 3000);
     }
-
-    QueueManager::instance().enqueuePrompt(currentDocumentId, model, prompt, 0, "document");
-    statusBar->showMessage(tr("AI rewrite task queued."), 3000);
 }
 
-/** * @brief Performs an inline LLM rewrite over the currently highlighted selection. *  * This function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal application models. */
-void MainWindow::onDocumentReplaceInPlace() {
-    if (m_isGenerating || !currentDb) return;
 
-    QTextCursor cursor = documentEditorView->textCursor();
-    if (!cursor.hasSelection()) {
-        QMessageBox::information(this, tr("Replace in place"), tr("Please select some text first."));
-        return;
-    }
 
-    QString selectedText = cursor.selectedText();
-    // In QTextEdit, newlines in selected text are represented as QChar::ParagraphSeparator
-    selectedText.replace(QChar::ParagraphSeparator, '\n');
 
-    QSettings settings;
-    QString defaultPrompt =
-        settings
-            .value("prompt_replace_in_place",
-                   "Rewrite the following text according to your instructions. Only output the rewritten text, nothing "
-                   "else.\n\nInstructions: <your instructions here>\n\nText:\n{context}")
-            .toString();
 
-    AiActionDialog dialog("Replace in place", "Edit the prompt for rewriting the selected text:", defaultPrompt,
-                          selectedText, this);
-    if (dialog.exec() != QDialog::Accepted) return;
 
-    QString prompt = dialog.getPrompt();
-    if (prompt.isEmpty()) return;
-
-    // Create a fork of the document
-    QString originalTitle = "";
-    int folderId = 0;
-    QList<DocumentNode> docs = currentDb->getDocuments();
-    for (const auto& doc : docs) {
-        if (doc.id == currentDocumentId) {
-            originalTitle = doc.title;
-            folderId = doc.folderId;
-            break;
-        }
-    }
-
-    QString currentContent = documentEditorView->toPlainText();
-    int newDocumentId =
-        currentDb->addDocument(folderId, originalTitle + " (Modified)", currentContent, currentDocumentId);
-
-    if (newDocumentId > 0) {
-        currentDocumentId = newDocumentId;
-        loadDocumentsAndNotes();  // Reload tree to show the new fork
-        // Find and select the new item
-        QStandardItem* newItem = findItemInTree(currentDocumentId, "document");
-        if (newItem) {
-            openBooksTree->setCurrentIndex(newItem->index());
-        }
-    } else {
-        QMessageBox::warning(this, tr("Error"), tr("Failed to create document fork."));
-        return;
-    }
-
-    QString model = m_selectedModel;
-    if (model.isEmpty() && !m_availableModels.isEmpty()) {
-        model = m_availableModels.first();
-    }
-
-    QueueManager::instance().enqueuePrompt(currentDocumentId, model, prompt, 0, "document");
-    statusBar->showMessage(tr("AI replace in-place task queued."), 3000);
-}
 
 void MainWindow::onDocumentHistory() {
     if (!currentDb || currentDocumentId == 0) return;

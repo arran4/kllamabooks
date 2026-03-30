@@ -45,6 +45,8 @@ add_executable(kllamabooks
     src/ChatInputWidget.h
     src/AiActionDialog.cpp
     src/AiActionDialog.h
+    src/AIOperationsDialog.cpp
+    src/AIOperationsDialog.h
     src/DocumentReviewDialog.cpp
     src/DocumentReviewDialog.h
     src/DocumentHistoryDialog.cpp

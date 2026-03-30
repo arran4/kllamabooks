@@ -1127,6 +1127,9 @@ int BookDatabase::enqueuePrompt(int messageId, const QString& model, const QStri
 bool BookDatabase::updateQueueItemState(int id, const QString& state, const QString& response) {
     if (!m_isOpen) return false;
 
+    // If response is empty, maybe don't overwrite an existing response unless explicitly asked?
+    // Wait, the prompt said response has a default of "". When we just update state to 'processing',
+    // it will overwrite response with "". This is fine because when it starts processing, response is empty anyway.
     const char* sql = "UPDATE queue SET state = ?, response = ? WHERE id = ?;";
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;

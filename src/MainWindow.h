@@ -94,9 +94,7 @@ class MainWindow : public KXmlGuiWindow {
     void onDiscardChanges();
     void showBookContextMenu(const QPoint& pos);
     void showDocumentAIToolsMenu();
-    void onDocumentCompleteText();
-    void onDocumentReplaceEntirely();
-    void onDocumentReplaceInPlace();
+    void onDocumentAIOperations();
     void onDocumentHistory();
     void showItemContextMenu(QStandardItem* item, const QPoint& globalPos);
     void showOpenBookContextMenu(const QPoint& pos);
@@ -164,9 +162,6 @@ class MainWindow : public KXmlGuiWindow {
     QStackedWidget* documentStack;
     QTextEdit* documentEditorView;
     QTextBrowser* documentPreviewView;
-    QTextEdit* documentAIPreviewView;
-    QLabel* documentAIPreviewLabel;
-    QSplitter* documentSplitter;
     QPushButton* saveDocBtn;
     QPushButton* previewDocBtn;
     QWidget* noteContainer;

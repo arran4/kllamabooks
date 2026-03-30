@@ -238,6 +238,8 @@ void QueueManager::processNext() {
     m_isProcessing = true;
     m_currentItem.processingId = QCoreApplication::applicationPid();
     m_currentDb->updateQueueProcessingId(m_currentItem.id, m_currentItem.processingId);
+    m_currentDb->updateQueueItemState(m_currentItem.id, "processing");
+    m_currentItem.state = "processing";
     m_lastProcessedModel = m_currentItem.model;
     emit processingStarted(m_currentDb, m_currentItem.messageId, m_currentItem.targetType);
     emit queueChanged();
