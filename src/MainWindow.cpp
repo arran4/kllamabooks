@@ -292,9 +292,9 @@ void MainWindow::setupUi() {
     noteLayout->addWidget(noteEditorView);
     mainContentStack->addWidget(noteContainer);
 
-    connect(backToDocsBtn, &QPushButton::clicked, this, [this]() { mainContentStack->setCurrentWidget(emptyView); });
+    connect(backToDocsBtn, &QPushButton::clicked, this, [this]() { mainContentStack->setCurrentWidget(vfsExplorer); });
 
-    connect(backToNotesBtn, &QPushButton::clicked, this, [this]() { mainContentStack->setCurrentWidget(emptyView); });
+    connect(backToNotesBtn, &QPushButton::clicked, this, [this]() { mainContentStack->setCurrentWidget(vfsExplorer); });
 
     // Remove old folder view connections
 
