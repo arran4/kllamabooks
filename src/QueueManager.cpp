@@ -70,9 +70,9 @@ void QueueManager::setClient(OllamaClient* client) { m_client = client; }
  * @param targetType The semantic class of generation (e.g. document, message).
  */
 void QueueManager::enqueuePrompt(int messageId, const QString& model, const QString& prompt, int priority,
-                                 const QString& targetType, int parentId) {
+                                 const QString& targetType, int parentId, const QString& targetAction) {
     if (m_activeDb && m_activeDb->isOpen()) {
-        m_activeDb->enqueuePrompt(messageId, model, prompt, priority, targetType, parentId);
+        m_activeDb->enqueuePrompt(messageId, model, prompt, priority, targetType, parentId, targetAction);
         emit queueChanged();
         QTimer::singleShot(0, this, &QueueManager::checkQueue);
     }

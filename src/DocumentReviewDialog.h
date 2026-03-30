@@ -32,6 +32,10 @@ private:
     QTextEdit* m_promptEdit;
     QTextEdit* m_resultEdit;
 
+    QPushButton* m_replaceBtn;
+    QPushButton* m_appendBtn;
+    QPushButton* m_forkBtn;
+
     void loadData();
     void finalizeAndClose(bool deleteQueueItem);
 };

@@ -30,23 +30,23 @@ DocumentReviewDialog::DocumentReviewDialog(std::shared_ptr<BookDatabase> db, int
     // Buttons
     QHBoxLayout* btnLayout = new QHBoxLayout();
 
-    QPushButton* replaceBtn = new QPushButton(tr("Replace Original"), this);
-    QPushButton* appendBtn = new QPushButton(tr("Append to Original"), this);
-    QPushButton* forkBtn = new QPushButton(tr("Create New Document"), this);
+    m_replaceBtn = new QPushButton(tr("Replace Original"), this);
+    m_appendBtn = new QPushButton(tr("Append to Original"), this);
+    m_forkBtn = new QPushButton(tr("Create New Document"), this);
     QPushButton* regenerateBtn = new QPushButton(tr("Regenerate"), this);
     QPushButton* discardBtn = new QPushButton(tr("Discard"), this);
 
-    btnLayout->addWidget(replaceBtn);
-    btnLayout->addWidget(appendBtn);
-    btnLayout->addWidget(forkBtn);
+    btnLayout->addWidget(m_replaceBtn);
+    btnLayout->addWidget(m_appendBtn);
+    btnLayout->addWidget(m_forkBtn);
     btnLayout->addWidget(regenerateBtn);
     btnLayout->addWidget(discardBtn);
 
     mainLayout->addLayout(btnLayout);
 
-    connect(replaceBtn, &QPushButton::clicked, this, &DocumentReviewDialog::onReplace);
-    connect(appendBtn, &QPushButton::clicked, this, &DocumentReviewDialog::onAppend);
-    connect(forkBtn, &QPushButton::clicked, this, &DocumentReviewDialog::onFork);
+    connect(m_replaceBtn, &QPushButton::clicked, this, &DocumentReviewDialog::onReplace);
+    connect(m_appendBtn, &QPushButton::clicked, this, &DocumentReviewDialog::onAppend);
+    connect(m_forkBtn, &QPushButton::clicked, this, &DocumentReviewDialog::onFork);
     connect(regenerateBtn, &QPushButton::clicked, this, &DocumentReviewDialog::onRegenerate);
     connect(discardBtn, &QPushButton::clicked, this, &DocumentReviewDialog::onDiscard);
 
@@ -64,6 +64,21 @@ void DocumentReviewDialog::loadData() {
             m_documentId = item.messageId; // For document type, messageId is the docId
             m_promptEdit->setPlainText(item.prompt);
             m_resultEdit->setPlainText(item.response);
+
+            if (item.targetAction == "replace") {
+                m_replaceBtn->setDefault(true);
+                m_replaceBtn->setFocus();
+                m_replaceBtn->setStyleSheet("border: 2px solid #2196F3; font-weight: bold;");
+            } else if (item.targetAction == "append") {
+                m_appendBtn->setDefault(true);
+                m_appendBtn->setFocus();
+                m_appendBtn->setStyleSheet("border: 2px solid #2196F3; font-weight: bold;");
+            } else if (item.targetAction == "fork") {
+                m_forkBtn->setDefault(true);
+                m_forkBtn->setFocus();
+                m_forkBtn->setStyleSheet("border: 2px solid #2196F3; font-weight: bold;");
+            }
+
             break;
         }
     }

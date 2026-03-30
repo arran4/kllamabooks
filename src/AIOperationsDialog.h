@@ -15,9 +15,11 @@ public:
 
     QString getOperation() const;
     QString getPrompt() const;
+    QString getTargetAction() const;
 
 private:
     QComboBox* m_operationCombo;
+    QComboBox* m_targetActionCombo;
     QTextEdit* m_promptEdit;
 };
 

@@ -68,6 +68,7 @@ struct QueueItem {
     QString state;       // "pending", "processing", "completed", "error"
     QString response;
     int parentId;
+    QString targetAction;
 };
 
 struct CommentNode {
@@ -159,7 +160,7 @@ class BookDatabase {
 
     // Queue
     int enqueuePrompt(int messageId, const QString& model, const QString& prompt, int priority = 0,
-                      const QString& targetType = "message", int parentId = 0);
+                      const QString& targetType = "message", int parentId = 0, const QString& targetAction = "");
     QList<QueueItem> getQueue() const;
     bool updateQueueProcessingId(int id, int processingId);
     bool updateQueueError(int id, const QString& error);

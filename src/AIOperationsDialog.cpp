@@ -24,6 +24,16 @@ AIOperationsDialog::AIOperationsDialog(const QString& defaultPrompt, QWidget* pa
     opLayout->addWidget(m_operationCombo, 1);
     layout->addLayout(opLayout);
 
+    // Target Action
+    QHBoxLayout* targetActionLayout = new QHBoxLayout();
+    targetActionLayout->addWidget(new QLabel(tr("Action after generation:")));
+    m_targetActionCombo = new QComboBox(this);
+    m_targetActionCombo->addItem(tr("Review & Replace Original"), "replace");
+    m_targetActionCombo->addItem(tr("Review & Append to Original"), "append");
+    m_targetActionCombo->addItem(tr("Review & Create New Document"), "fork");
+    targetActionLayout->addWidget(m_targetActionCombo, 1);
+    layout->addLayout(targetActionLayout);
+
     // Prompt
     layout->addWidget(new QLabel(tr("Prompt Instructions:")));
     m_promptEdit = new QTextEdit(this);
@@ -66,4 +76,8 @@ QString AIOperationsDialog::getOperation() const {
 
 QString AIOperationsDialog::getPrompt() const {
     return m_promptEdit->toPlainText();
+}
+
+QString AIOperationsDialog::getTargetAction() const {
+    return m_targetActionCombo->currentData().toString();
 }
