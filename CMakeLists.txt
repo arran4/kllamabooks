@@ -47,6 +47,8 @@ add_executable(kllamabooks
     src/AiActionDialog.h
     src/AIOperationsDialog.cpp
     src/AIOperationsDialog.h
+    src/DocumentEditWindow.cpp
+    src/DocumentEditWindow.h
     src/DocumentReviewDialog.cpp
     src/DocumentReviewDialog.h
     src/DocumentHistoryDialog.cpp

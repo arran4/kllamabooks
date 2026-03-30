@@ -97,7 +97,6 @@ class MainWindow : public KXmlGuiWindow {
     void onDocumentAIOperations();
     void onDocumentHistory();
     void onEditDocument();
-    void onCancelEditDocument();
     void showItemContextMenu(QStandardItem* item, const QPoint& globalPos);
     void showOpenBookContextMenu(const QPoint& pos);
     void showVfsContextMenu(const QPoint& pos);
@@ -167,11 +166,6 @@ class MainWindow : public KXmlGuiWindow {
     QPushButton* saveDocBtn;
     QPushButton* previewDocBtn;
     QPushButton* editDocBtn;
-
-    QWidget* docEditContainer;
-    QTextEdit* docEditView;
-    QPushButton* confirmDocEditBtn;
-    QPushButton* cancelDocEditBtn;
 
     QWidget* noteContainer;
     QTextEdit* noteEditorView;

@@ -48,6 +48,7 @@
 #include "AIOperationsDialog.h"
 #include "DocumentReviewDialog.h"
 #include "DocumentHistoryDialog.h"
+#include "DocumentEditWindow.h"
 #include "ChatSettingsDialog.h"
 #include "DatabaseSettingsDialog.h"
 #include "ModelSelectionDialog.h"
@@ -272,25 +273,6 @@ void MainWindow::setupUi() {
             previewDocBtn->setText("Preview");
         }
     });
-
-    // --- Document Edit Container ---
-    docEditContainer = new QWidget(this);
-    QVBoxLayout* docEditLayout = new QVBoxLayout(docEditContainer);
-    docEditLayout->setContentsMargins(0, 0, 0, 0);
-
-    QToolBar* docEditToolbar = new QToolBar(this);
-    confirmDocEditBtn = new QPushButton(QIcon::fromTheme("document-save"), "Save Changes", this);
-    cancelDocEditBtn = new QPushButton(QIcon::fromTheme("dialog-cancel"), "Cancel", this);
-    docEditToolbar->addWidget(confirmDocEditBtn);
-    docEditToolbar->addWidget(cancelDocEditBtn);
-
-    docEditLayout->addWidget(docEditToolbar);
-    docEditView = new QTextEdit(this);
-    docEditLayout->addWidget(docEditView);
-    mainContentStack->addWidget(docEditContainer);
-
-    connect(confirmDocEditBtn, &QPushButton::clicked, this, &MainWindow::onSaveDocBtnClicked);
-    connect(cancelDocEditBtn, &QPushButton::clicked, this, &MainWindow::onCancelEditDocument);
 
     noteContainer = new QWidget(this);
     QVBoxLayout* noteLayout = new QVBoxLayout(noteContainer);
@@ -4186,84 +4168,18 @@ void MainWindow::onVfsExplorerDoubleClicked(const QModelIndex& index) {
  * upon successful explicit save.
  */
 void MainWindow::onEditDocument() {
-    docEditView->setPlainText(documentEditorView->toPlainText());
-    mainContentStack->setCurrentWidget(docEditContainer);
-}
-
-void MainWindow::onCancelEditDocument() {
-    mainContentStack->setCurrentWidget(docContainer);
-}
-
-void MainWindow::onSaveDocBtnClicked() {
-    if (!currentDb) return;
+    if (!currentDb || currentDocumentId == 0) return;
 
     QModelIndex index = openBooksTree->currentIndex();
     QStandardItem* item = index.isValid() ? openBooksModel->itemFromIndex(index) : nullptr;
-    QString currentTitle = item ? item->text() : "New Document";
-    if (currentTitle == "*New Item*") currentTitle = "Untitled Document";
+    QString currentTitle = item ? item->text() : "Document";
 
-    if (isCreatingNewDoc && item) {
-        int folderId = item->parent() ? item->parent()->data(Qt::UserRole).toInt() : 0;
-        QString type = item->data(Qt::UserRole + 1).toString();
+    DocumentEditWindow* editWin = new DocumentEditWindow(currentDb, currentDocumentId, currentTitle);
+    editWin->show();
+}
 
-        int newId = 0;
-        if (type == "document")
-            newId = currentDb->addDocument(folderId, currentTitle, docEditView->toPlainText());
-        else if (type == "template")
-            newId = currentDb->addTemplate(folderId, currentTitle, docEditView->toPlainText());
-        else if (type == "draft")
-            newId = currentDb->addDraft(folderId, currentTitle, docEditView->toPlainText());
-        else
-            newId = currentDb->addDocument(folderId, currentTitle, docEditView->toPlainText());
-
-        statusBar->showMessage(tr("Document saved."), 3000);
-        if (currentAutoDraftId != 0) {
-            currentDb->deleteDraft(currentAutoDraftId);
-            currentAutoDraftId = 0;
-        }
-        item->setData(newId, Qt::UserRole);
-        item->setData(type, Qt::UserRole + 1);
-        item->setText(currentTitle);
-
-        QFont f = item->font();
-        f.setItalic(false);
-        item->setFont(f);
-        isCreatingNewDoc = false;
-
-        currentDocumentId = newId;
-        documentEditorView->blockSignals(true);
-        documentEditorView->setPlainText(docEditView->toPlainText());
-        documentEditorView->blockSignals(false);
-
-        mainContentStack->setCurrentWidget(docContainer);
-        return;
-    }
-
-    if (currentDocumentId == 0) return;
-
-    QString type = item ? item->data(Qt::UserRole + 1).toString() : "document";
-    if (type == "document") {
-        currentDb->addDocumentHistory(currentDocumentId, "manual_edit_pre", documentEditorView->toPlainText());
-        currentDb->updateDocument(currentDocumentId, currentTitle, docEditView->toPlainText());
-    } else if (type == "template") {
-        currentDb->updateTemplate(currentDocumentId, currentTitle, docEditView->toPlainText());
-    } else if (type == "draft") {
-        currentDb->updateDraft(currentDocumentId, currentTitle, docEditView->toPlainText());
-    }
-
-    if (currentAutoDraftId != 0) {
-        currentDb->deleteDraft(currentAutoDraftId);
-        currentAutoDraftId = 0;
-    }
-
-    documentEditorView->blockSignals(true);
-    documentEditorView->setPlainText(docEditView->toPlainText());
-    documentEditorView->blockSignals(false);
-
-    mainContentStack->setCurrentWidget(docContainer);
-
-    statusBar->showMessage(tr("Document saved."), 3000);
-    if (item) item->setText(currentTitle);
+void MainWindow::onSaveDocBtnClicked() {
+    // Unused, but kept for compatibility or future note saving logic if merged
 }
 
 /**
