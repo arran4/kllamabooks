@@ -194,6 +194,7 @@ class MainWindow : public KXmlGuiWindow {
     QComboBox* modelComboBox;
 
     QMap<QString, std::shared_ptr<BookDatabase>> m_openDatabases;
+    QMap<int, class DocumentEditWindow*> m_openDocEditors;
     std::shared_ptr<BookDatabase> currentDb;
     OllamaClient ollamaClient;
 

@@ -1,16 +1,16 @@
 #ifndef DOCUMENTEDITWINDOW_H
 #define DOCUMENTEDITWINDOW_H
 
-#include <QWidget>
+#include <KXmlGuiWindow>
 #include <QString>
 #include <QDateTime>
 #include <memory>
 #include "BookDatabase.h"
 
 class QTextEdit;
-class QPushButton;
+class QLabel;
 
-class DocumentEditWindow : public QWidget {
+class DocumentEditWindow : public KXmlGuiWindow {
     Q_OBJECT
 public:
     explicit DocumentEditWindow(std::shared_ptr<BookDatabase> db, int documentId, const QString& title, QWidget* parent = nullptr);
@@ -21,7 +21,10 @@ protected:
 
 private slots:
     void onSaveClicked();
-    void onCancelClicked();
+    void onSaveAsClicked();
+    void onSaveAsDraftClicked();
+    void onRenameClicked();
+    void onContentChanged();
 
 private:
     std::shared_ptr<BookDatabase> m_db;
@@ -31,14 +34,16 @@ private:
     QString m_initialContent;
 
     QTextEdit* m_editor;
-    QPushButton* m_saveBtn;
-    QPushButton* m_cancelBtn;
+    QLabel* m_statusLabel;
+    QLabel* m_wordCountLabel;
 
+    void setupWindow();
+    void updateStatusBar();
     QDateTime getLatestDbTimestamp() const;
     void loadDocument();
     bool saveToDb();
-    int forkDocument();
-    int saveToDraft();
+    int forkDocument(const QString& newTitle);
+    int saveToDraft(const QString& newTitle);
 };
 
 #endif // DOCUMENTEDITWINDOW_H

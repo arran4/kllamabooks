@@ -234,7 +234,7 @@ void MainWindow::setupUi() {
     saveDocBtn->hide(); // kept just in case but we don't need it on this toolbar
 
     QPushButton* backToDocsBtn = new QPushButton(QIcon::fromTheme("go-previous"), "Back to Documents", this);
-    previewDocBtn = new QPushButton(QIcon::fromTheme("view-preview"), "Preview", this);
+    previewDocBtn = new QPushButton(QIcon::fromTheme("view-preview"), "As Markdown", this);
     previewDocBtn->setCheckable(true);
 
     QPushButton* aiOperationsBtn = new QPushButton(QIcon::fromTheme("tools-wizard"), "AI Operations", this);
@@ -267,10 +267,10 @@ void MainWindow::setupUi() {
         if (checked) {
             documentPreviewView->setMarkdown(documentEditorView->toPlainText());
             documentStack->setCurrentWidget(documentPreviewView);
-            previewDocBtn->setText("View Source");
+            previewDocBtn->setText("As Text");
         } else {
             documentStack->setCurrentWidget(documentEditorView);
-            previewDocBtn->setText("Preview");
+            previewDocBtn->setText("As Markdown");
         }
     });
 
@@ -4170,11 +4170,27 @@ void MainWindow::onVfsExplorerDoubleClicked(const QModelIndex& index) {
 void MainWindow::onEditDocument() {
     if (!currentDb || currentDocumentId == 0) return;
 
+    if (m_openDocEditors.contains(currentDocumentId)) {
+        DocumentEditWindow* win = m_openDocEditors.value(currentDocumentId);
+        if (win) {
+            win->show();
+            win->raise();
+            win->activateWindow();
+            return;
+        } else {
+            m_openDocEditors.remove(currentDocumentId);
+        }
+    }
+
     QModelIndex index = openBooksTree->currentIndex();
     QStandardItem* item = index.isValid() ? openBooksModel->itemFromIndex(index) : nullptr;
     QString currentTitle = item ? item->text() : "Document";
 
     DocumentEditWindow* editWin = new DocumentEditWindow(currentDb, currentDocumentId, currentTitle);
+    m_openDocEditors.insert(currentDocumentId, editWin);
+    connect(editWin, &QObject::destroyed, this, [this, id = currentDocumentId]() {
+        m_openDocEditors.remove(id);
+    });
     editWin->show();
 }
 

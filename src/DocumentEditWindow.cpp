@@ -8,35 +8,82 @@
 #include <QDateTime>
 #include <sqlite3.h>
 #include <QDebug>
+#include <KToolBar>
+#include <QAction>
+#include <QIcon>
+#include <QStatusBar>
+#include <QInputDialog>
+#include <QLabel>
 
 DocumentEditWindow::DocumentEditWindow(std::shared_ptr<BookDatabase> db, int documentId, const QString& title, QWidget* parent)
-    : QWidget(parent, Qt::Window), m_db(db), m_documentId(documentId), m_title(title) {
+    : KXmlGuiWindow(parent, Qt::Window), m_db(db), m_documentId(documentId), m_title(title) {
 
     setWindowTitle(tr("Editing: %1").arg(title));
     resize(800, 600);
     setAttribute(Qt::WA_DeleteOnClose);
 
-    QVBoxLayout* mainLayout = new QVBoxLayout(this);
-
-    m_editor = new QTextEdit(this);
-    mainLayout->addWidget(m_editor, 1);
-
-    QHBoxLayout* btnLayout = new QHBoxLayout();
-    btnLayout->addStretch();
-    m_cancelBtn = new QPushButton(tr("Cancel"), this);
-    m_saveBtn = new QPushButton(tr("Save Changes"), this);
-
-    btnLayout->addWidget(m_cancelBtn);
-    btnLayout->addWidget(m_saveBtn);
-    mainLayout->addLayout(btnLayout);
-
-    connect(m_cancelBtn, &QPushButton::clicked, this, &DocumentEditWindow::onCancelClicked);
-    connect(m_saveBtn, &QPushButton::clicked, this, &DocumentEditWindow::onSaveClicked);
-
+    setupWindow();
     loadDocument();
 }
 
 DocumentEditWindow::~DocumentEditWindow() {}
+
+void DocumentEditWindow::setupWindow() {
+    QWidget* centralWidget = new QWidget(this);
+    QVBoxLayout* layout = new QVBoxLayout(centralWidget);
+    layout->setContentsMargins(0, 0, 0, 0);
+
+    m_editor = new QTextEdit(this);
+    layout->addWidget(m_editor);
+    setCentralWidget(centralWidget);
+
+    connect(m_editor, &QTextEdit::textChanged, this, &DocumentEditWindow::onContentChanged);
+
+    // Toolbar actions
+    QAction* saveAction = new QAction(QIcon::fromTheme("document-save"), tr("Save"), this);
+    connect(saveAction, &QAction::triggered, this, &DocumentEditWindow::onSaveClicked);
+
+    QAction* saveAsAction = new QAction(QIcon::fromTheme("document-save-as"), tr("Save As..."), this);
+    connect(saveAsAction, &QAction::triggered, this, &DocumentEditWindow::onSaveAsClicked);
+
+    QAction* saveAsDraftAction = new QAction(QIcon::fromTheme("document-new"), tr("Save as Draft"), this);
+    connect(saveAsDraftAction, &QAction::triggered, this, &DocumentEditWindow::onSaveAsDraftClicked);
+
+    QAction* renameAction = new QAction(QIcon::fromTheme("edit-rename"), tr("Rename"), this);
+    connect(renameAction, &QAction::triggered, this, &DocumentEditWindow::onRenameClicked);
+
+    KToolBar* mainToolBar = new KToolBar("mainToolBar", this);
+    mainToolBar->addAction(saveAction);
+    mainToolBar->addAction(saveAsAction);
+    mainToolBar->addAction(saveAsDraftAction);
+    mainToolBar->addAction(renameAction);
+    addToolBar(mainToolBar);
+
+    // Status bar
+    QStatusBar* sbar = statusBar();
+    m_wordCountLabel = new QLabel(tr("Words: 0"), this);
+    sbar->addPermanentWidget(m_wordCountLabel);
+
+    m_statusLabel = new QLabel(tr("Ready"), this);
+    sbar->addWidget(m_statusLabel);
+}
+
+void DocumentEditWindow::onContentChanged() {
+    QString text = m_editor->toPlainText();
+    int words = text.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts).size();
+    m_wordCountLabel->setText(tr("Words: %1").arg(words));
+}
+
+void DocumentEditWindow::updateStatusBar() {
+    QDateTime currentDbTimestamp = getLatestDbTimestamp();
+    if (currentDbTimestamp > m_openTimestamp) {
+        m_statusLabel->setText(tr("⚠️ Must Fork - Document was modified externally"));
+        m_statusLabel->setStyleSheet("color: red; font-weight: bold;");
+    } else {
+        m_statusLabel->setText(tr("Ready"));
+        m_statusLabel->setStyleSheet("");
+    }
+}
 
 void DocumentEditWindow::loadDocument() {
     if (!m_db || !m_db->isOpen()) return;
@@ -87,15 +134,52 @@ void DocumentEditWindow::onSaveClicked() {
     if (saveToDb()) {
         m_initialContent = m_editor->toPlainText();
         m_openTimestamp = QDateTime::currentDateTime(); // Update reference time to avoid immediate re-conflicts
-        QMessageBox::information(this, tr("Saved"), tr("Document saved successfully."));
+        m_statusLabel->setText(tr("Saved"));
+        updateStatusBar();
     }
 }
 
-void DocumentEditWindow::onCancelClicked() {
-    close();
+void DocumentEditWindow::onSaveAsClicked() {
+    bool ok;
+    QString newTitle = QInputDialog::getText(this, tr("Save As"), tr("New Title:"), QLineEdit::Normal, m_title + " (Copy)", &ok);
+    if (ok && !newTitle.isEmpty()) {
+        int newId = forkDocument(newTitle);
+        if (newId > 0) {
+            m_documentId = newId;
+            m_title = newTitle;
+            setWindowTitle(tr("Editing: %1").arg(m_title));
+            m_initialContent = m_editor->toPlainText();
+            m_openTimestamp = QDateTime::currentDateTime();
+            m_statusLabel->setText(tr("Saved as new document"));
+            updateStatusBar();
+        }
+    }
 }
 
-int DocumentEditWindow::forkDocument() {
+void DocumentEditWindow::onSaveAsDraftClicked() {
+    bool ok;
+    QString newTitle = QInputDialog::getText(this, tr("Save As Draft"), tr("Draft Title:"), QLineEdit::Normal, m_title + " (Draft)", &ok);
+    if (ok && !newTitle.isEmpty()) {
+        if (saveToDraft(newTitle) > 0) {
+            m_statusLabel->setText(tr("Saved to drafts"));
+        }
+    }
+}
+
+void DocumentEditWindow::onRenameClicked() {
+    bool ok;
+    QString newTitle = QInputDialog::getText(this, tr("Rename"), tr("New Title:"), QLineEdit::Normal, m_title, &ok);
+    if (ok && !newTitle.isEmpty()) {
+        if (m_db && m_db->isOpen()) {
+            m_db->updateDocument(m_documentId, newTitle, m_editor->toPlainText());
+            m_title = newTitle;
+            setWindowTitle(tr("Editing: %1").arg(m_title));
+            m_statusLabel->setText(tr("Renamed"));
+        }
+    }
+}
+
+int DocumentEditWindow::forkDocument(const QString& newTitle) {
     if (!m_db || !m_db->isOpen()) return 0;
 
     auto docs = m_db->getDocuments();
@@ -107,10 +191,10 @@ int DocumentEditWindow::forkDocument() {
         }
     }
 
-    return m_db->addDocument(folderId, m_title + " (Fork)", m_editor->toPlainText(), m_documentId);
+    return m_db->addDocument(folderId, newTitle, m_editor->toPlainText(), m_documentId);
 }
 
-int DocumentEditWindow::saveToDraft() {
+int DocumentEditWindow::saveToDraft(const QString& newTitle) {
     if (!m_db || !m_db->isOpen()) return 0;
 
     auto docs = m_db->getDocuments();
@@ -122,7 +206,7 @@ int DocumentEditWindow::saveToDraft() {
         }
     }
 
-    return m_db->addDraft(folderId, m_title + " (Draft)", m_editor->toPlainText());
+    return m_db->addDraft(folderId, newTitle, m_editor->toPlainText());
 }
 
 bool DocumentEditWindow::saveToDb() {
@@ -145,12 +229,12 @@ bool DocumentEditWindow::saveToDb() {
         msgBox.exec();
 
         if (msgBox.clickedButton() == forkBtn) {
-            if (forkDocument() > 0) {
+            if (forkDocument(m_title + " (Fork)") > 0) {
                 return true;
             }
             return false;
         } else if (msgBox.clickedButton() == draftBtn) {
-            if (saveToDraft() > 0) {
+            if (saveToDraft(m_title + " (Draft)") > 0) {
                 return true;
             }
             return false;
@@ -178,7 +262,7 @@ void DocumentEditWindow::closeEvent(QCloseEvent* event) {
         msgBox.exec();
 
         if (msgBox.clickedButton() == saveDraftBtn) {
-            saveToDraft();
+            saveToDraft(m_title + " (Draft)");
             event->accept();
         } else if (msgBox.clickedButton() == discardBtn) {
             event->accept();

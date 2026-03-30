@@ -7,6 +7,8 @@
 #include <QDateTime>
 #include <sqlite3.h>
 #include <QPushButton>
+#include <QSplitter>
+#include "DocumentEditWindow.h"
 
 DocumentHistoryDialog::DocumentHistoryDialog(std::shared_ptr<BookDatabase> db, int documentId, QWidget* parent)
     : QDialog(parent), m_db(db), m_documentId(documentId) {
@@ -14,31 +16,41 @@ DocumentHistoryDialog::DocumentHistoryDialog(std::shared_ptr<BookDatabase> db, i
     setWindowTitle(tr("Document History"));
     resize(700, 500);
 
-    QHBoxLayout* mainLayout = new QHBoxLayout(this);
+    QVBoxLayout* mainLayout = new QVBoxLayout(this);
+    QSplitter* splitter = new QSplitter(Qt::Horizontal, this);
 
-    QVBoxLayout* leftLayout = new QVBoxLayout();
+    QWidget* leftWidget = new QWidget(this);
+    QVBoxLayout* leftLayout = new QVBoxLayout(leftWidget);
+    leftLayout->setContentsMargins(0, 0, 0, 0);
     leftLayout->addWidget(new QLabel(tr("History Entries:")));
     m_historyList = new QListWidget(this);
     m_historyList->setMinimumWidth(200);
     leftLayout->addWidget(m_historyList);
+    splitter->addWidget(leftWidget);
 
-    QPushButton* closeBtn = new QPushButton(tr("Close"), this);
-    connect(closeBtn, &QPushButton::clicked, this, &QDialog::accept);
-    leftLayout->addWidget(closeBtn);
-
-    mainLayout->addLayout(leftLayout, 1);
-
-    QVBoxLayout* rightLayout = new QVBoxLayout();
+    QWidget* rightWidget = new QWidget(this);
+    QVBoxLayout* rightLayout = new QVBoxLayout(rightWidget);
+    rightLayout->setContentsMargins(0, 0, 0, 0);
     rightLayout->addWidget(new QLabel(tr("Content (Read-Only):")));
     m_contentView = new QTextEdit(this);
     m_contentView->setReadOnly(true);
-    rightLayout->addWidget(m_contentView, 3);
+    rightLayout->addWidget(m_contentView);
+    splitter->addWidget(rightWidget);
 
-    QPushButton* restoreBtn = new QPushButton(tr("Restore Selected Version"), this);
+    splitter->setSizes({200, 500});
+    mainLayout->addWidget(splitter, 1);
+
+    QHBoxLayout* bottomLayout = new QHBoxLayout();
+    bottomLayout->addStretch();
+    QPushButton* closeBtn = new QPushButton(tr("Close"), this);
+    connect(closeBtn, &QPushButton::clicked, this, &QDialog::accept);
+
+    QPushButton* restoreBtn = new QPushButton(tr("Open Version in Editor"), this);
     connect(restoreBtn, &QPushButton::clicked, this, &DocumentHistoryDialog::onRestore);
-    rightLayout->addWidget(restoreBtn);
 
-    mainLayout->addLayout(rightLayout, 3);
+    bottomLayout->addWidget(closeBtn);
+    bottomLayout->addWidget(restoreBtn);
+    mainLayout->addLayout(bottomLayout);
 
     connect(m_historyList, &QListWidget::itemSelectionChanged, this, &DocumentHistoryDialog::onSelectionChanged);
 
@@ -90,23 +102,39 @@ void DocumentHistoryDialog::onRestore() {
     if (idx >= 0 && idx < m_entries.size()) {
         if (!m_db || !m_db->isOpen()) return;
 
-        // Save current state before restoring
         auto docs = m_db->getDocuments();
-        QString title, oldContent;
+        QString title;
         for (const auto& d : docs) {
             if (d.id == m_documentId) {
                 title = d.title;
-                oldContent = d.content;
                 break;
             }
         }
 
-        m_db->addDocumentHistory(m_documentId, "restore_pre", oldContent);
+        // Open in a new DocumentEditWindow but load this specific version
+        // Wait, DocumentEditWindow loads from DB. We can't pass a specific version directly via its constructor
+        // unless we augment it, but the user requested: "You can open documents from the history this way"
+        // Let's just create a new document with this content (fork it essentially) or let them edit it as a new draft.
+        // Or better yet, we can augment DocumentEditWindow to accept initial content!
 
-        // Update document with restored content
-        m_db->updateDocument(m_documentId, title, m_entries[idx].content);
+        // Actually, the simplest approach for "open version" is to create a new draft/fork with it.
+        // Let's just fork it immediately and open that.
+        int folderId = 0;
+        for (const auto& d : docs) {
+            if (d.id == m_documentId) {
+                folderId = d.folderId;
+                break;
+            }
+        }
 
-        // Notify user and close
-        accept();
+        QDateTime dt = QDateTime::fromString(m_entries[idx].timestamp, Qt::ISODate);
+        QString displayTime = dt.isValid() ? dt.toString("yyyy-MM-dd_HH-mm") : m_entries[idx].timestamp;
+
+        int newId = m_db->addDocument(folderId, title + " (" + displayTime + ")", m_entries[idx].content, m_documentId);
+        if (newId > 0) {
+            DocumentEditWindow* editWin = new DocumentEditWindow(m_db, newId, title + " (" + displayTime + ")");
+            editWin->show();
+            accept();
+        }
     }
 }
