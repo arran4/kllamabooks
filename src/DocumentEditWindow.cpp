@@ -1,26 +1,28 @@
 #include "DocumentEditWindow.h"
-#include <QVBoxLayout>
-#include <QHBoxLayout>
-#include <QTextEdit>
-#include <QPushButton>
-#include <QMessageBox>
-#include <QCloseEvent>
-#include <QDateTime>
+
 #include <sqlite3.h>
-#include <QDebug>
+
 #include <KToolBar>
 #include <QAction>
+#include <QCloseEvent>
+#include <QDateTime>
+#include <QDebug>
+#include <QHBoxLayout>
 #include <QIcon>
-#include <QStatusBar>
 #include <QInputDialog>
 #include <QLabel>
-#include <QRegularExpression>
-#include <QMenuBar>
 #include <QMenu>
+#include <QMenuBar>
+#include <QMessageBox>
+#include <QPushButton>
+#include <QRegularExpression>
+#include <QStatusBar>
+#include <QTextEdit>
+#include <QVBoxLayout>
 
-DocumentEditWindow::DocumentEditWindow(std::shared_ptr<BookDatabase> db, int documentId, const QString& title, QWidget* parent)
+DocumentEditWindow::DocumentEditWindow(std::shared_ptr<BookDatabase> db, int documentId, const QString& title,
+                                       QWidget* parent)
     : KXmlGuiWindow(parent, Qt::Window), m_db(db), m_documentId(documentId), m_title(title) {
-
     setWindowTitle(tr("Editing: %1").arg(title));
     resize(800, 600);
     setAttribute(Qt::WA_DeleteOnClose);
@@ -150,7 +152,7 @@ QDateTime DocumentEditWindow::getLatestDbTimestamp() const {
 void DocumentEditWindow::onSaveClicked() {
     if (saveToDb()) {
         m_initialContent = m_editor->toPlainText();
-        m_openTimestamp = QDateTime::currentDateTime(); // Update reference time to avoid immediate re-conflicts
+        m_openTimestamp = QDateTime::currentDateTime();  // Update reference time to avoid immediate re-conflicts
         m_statusLabel->setText(tr("Saved"));
         updateStatusBar();
         emit documentModified(m_documentId);
@@ -159,7 +161,8 @@ void DocumentEditWindow::onSaveClicked() {
 
 void DocumentEditWindow::onSaveAsClicked() {
     bool ok;
-    QString newTitle = QInputDialog::getText(this, tr("Save As"), tr("New Title:"), QLineEdit::Normal, m_title + " (Copy)", &ok);
+    QString newTitle =
+        QInputDialog::getText(this, tr("Save As"), tr("New Title:"), QLineEdit::Normal, m_title + " (Copy)", &ok);
     if (ok && !newTitle.isEmpty()) {
         int newId = forkDocument(newTitle);
         if (newId > 0) {
@@ -177,7 +180,8 @@ void DocumentEditWindow::onSaveAsClicked() {
 
 void DocumentEditWindow::onSaveAsDraftClicked() {
     bool ok;
-    QString newTitle = QInputDialog::getText(this, tr("Save As Draft"), tr("Draft Title:"), QLineEdit::Normal, m_title + " (Draft)", &ok);
+    QString newTitle = QInputDialog::getText(this, tr("Save As Draft"), tr("Draft Title:"), QLineEdit::Normal,
+                                             m_title + " (Draft)", &ok);
     if (ok && !newTitle.isEmpty()) {
         int newId = saveToDraft(newTitle);
         if (newId > 0) {
@@ -236,13 +240,15 @@ bool DocumentEditWindow::saveToDb() {
 
     // Check for conflicts
     QDateTime currentDbTimestamp = getLatestDbTimestamp();
-    // Sometimes timestamps match exactly due to seconds resolution. We consider it modified if strictly > m_openTimestamp
-    // Wait, let's just do a strict greater check
+    // Sometimes timestamps match exactly due to seconds resolution. We consider it modified if strictly >
+    // m_openTimestamp Wait, let's just do a strict greater check
     if (currentDbTimestamp > m_openTimestamp) {
         // Conflict
         QMessageBox msgBox(this);
         msgBox.setWindowTitle(tr("Conflict Detected"));
-        msgBox.setText(tr("This document has been modified externally since you opened it.\nWould you like to Create a New Fork, Save to Drafts, or Cancel?"));
+        msgBox.setText(
+            tr("This document has been modified externally since you opened it.\nWould you like to Create a New Fork, "
+               "Save to Drafts, or Cancel?"));
 
         QPushButton* forkBtn = msgBox.addButton(tr("Create New Fork"), QMessageBox::AcceptRole);
         QPushButton* draftBtn = msgBox.addButton(tr("Save to Drafts"), QMessageBox::AcceptRole);
@@ -265,7 +271,7 @@ bool DocumentEditWindow::saveToDb() {
             }
             return false;
         } else {
-            return false; // Cancel
+            return false;  // Cancel
         }
     } else {
         // No conflict, save normally

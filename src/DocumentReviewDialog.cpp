@@ -1,16 +1,17 @@
 #include "DocumentReviewDialog.h"
-#include <QVBoxLayout>
+
 #include <QHBoxLayout>
-#include <QTextEdit>
-#include <QPushButton>
+#include <QInputDialog>
 #include <QLabel>
 #include <QMessageBox>
-#include <QInputDialog>
+#include <QPushButton>
+#include <QTextEdit>
+#include <QVBoxLayout>
+
 #include "QueueManager.h"
 
 DocumentReviewDialog::DocumentReviewDialog(std::shared_ptr<BookDatabase> db, int queueItemId, QWidget* parent)
     : QDialog(parent), m_db(db), m_queueItemId(queueItemId), m_documentId(0) {
-
     setWindowTitle(tr("Review Generated Document changes"));
     resize(800, 600);
 
@@ -61,7 +62,7 @@ void DocumentReviewDialog::loadData() {
     auto items = m_db->getQueue();
     for (const auto& item : items) {
         if (item.id == m_queueItemId) {
-            m_documentId = item.messageId; // For document type, messageId is the docId
+            m_documentId = item.messageId;  // For document type, messageId is the docId
             m_promptEdit->setPlainText(item.prompt);
             m_resultEdit->setPlainText(item.response);
 
@@ -78,7 +79,8 @@ void DocumentReviewDialog::loadData() {
 
             if (isModified) {
                 m_replaceBtn->setEnabled(false);
-                m_replaceBtn->setToolTip(tr("Document was edited after this AI task started. Replace is disabled to prevent data loss."));
+                m_replaceBtn->setToolTip(
+                    tr("Document was edited after this AI task started. Replace is disabled to prevent data loss."));
                 // Fallback to fork if they originally wanted replace
                 if (item.targetAction == "replace") {
                     m_forkBtn->setDefault(true);
@@ -174,9 +176,11 @@ void DocumentReviewDialog::onFork() {
     }
 
     bool ok;
-    QString newTitle = QInputDialog::getText(this, tr("New Document Name"), tr("Title:"), QLineEdit::Normal, title + " (AI Fork)", &ok);
+    QString newTitle = QInputDialog::getText(this, tr("New Document Name"), tr("Title:"), QLineEdit::Normal,
+                                             title + " (AI Fork)", &ok);
     if (ok && !newTitle.isEmpty()) {
-        m_db->addDocument(folderId, newTitle, m_resultEdit->toPlainText(), m_documentId); // pass parentId to track lineage
+        m_db->addDocument(folderId, newTitle, m_resultEdit->toPlainText(),
+                          m_documentId);  // pass parentId to track lineage
         finalizeAndClose(true);
     }
 }
@@ -188,11 +192,9 @@ void DocumentReviewDialog::onRegenerate() {
 
     m_db->updateQueueItemPrompt(m_queueItemId, newPrompt);
     m_db->updateQueueItemState(m_queueItemId, "pending", "");
-    QueueManager::instance().checkQueue(); // trigger processing
+    QueueManager::instance().checkQueue();  // trigger processing
 
-    accept(); // Don't delete, we are regenerating it
+    accept();  // Don't delete, we are regenerating it
 }
 
-void DocumentReviewDialog::onDiscard() {
-    finalizeAndClose(true);
-}
+void DocumentReviewDialog::onDiscard() { finalizeAndClose(true); }

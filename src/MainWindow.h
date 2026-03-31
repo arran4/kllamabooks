@@ -138,9 +138,10 @@ class MainWindow : public KXmlGuiWindow {
     void getPathToRoot(int nodeId, const QList<MessageNode>& allMessages, QList<MessageNode>& path);
     int getEndOfLinearPath(int startId, const QList<MessageNode>& allMessages, QList<MessageNode>& outChildren);
     QString getChatNodeTitle(int nodeId, const QList<MessageNode>& allMessages);
-public slots:
+   public slots:
     void loadDocumentsAndNotes();
-private:
+
+   private:
     QStandardItem* findItemById(QStandardItem* parent, int id);
     QStandardItem* findItemInTree(int id, const QString& type);
     QStandardItem* findItemRecursive(QStandardItem* parent, int id, const QString& type);

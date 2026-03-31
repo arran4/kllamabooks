@@ -57,8 +57,8 @@ bool BookDatabase::open(const QString& password) {
 
     // Reset processing queue items to pending on reconnect if the processing process is dead
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2((sqlite3*)m_db, "SELECT id, processing_id FROM queue WHERE processing_id > 0;", -1,
-                           &stmt, nullptr) == SQLITE_OK) {
+    if (sqlite3_prepare_v2((sqlite3*)m_db, "SELECT id, processing_id FROM queue WHERE processing_id > 0;", -1, &stmt,
+                           nullptr) == SQLITE_OK) {
         QList<int> idsToReset;
         while (sqlite3_step(stmt) == SQLITE_ROW) {
             int id = sqlite3_column_int(stmt, 0);
@@ -563,7 +563,9 @@ QList<BookDatabase::DocumentHistoryEntry> BookDatabase::getDocumentHistory(int d
     QList<DocumentHistoryEntry> items;
     if (!m_isOpen) return items;
 
-    const char* sql = "SELECT id, action_type, content, timestamp FROM document_history WHERE document_id = ? ORDER BY timestamp DESC;";
+    const char* sql =
+        "SELECT id, action_type, content, timestamp FROM document_history WHERE document_id = ? ORDER BY timestamp "
+        "DESC;";
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return items;
 
@@ -1111,7 +1113,8 @@ int BookDatabase::enqueuePrompt(int messageId, const QString& model, const QStri
     if (!m_isOpen) return -1;
 
     const char* sql =
-        "INSERT INTO queue (message_id, model, prompt, priority, target_type, state, parent_id, target_action) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?);";
+        "INSERT INTO queue (message_id, model, prompt, priority, target_type, state, parent_id, target_action) VALUES "
+        "(?, ?, ?, ?, ?, 'pending', ?, ?);";
     sqlite3_stmt* stmt;
     int rc = sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return -1;
@@ -1159,7 +1162,8 @@ QList<QueueItem> BookDatabase::getQueue() const {
     if (!m_isOpen) return items;
 
     const char* sql =
-        "SELECT id, message_id, model, prompt, processing_id, last_error, priority, created_at, target_type, state, response, parent_id, target_action FROM queue ORDER BY priority "
+        "SELECT id, message_id, model, prompt, processing_id, last_error, priority, created_at, target_type, state, "
+        "response, parent_id, target_action FROM queue ORDER BY priority "
         "DESC, "
         "created_at DESC;";
     sqlite3_stmt* stmt;

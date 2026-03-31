@@ -1,19 +1,21 @@
 #include "DocumentHistoryDialog.h"
-#include <QVBoxLayout>
-#include <QHBoxLayout>
-#include <QListWidget>
-#include <QTextEdit>
-#include <QLabel>
-#include <QDateTime>
+
 #include <sqlite3.h>
+
+#include <QApplication>
+#include <QDateTime>
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QListWidget>
 #include <QPushButton>
 #include <QSplitter>
-#include <QApplication>
+#include <QTextEdit>
+#include <QVBoxLayout>
+
 #include "DocumentEditWindow.h"
 
 DocumentHistoryDialog::DocumentHistoryDialog(std::shared_ptr<BookDatabase> db, int documentId, QWidget* parent)
     : QDialog(parent), m_db(db), m_documentId(documentId) {
-
     setWindowTitle(tr("Document History"));
     resize(700, 500);
 

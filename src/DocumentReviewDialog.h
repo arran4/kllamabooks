@@ -4,6 +4,7 @@
 #include <QDialog>
 #include <QString>
 #include <memory>
+
 #include "BookDatabase.h"
 
 class QTextEdit;
@@ -12,18 +13,18 @@ class QComboBox;
 
 class DocumentReviewDialog : public QDialog {
     Q_OBJECT
-public:
+   public:
     explicit DocumentReviewDialog(std::shared_ptr<BookDatabase> db, int queueItemId, QWidget* parent = nullptr);
     ~DocumentReviewDialog() override;
 
-private slots:
+   private slots:
     void onReplace();
     void onAppend();
     void onFork();
     void onRegenerate();
     void onDiscard();
 
-private:
+   private:
     std::shared_ptr<BookDatabase> m_db;
     int m_queueItemId;
     int m_documentId;
@@ -40,4 +41,4 @@ private:
     void finalizeAndClose(bool deleteQueueItem);
 };
 
-#endif // DOCUMENTREVIEWDIALOG_H
+#endif  // DOCUMENTREVIEWDIALOG_H

@@ -1,11 +1,11 @@
 #include "QueueWindow.h"
 
+#include <QApplication>
 #include <QFileInfo>
 #include <QHeaderView>
 #include <QInputDialog>
 #include <QMessageBox>
 #include <QTextEdit>
-#include <QApplication>
 
 QueueWindow::QueueWindow(QWidget* parent) : QWidget(parent, Qt::Window) {
     setWindowTitle("LLM Request Queue");
@@ -120,8 +120,10 @@ void QueueWindow::refresh() {
         QString statusStr = mi.item.state.toUpper();
         if (statusStr.isEmpty()) {
             statusStr = "PENDING";
-            if (mi.item.processingId > 0) statusStr = "PROCESSING";
-            else if (!mi.item.lastError.isEmpty()) statusStr = "ERROR";
+            if (mi.item.processingId > 0)
+                statusStr = "PROCESSING";
+            else if (!mi.item.lastError.isEmpty())
+                statusStr = "ERROR";
         }
 
         QString text = QString("[%1] %2: %3 (%4)")

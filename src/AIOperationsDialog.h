@@ -9,7 +9,7 @@ class QTextEdit;
 
 class AIOperationsDialog : public QDialog {
     Q_OBJECT
-public:
+   public:
     explicit AIOperationsDialog(const QString& defaultPrompt = "", QWidget* parent = nullptr);
     ~AIOperationsDialog() override;
 
@@ -17,10 +17,10 @@ public:
     QString getPrompt() const;
     QString getTargetAction() const;
 
-private:
+   private:
     QComboBox* m_operationCombo;
     QComboBox* m_targetActionCombo;
     QTextEdit* m_promptEdit;
 };
 
-#endif // AIOPERATIONSDIALOG_H
+#endif  // AIOPERATIONSDIALOG_H

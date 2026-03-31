@@ -1,14 +1,14 @@
 #include "AIOperationsDialog.h"
-#include <QVBoxLayout>
+
+#include <QComboBox>
 #include <QHBoxLayout>
 #include <QLabel>
-#include <QComboBox>
-#include <QTextEdit>
 #include <QPushButton>
 #include <QSettings>
+#include <QTextEdit>
+#include <QVBoxLayout>
 
-AIOperationsDialog::AIOperationsDialog(const QString& defaultPrompt, QWidget* parent)
-    : QDialog(parent) {
+AIOperationsDialog::AIOperationsDialog(const QString& defaultPrompt, QWidget* parent) : QDialog(parent) {
     setWindowTitle(tr("AI Document Operations"));
     resize(500, 400);
 
@@ -59,25 +59,33 @@ AIOperationsDialog::AIOperationsDialog(const QString& defaultPrompt, QWidget* pa
         QString op = m_operationCombo->itemData(index).toString();
         QSettings settings;
         if (op == "complete") {
-            m_promptEdit->setPlainText(settings.value("prompt_complete", "Complete the following text naturally. Only output the continuation.\n\nText:\n{context}").toString());
+            m_promptEdit->setPlainText(
+                settings
+                    .value("prompt_complete",
+                           "Complete the following text naturally. Only output the continuation.\n\nText:\n{context}")
+                    .toString());
         } else if (op == "replace") {
-            m_promptEdit->setPlainText(settings.value("prompt_replace_entirely", "Rewrite the following document according to your instructions. Only output the rewritten document, nothing else.\n\nInstructions: <your instructions here>\n\nDocument:\n{context}").toString());
+            m_promptEdit->setPlainText(
+                settings
+                    .value("prompt_replace_entirely",
+                           "Rewrite the following document according to your instructions. Only output the rewritten "
+                           "document, nothing else.\n\nInstructions: <your instructions here>\n\nDocument:\n{context}")
+                    .toString());
         } else if (op == "replace_in_place") {
-            m_promptEdit->setPlainText(settings.value("prompt_replace_in_place", "Rewrite the following text according to your instructions. Only output the rewritten text, nothing else.\n\nInstructions: <your instructions here>\n\nText:\n{context}").toString());
+            m_promptEdit->setPlainText(
+                settings
+                    .value("prompt_replace_in_place",
+                           "Rewrite the following text according to your instructions. Only output the rewritten text, "
+                           "nothing else.\n\nInstructions: <your instructions here>\n\nText:\n{context}")
+                    .toString());
         }
     });
 }
 
 AIOperationsDialog::~AIOperationsDialog() {}
 
-QString AIOperationsDialog::getOperation() const {
-    return m_operationCombo->currentData().toString();
-}
+QString AIOperationsDialog::getOperation() const { return m_operationCombo->currentData().toString(); }
 
-QString AIOperationsDialog::getPrompt() const {
-    return m_promptEdit->toPlainText();
-}
+QString AIOperationsDialog::getPrompt() const { return m_promptEdit->toPlainText(); }
 
-QString AIOperationsDialog::getTargetAction() const {
-    return m_targetActionCombo->currentData().toString();
-}
+QString AIOperationsDialog::getTargetAction() const { return m_targetActionCombo->currentData().toString(); }

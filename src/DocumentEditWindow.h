@@ -2,9 +2,10 @@
 #define DOCUMENTEDITWINDOW_H
 
 #include <KXmlGuiWindow>
-#include <QString>
 #include <QDateTime>
+#include <QString>
 #include <memory>
+
 #include "BookDatabase.h"
 
 class QTextEdit;
@@ -12,25 +13,26 @@ class QLabel;
 
 class DocumentEditWindow : public KXmlGuiWindow {
     Q_OBJECT
-public:
-    explicit DocumentEditWindow(std::shared_ptr<BookDatabase> db, int documentId, const QString& title, QWidget* parent = nullptr);
+   public:
+    explicit DocumentEditWindow(std::shared_ptr<BookDatabase> db, int documentId, const QString& title,
+                                QWidget* parent = nullptr);
     ~DocumentEditWindow() override;
 
-signals:
+   signals:
     void documentModified(int documentId);
     void newDocumentCreated(int newDocumentId);
 
-protected:
+   protected:
     void closeEvent(QCloseEvent* event) override;
 
-private slots:
+   private slots:
     void onSaveClicked();
     void onSaveAsClicked();
     void onSaveAsDraftClicked();
     void onRenameClicked();
     void onContentChanged();
 
-private:
+   private:
     std::shared_ptr<BookDatabase> m_db;
     int m_documentId;
     QString m_title;
@@ -50,4 +52,4 @@ private:
     int saveToDraft(const QString& newTitle);
 };
 
-#endif // DOCUMENTEDITWINDOW_H
+#endif  // DOCUMENTEDITWINDOW_H
