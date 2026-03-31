@@ -8,6 +8,7 @@
 #include <sqlite3.h>
 #include <QPushButton>
 #include <QSplitter>
+#include <QApplication>
 #include "DocumentEditWindow.h"
 
 DocumentHistoryDialog::DocumentHistoryDialog(std::shared_ptr<BookDatabase> db, int documentId, QWidget* parent)
