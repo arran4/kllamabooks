@@ -2667,22 +2667,8 @@ void MainWindow::onQueueChunk(std::shared_ptr<BookDatabase> db, int messageId, c
 void MainWindow::onProcessingStarted(std::shared_ptr<BookDatabase> db, int messageId, const QString& targetType) {
     if (currentDb == db) {
         if (targetType == "document" && currentDocumentId == messageId) {
-            documentEditorView->setReadOnly(true);
-
-            QueueItem item = QueueManager::instance().currentProcessingItem();
-            if (item.targetAction == "replace") {
-                documentEditorView->blockSignals(true);
-                documentEditorView->clear();
-                documentEditorView->blockSignals(false);
-            } else if (item.targetAction == "append") {
-                documentEditorView->blockSignals(true);
-                QTextCursor cursor = documentEditorView->textCursor();
-                cursor.movePosition(QTextCursor::End);
-                documentEditorView->setTextCursor(cursor);
-                documentEditorView->insertPlainText("\n");
-                documentEditorView->blockSignals(false);
-            }
-
+            // Keep document read-only and let the generation happen silently in the background
+            // The result will be available for review in DocumentReviewDialog once completed.
             statusBar->showMessage(tr("AI is generating document changes..."));
         } else if (targetType == "message" && currentLastNodeId == messageId) {
             statusBar->showMessage(tr("LLM is responding..."));
@@ -2695,7 +2681,6 @@ void MainWindow::onProcessingFinished(std::shared_ptr<BookDatabase> db, int mess
                                       const QString& targetType) {
     if (currentDb == db) {
         if (targetType == "document" && currentDocumentId == messageId) {
-            documentEditorView->setReadOnly(false);
             statusBar->showMessage(success ? tr("AI document generation complete. Pending review.") : tr("Error generating document changes."), 3000);
         } else if (targetType == "message" && currentLastNodeId == messageId) {
             statusBar->showMessage(success ? tr("Response complete.") : tr("Error in response."), 3000);
@@ -3296,8 +3281,32 @@ void MainWindow::loadDocumentsAndNotes() {
             openBooksTree->selectionModel()->select(newItem->index(),
                                                     QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Current);
             openBooksTree->selectionModel()->blockSignals(false);
+
+            // If the item itself changed content in the database, we need to refresh the view pane
+            // without needing the user to explicitly un-select and re-select it.
+            // But we don't want to re-trigger the entire selection logic to avoid UI jumping.
+            // Let's manually trigger the content refresh if it's a document/note being viewed.
+            if (currType == "document" || currType == "template" || currType == "draft") {
+                QString outTitle, outContent;
+                getDocumentContent(currId, currType, outTitle, outContent);
+                documentEditorView->blockSignals(true);
+                documentEditorView->setPlainText(outContent);
+                documentEditorView->blockSignals(false);
+                // Also update the title in the tree view if it changed.
+                newItem->setText(outTitle);
+            } else if (currType == "note") {
+                QString outTitle, outContent;
+                getDocumentContent(currId, currType, outTitle, outContent);
+                noteEditorView->blockSignals(true);
+                noteEditorView->setPlainText(outContent);
+                noteEditorView->blockSignals(false);
+                newItem->setText(outTitle);
+            }
         }
     }
+
+    // Refresh VFS in case folder contents changed
+    refreshVfsExplorer();
 }
 
 // Replaced showDocumentsContextMenu and showNotesContextMenu with showVfsContextMenu
