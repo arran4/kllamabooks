@@ -30,7 +30,7 @@ class OllamaClient : public QObject {
     void connectionStatusChanged(bool isOk);
     void modelListUpdated(const QStringList& models);
     void pullProgressUpdated(const QString& modelName, int percent, const QString& status);
-    void pullFinished(const QString& modelName);
+    void pullFinished(const QString& modelName, bool success, const QString& errorString = "");
     void generationMetrics(double tokensPerSecond);
     void requestSent(const QString& model, const QString& systemPrompt, const QString& prompt);
 
