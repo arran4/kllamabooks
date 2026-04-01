@@ -286,10 +286,11 @@ bool BookDatabase::initSchema() {
             ");"
             "CREATE TABLE IF NOT EXISTS notifications ("
             "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-            "message_id INTEGER, "
-            "type TEXT, "  // responded_to, error
+            "target_id INTEGER, "
+            "type TEXT, "  // responded_to, error, review_needed
             "is_dismissed BOOLEAN DEFAULT 0, "
-            "created_at DATETIME DEFAULT CURRENT_TIMESTAMP"
+            "created_at DATETIME DEFAULT CURRENT_TIMESTAMP, "
+            "target_type TEXT DEFAULT 'chat_node'"
             ");";
         sqlite3_exec((sqlite3*)m_db, sql, nullptr, nullptr, nullptr);
         sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (5);", nullptr, nullptr,
@@ -458,6 +459,18 @@ bool BookDatabase::initSchema() {
                      nullptr);
         sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 14;", nullptr, nullptr, nullptr);
         userVersion = 14;
+    }
+
+    if (userVersion < 15) {
+        sqlite3_exec((sqlite3*)m_db, "ALTER TABLE notifications RENAME COLUMN message_id TO target_id;", nullptr,
+                     nullptr, nullptr);
+        sqlite3_exec((sqlite3*)m_db, "ALTER TABLE notifications ADD COLUMN target_type TEXT DEFAULT 'chat_node';", nullptr,
+                     nullptr, nullptr);
+
+        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (15);", nullptr, nullptr,
+                     nullptr);
+        sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 15;", nullptr, nullptr, nullptr);
+        userVersion = 15;
     }
 
     return true;
@@ -1261,13 +1274,14 @@ bool BookDatabase::deleteQueueItem(int id) {
     return rc == SQLITE_DONE;
 }
 
-int BookDatabase::addNotification(int messageId, const QString& type) {
+int BookDatabase::addNotification(int targetId, const QString& type, const QString& targetType) {
     if (!m_isOpen) return -1;
-    const char* sql = "INSERT INTO notifications (message_id, type) VALUES (?, ?);";
+    const char* sql = "INSERT INTO notifications (target_id, type, target_type) VALUES (?, ?, ?);";
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return -1;
-    sqlite3_bind_int(stmt, 1, messageId);
+    sqlite3_bind_int(stmt, 1, targetId);
     sqlite3_bind_text(stmt, 2, type.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 3, targetType.toUtf8().constData(), -1, SQLITE_TRANSIENT);
     int rc = sqlite3_step(stmt);
     if (rc != SQLITE_DONE) {
         sqlite3_finalize(stmt);
@@ -1281,7 +1295,7 @@ int BookDatabase::addNotification(int messageId, const QString& type) {
 QList<Notification> BookDatabase::getNotifications(bool includeDismissed) const {
     QList<Notification> notifications;
     if (!m_isOpen) return notifications;
-    QString sql = "SELECT id, message_id, type, is_dismissed, created_at FROM notifications";
+    QString sql = "SELECT id, target_id, type, is_dismissed, created_at, target_type FROM notifications";
     if (!includeDismissed) sql += " WHERE is_dismissed = 0";
     sql += " ORDER BY created_at DESC;";
     sqlite3_stmt* stmt;
@@ -1290,10 +1304,13 @@ QList<Notification> BookDatabase::getNotifications(bool includeDismissed) const 
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         Notification n;
         n.id = sqlite3_column_int(stmt, 0);
-        n.messageId = sqlite3_column_int(stmt, 1);
+        n.targetId = sqlite3_column_int(stmt, 1);
         n.type = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 2));
         n.isDismissed = sqlite3_column_int(stmt, 3) != 0;
         n.timestamp = QDateTime::fromString(QString::fromUtf8((const char*)sqlite3_column_text(stmt, 4)), Qt::ISODate);
+        const unsigned char* targetTypeTxt = sqlite3_column_text(stmt, 5);
+        if (targetTypeTxt) n.targetType = QString::fromUtf8((const char*)targetTypeTxt);
+        else n.targetType = "chat_node"; // Fallback for old notifications
         notifications.append(n);
     }
     sqlite3_finalize(stmt);
@@ -1311,12 +1328,13 @@ bool BookDatabase::dismissNotification(int id) {
     return rc == SQLITE_DONE;
 }
 
-bool BookDatabase::dismissNotificationByMessageId(int messageId) {
+bool BookDatabase::dismissNotificationByTarget(int targetId, const QString& targetType) {
     if (!m_isOpen) return false;
-    const char* sql = "UPDATE notifications SET is_dismissed = 1 WHERE message_id = ?;";
+    const char* sql = "UPDATE notifications SET is_dismissed = 1 WHERE target_id = ? AND target_type = ?;";
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
-    sqlite3_bind_int(stmt, 1, messageId);
+    sqlite3_bind_int(stmt, 1, targetId);
+    sqlite3_bind_text(stmt, 2, targetType.toUtf8().constData(), -1, SQLITE_TRANSIENT);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
     return rc == SQLITE_DONE;

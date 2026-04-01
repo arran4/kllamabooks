@@ -297,7 +297,7 @@ void QueueManager::onComplete(const QString& response) {
         if (m_currentItem.targetType == "document") {
             // Document results are queued for review, NOT applied immediately.
             m_currentDb->updateQueueItemState(m_currentItem.id, "completed", response);
-            m_currentDb->addNotification(m_currentItem.id, "review_needed");
+            m_currentDb->addNotification(m_currentItem.messageId, "review_needed", m_currentItem.targetType);
         } else {
             m_currentDb->updateMessage(m_currentItem.messageId, response);
             m_currentDb->deleteQueueItem(m_currentItem.id);

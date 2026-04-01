@@ -60,7 +60,8 @@ QueueWindow::QueueWindow(QWidget* parent) : QWidget(parent, Qt::Window) {
                         if (mainWin) {
                             QMetaObject::invokeMethod(mainWin, "onQueueItemClicked",
                                                       Q_ARG(std::shared_ptr<BookDatabase>, db),
-                                                      Q_ARG(int, mi.item.messageId));
+                                                      Q_ARG(int, mi.item.messageId),
+                                                      Q_ARG(QString, mi.item.targetType));
                         }
                         break;
                     }

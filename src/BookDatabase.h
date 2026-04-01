@@ -81,10 +81,11 @@ struct CommentNode {
 
 struct Notification {
     int id;
-    int messageId;
-    QString type;  // "responded_to", "error"
+    int targetId;
+    QString type;  // "responded_to", "error", "review_needed"
     bool isDismissed;
     QDateTime timestamp;
+    QString targetType;
 };
 
 class BookDatabase {
@@ -176,10 +177,10 @@ class BookDatabase {
     bool deleteComment(int id);
 
     // Notifications
-    int addNotification(int messageId, const QString& type);
+    int addNotification(int targetId, const QString& type, const QString& targetType);
     QList<Notification> getNotifications(bool includeDismissed = false) const;
     bool dismissNotification(int id);
-    bool dismissNotificationByMessageId(int messageId);
+    bool dismissNotificationByTarget(int targetId, const QString& targetType);
 
     QString getDatabaseDebugInfo() const;
 
