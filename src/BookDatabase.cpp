@@ -55,24 +55,42 @@ bool BookDatabase::open(const QString& password) {
     m_isOpen = true;
     initSchema();
 
-    // Reset processing queue items to pending on reconnect if the processing process is dead
+    cleanupDeadProcessingItems();
+
+    return true;
+}
+
+void BookDatabase::cleanupDeadProcessingItems() {
+    if (!m_isOpen) return;
+
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2((sqlite3*)m_db, "SELECT id, processing_id FROM queue WHERE processing_id > 0;", -1, &stmt,
+    if (sqlite3_prepare_v2((sqlite3*)m_db, "SELECT id, processing_id FROM queue WHERE processing_id > 0 OR state = 'processing';", -1, &stmt,
                            nullptr) == SQLITE_OK) {
         QList<int> idsToReset;
         while (sqlite3_step(stmt) == SQLITE_ROW) {
             int id = sqlite3_column_int(stmt, 0);
             int pid = sqlite3_column_int(stmt, 1);
-            if (pid == 0) {
+            if (pid <= 0) {
                 idsToReset.append(id);
             } else {
 #ifdef Q_OS_UNIX
                 if (kill(pid, 0) != 0 && errno == ESRCH) {
                     idsToReset.append(id);
+                } else {
+                    // Process exists, check if it's kllamabooks
+                    QFile commFile(QString("/proc/%1/comm").arg(pid));
+                    if (commFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                        QString comm = QString(commFile.readAll()).trimmed();
+                        if (!comm.contains("kllamabooks", Qt::CaseInsensitive)) {
+                            idsToReset.append(id);
+                        }
+                    } else {
+                        // Could not read comm file, assume dead
+                        idsToReset.append(id);
+                    }
                 }
 #else
                 // Simple fallback for non-Unix if needed, though KllamaBooks is KDE/Linux targeted.
-                // You could check processes using Windows API, but for now we reset.
                 idsToReset.append(id);
 #endif
             }
@@ -81,10 +99,9 @@ bool BookDatabase::open(const QString& password) {
 
         for (int id : idsToReset) {
             updateQueueProcessingId(id, 0);
+            updateQueueItemState(id, "pending");
         }
     }
-
-    return true;
 }
 
 void BookDatabase::close() {
