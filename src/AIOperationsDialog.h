@@ -19,9 +19,13 @@ class AIOperationsDialog : public QDialog {
 
     void setForkOnlyMode(bool enabled);
 
+   public slots:
+    void accept() override;
+
    private:
     QComboBox* m_operationCombo;
     QTextEdit* m_promptEdit;
+    QString m_finalPrompt;
 };
 
 #endif  // AIOPERATIONSDIALOG_H

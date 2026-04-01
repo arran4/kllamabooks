@@ -15,9 +15,13 @@ class AiActionDialog : public QDialog {
 
     QString getPrompt() const;
 
+   public slots:
+    void accept() override;
+
    private:
     QTextEdit* m_instructionEdit;
     QString m_contextText;
+    QString m_finalPrompt;
 };
 
 #endif  // AIACTIONDIALOG_H

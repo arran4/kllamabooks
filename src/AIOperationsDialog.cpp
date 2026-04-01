@@ -8,6 +8,10 @@
 #include <QSettings>
 #include <QTextEdit>
 #include <QVBoxLayout>
+#include <QRegularExpression>
+#include <QDialog>
+#include <QFormLayout>
+#include <QLineEdit>
 
 AIOperationsDialog::AIOperationsDialog(BookDatabase* db, const QString& defaultPrompt, QWidget* parent) : QDialog(parent) {
     setWindowTitle(tr("AI Document Operations"));
@@ -65,12 +69,77 @@ AIOperationsDialog::~AIOperationsDialog() {}
 
 QString AIOperationsDialog::getOperation() const { return m_operationCombo->currentData().toString(); }
 
-QString AIOperationsDialog::getPrompt() const { return m_promptEdit->toPlainText(); }
+QString AIOperationsDialog::getPrompt() const { return m_finalPrompt; }
 
 void AIOperationsDialog::setForkOnlyMode(bool enabled) {
     if (enabled) {
         m_operationCombo->setEnabled(false);
     } else {
         m_operationCombo->setEnabled(true);
+    }
+}
+
+void AIOperationsDialog::accept() {
+    QString prompt = m_promptEdit->toPlainText();
+    m_finalPrompt = prompt;
+
+    QRegularExpression re("\\{(input|textarea)\\s+\"([^\"]+)\"\\}");
+    QRegularExpressionMatchIterator i = re.globalMatch(prompt);
+
+    if (i.hasNext()) {
+        QDialog inputDlg(this);
+        inputDlg.setWindowTitle(tr("Provide Inputs"));
+        inputDlg.resize(400, 300);
+        QVBoxLayout* layout = new QVBoxLayout(&inputDlg);
+        QFormLayout* form = new QFormLayout();
+        layout->addLayout(form);
+
+        QList<QPair<QString, QWidget*>> inputWidgets;
+
+        while (i.hasNext()) {
+            QRegularExpressionMatch match = i.next();
+            QString type = match.captured(1);
+            QString label = match.captured(2);
+            QString fullMatch = match.captured(0);
+
+            QWidget* w = nullptr;
+            if (type == "input") {
+                w = new QLineEdit(&inputDlg);
+            } else if (type == "textarea") {
+                w = new QTextEdit(&inputDlg);
+            }
+
+            if (w) {
+                form->addRow(label + ":", w);
+                inputWidgets.append({fullMatch, w});
+            }
+        }
+
+        QHBoxLayout* btnLayout = new QHBoxLayout();
+        QPushButton* cancelBtn = new QPushButton(tr("Cancel"), &inputDlg);
+        QPushButton* okBtn = new QPushButton(tr("OK"), &inputDlg);
+        btnLayout->addStretch();
+        btnLayout->addWidget(cancelBtn);
+        btnLayout->addWidget(okBtn);
+        layout->addLayout(btnLayout);
+
+        connect(cancelBtn, &QPushButton::clicked, &inputDlg, &QDialog::reject);
+        connect(okBtn, &QPushButton::clicked, &inputDlg, &QDialog::accept);
+
+        if (inputDlg.exec() == QDialog::Accepted) {
+            for (const auto& pair : inputWidgets) {
+                QString val;
+                if (QLineEdit* le = qobject_cast<QLineEdit*>(pair.second)) {
+                    val = le->text();
+                } else if (QTextEdit* te = qobject_cast<QTextEdit*>(pair.second)) {
+                    val = te->toPlainText();
+                }
+                prompt.replace(pair.first, val);
+            }
+            m_finalPrompt = prompt;
+            QDialog::accept();
+        }
+    } else {
+        QDialog::accept();
     }
 }
