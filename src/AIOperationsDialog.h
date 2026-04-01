@@ -15,13 +15,11 @@ class AIOperationsDialog : public QDialog {
 
     QString getOperation() const;
     QString getPrompt() const;
-    QString getTargetAction() const;
 
     void setForkOnlyMode(bool enabled);
 
    private:
     QComboBox* m_operationCombo;
-    QComboBox* m_targetActionCombo;
     QTextEdit* m_promptEdit;
 };
 

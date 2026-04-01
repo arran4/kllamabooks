@@ -24,16 +24,6 @@ AIOperationsDialog::AIOperationsDialog(const QString& defaultPrompt, QWidget* pa
     opLayout->addWidget(m_operationCombo, 1);
     layout->addLayout(opLayout);
 
-    // Target Action
-    QHBoxLayout* targetActionLayout = new QHBoxLayout();
-    targetActionLayout->addWidget(new QLabel(tr("Action after generation:")));
-    m_targetActionCombo = new QComboBox(this);
-    m_targetActionCombo->addItem(tr("Review & Replace Original"), "replace");
-    m_targetActionCombo->addItem(tr("Review & Append to Original"), "append");
-    m_targetActionCombo->addItem(tr("Review & Create New Document"), "fork");
-    targetActionLayout->addWidget(m_targetActionCombo, 1);
-    layout->addLayout(targetActionLayout);
-
     // Prompt
     layout->addWidget(new QLabel(tr("Prompt Instructions:")));
     m_promptEdit = new QTextEdit(this);
@@ -88,15 +78,10 @@ QString AIOperationsDialog::getOperation() const { return m_operationCombo->curr
 
 QString AIOperationsDialog::getPrompt() const { return m_promptEdit->toPlainText(); }
 
-QString AIOperationsDialog::getTargetAction() const { return m_targetActionCombo->currentData().toString(); }
-
 void AIOperationsDialog::setForkOnlyMode(bool enabled) {
     if (enabled) {
         m_operationCombo->setEnabled(false);
-        m_targetActionCombo->setCurrentIndex(m_targetActionCombo->findData("fork"));
-        m_targetActionCombo->setEnabled(false);
     } else {
         m_operationCombo->setEnabled(true);
-        m_targetActionCombo->setEnabled(true);
     }
 }
