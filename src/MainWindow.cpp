@@ -2495,15 +2495,19 @@ void MainWindow::onSendMessage() {
         if (text.isEmpty()) return;
     }
 
-    if (QueueManager::instance().isProcessing() && QueueManager::instance().currentProcessingDb() == currentDb) {
-        QueueItem item = QueueManager::instance().currentProcessingItem();
-        if (item.targetType == "message") {
+    bool hasActiveGeneration = false;
+    QueueItem item;
+
+    // Check if there are any pending or processing tasks for the current chat path
+    QList<QueueItem> queue = currentDb->getQueue();
+    for (const auto& qItem : queue) {
+        if ((qItem.state == "pending" || qItem.state == "processing") && qItem.targetType == "message") {
             bool isInCurrentPath = false;
-            if (item.messageId == currentLastNodeId) {
+            if (qItem.messageId == currentLastNodeId) {
                 isInCurrentPath = true;
             } else {
                 for (const auto& msg : currentChatPath) {
-                    if (msg.id == item.messageId) {
+                    if (msg.id == qItem.messageId) {
                         isInCurrentPath = true;
                         break;
                     }
@@ -2511,71 +2515,77 @@ void MainWindow::onSendMessage() {
             }
 
             if (isInCurrentPath) {
-                QMessageBox msgBox(this);
-                msgBox.setWindowTitle(tr("Active Generation Conflict"));
-                msgBox.setText(tr(
-                    "This chat is currently generating a response.\nWhat would you like to do with your new message?"));
-
-                QPushButton* queueBtn = msgBox.addButton(tr("Queue to send later"), QMessageBox::AcceptRole);
-                QPushButton* forkBtn = msgBox.addButton(tr("Fork and send"), QMessageBox::AcceptRole);
-                QPushButton* cancelReplaceBtn =
-                    msgBox.addButton(tr("Cancel previous and replace"), QMessageBox::AcceptRole);
-                QPushButton* draftsBtn = msgBox.addButton(tr("Save to drafts"), QMessageBox::ActionRole);
-                QPushButton* ignoreBtn = msgBox.addButton(tr("Ignore text and clear"), QMessageBox::DestructiveRole);
-                QPushButton* cancelBtn = msgBox.addButton(tr("Cancel"), QMessageBox::RejectRole);
-
-                msgBox.exec();
-
-                QAbstractButton* clicked = msgBox.clickedButton();
-                if (clicked == draftsBtn) {
-                    currentDb->addDraft(0, text.left(30) + "...", text);
-                    if (!toggleInputModeBtn->isChecked())
-                        inputField->clear();
-                    else
-                        multiLineInput->clear();
-                    loadDocumentsAndNotes();
-                    return;
-                } else if (clicked == ignoreBtn) {
-                    if (!toggleInputModeBtn->isChecked())
-                        inputField->clear();
-                    else
-                        multiLineInput->clear();
-                    return;
-                } else if (clicked == cancelBtn) {
-                    return;  // Abort sending, keep text
-                } else if (clicked == cancelReplaceBtn) {
-                    QueueManager::instance().cancelItem(currentDb, item.id);
-                } else if (clicked == forkBtn) {
-                    // To fork from the parent of the currently generating node:
-                    int forkParentId = 0;
-                    if (currentChatPath.size() >= 2) {
-                        forkParentId = currentChatPath[currentChatPath.size() - 2].id;
-                    }
-
-                    if (!toggleInputModeBtn->isChecked())
-                        inputField->clear();
-                    else
-                        multiLineInput->clear();
-
-                    int userMsgId = currentDb->addMessage(forkParentId, text, "user");
-                    int aiId = currentDb->addMessage(userMsgId, "", "assistant");
-                    currentLastNodeId = aiId;
-
-                    QString model = m_selectedModel;
-                    if (model.isEmpty() && !m_availableModels.isEmpty()) {
-                        model = m_availableModels.first();
-                    }
-
-                    QueueManager::instance().enqueuePrompt(aiId, model, text);
-
-                    loadDocumentsAndNotes();  // Refresh tree
-                    updateLinearChatView(currentLastNodeId, currentDb->getMessages());
-                    statusBar->showMessage(tr("Fork task queued."), 3000);
-                    return;
-                } else if (clicked == queueBtn) {
-                    // Fallthrough to normal send, it will queue naturally because it is an enqueuePrompt call.
-                }
+                hasActiveGeneration = true;
+                item = qItem;
+                break; // Found conflicting generation
             }
+        }
+    }
+
+    if (hasActiveGeneration) {
+        QMessageBox msgBox(this);
+        msgBox.setWindowTitle(tr("Active Generation Conflict"));
+        msgBox.setText(tr(
+            "This chat is currently generating a response.\nWhat would you like to do with your new message?"));
+
+        QPushButton* queueBtn = msgBox.addButton(tr("Queue to send later"), QMessageBox::AcceptRole);
+        QPushButton* forkBtn = msgBox.addButton(tr("Fork and send"), QMessageBox::AcceptRole);
+        QPushButton* cancelReplaceBtn =
+            msgBox.addButton(tr("Cancel previous and replace"), QMessageBox::AcceptRole);
+        QPushButton* draftsBtn = msgBox.addButton(tr("Save to drafts"), QMessageBox::ActionRole);
+        QPushButton* ignoreBtn = msgBox.addButton(tr("Ignore text and clear"), QMessageBox::DestructiveRole);
+        QPushButton* cancelBtn = msgBox.addButton(tr("Cancel"), QMessageBox::RejectRole);
+
+        msgBox.exec();
+
+        QAbstractButton* clicked = msgBox.clickedButton();
+        if (clicked == draftsBtn) {
+            currentDb->addDraft(0, text.left(30) + "...", text);
+            if (!toggleInputModeBtn->isChecked())
+                inputField->clear();
+            else
+                multiLineInput->clear();
+            loadDocumentsAndNotes();
+            return;
+        } else if (clicked == ignoreBtn) {
+            if (!toggleInputModeBtn->isChecked())
+                inputField->clear();
+            else
+                multiLineInput->clear();
+            return;
+        } else if (clicked == cancelBtn) {
+            return;  // Abort sending, keep text
+        } else if (clicked == cancelReplaceBtn) {
+            QueueManager::instance().cancelItem(currentDb, item.id);
+        } else if (clicked == forkBtn) {
+            // To fork from the parent of the currently generating node:
+            int forkParentId = 0;
+            if (currentChatPath.size() >= 2) {
+                forkParentId = currentChatPath[currentChatPath.size() - 2].id;
+            }
+
+            if (!toggleInputModeBtn->isChecked())
+                inputField->clear();
+            else
+                multiLineInput->clear();
+
+            int userMsgId = currentDb->addMessage(forkParentId, text, "user");
+            int aiId = currentDb->addMessage(userMsgId, "", "assistant");
+            currentLastNodeId = aiId;
+
+            QString model = m_selectedModel;
+            if (model.isEmpty() && !m_availableModels.isEmpty()) {
+                model = m_availableModels.first();
+            }
+
+            QueueManager::instance().enqueuePrompt(aiId, model, text);
+
+            loadDocumentsAndNotes();  // Refresh tree
+            updateLinearChatView(currentLastNodeId, currentDb->getMessages());
+            statusBar->showMessage(tr("Fork task queued."), 3000);
+            return;
+        } else if (clicked == queueBtn) {
+            // Fallthrough to normal send, it will queue naturally because it is an enqueuePrompt call.
         }
     }
 
