@@ -87,6 +87,10 @@ void ModelExplorer::setupDownloadingTab() {
 
     layout->addWidget(m_downloadingTable);
 
+    QPushButton* clearButton = new QPushButton("Clear Finished", this);
+    layout->addWidget(clearButton);
+    connect(clearButton, &QPushButton::clicked, this, &ModelExplorer::onClearFinishedDownloadsClicked);
+
     m_tabWidget->addTab(tab, "Downloading");
 }
 
@@ -177,14 +181,31 @@ void ModelExplorer::onPullProgressUpdated(const QString& modelName, int percent,
     }
 }
 
-void ModelExplorer::onPullFinished(const QString& modelName) {
+void ModelExplorer::onPullFinished(const QString& modelName, bool success, const QString& errorString) {
     for (int row = 0; row < m_downloadingTable->rowCount(); ++row) {
         if (m_downloadingTable->item(row, 0)->text() == modelName) {
-            m_downloadingTable->removeRow(row);
+            if (success) {
+                m_downloadingTable->item(row, 1)->setText("Completed");
+                QProgressBar* progressBar = qobject_cast<QProgressBar*>(m_downloadingTable->cellWidget(row, 2));
+                if (progressBar) {
+                    progressBar->setValue(100);
+                }
+            } else {
+                m_downloadingTable->item(row, 1)->setText("Error: " + errorString);
+            }
             break;
         }
     }
     m_client->fetchModels();  // Refresh installed list
+}
+
+void ModelExplorer::onClearFinishedDownloadsClicked() {
+    for (int row = m_downloadingTable->rowCount() - 1; row >= 0; --row) {
+        QString status = m_downloadingTable->item(row, 1)->text();
+        if (status == "Completed" || status.startsWith("Error:")) {
+            m_downloadingTable->removeRow(row);
+        }
+    }
 }
 
 void ModelExplorer::showInstalledContextMenu(const QPoint& pos) {

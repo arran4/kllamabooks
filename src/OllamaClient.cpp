@@ -81,7 +81,11 @@ void OllamaClient::pullModel(const QString& modelName) {
     m_activePulls[reply] = modelName;
     m_pullBuffers[reply] = QByteArray();
 
-    connect(reply, &QNetworkReply::readyRead, this, [this, reply, modelName]() {
+    // We'll track if there was an error in the streaming JSON
+    auto hasError = std::make_shared<bool>(false);
+    auto errorMsg = std::make_shared<QString>("");
+
+    connect(reply, &QNetworkReply::readyRead, this, [this, reply, modelName, hasError, errorMsg]() {
         m_pullBuffers[reply].append(reply->readAll());
         QByteArray& buffer = m_pullBuffers[reply];
 
@@ -98,6 +102,14 @@ void OllamaClient::pullModel(const QString& modelName) {
             QJsonDocument doc = QJsonDocument::fromJson(line, &error);
             if (error.error == QJsonParseError::NoError && doc.isObject()) {
                 QJsonObject obj = doc.object();
+
+                if (obj.contains("error")) {
+                    *hasError = true;
+                    *errorMsg = obj.value("error").toString();
+                    emit pullProgressUpdated(modelName, 0, "Error: " + *errorMsg);
+                    return;
+                }
+
                 QString status = obj.value("status").toString();
                 qint64 total = obj.value("total").toDouble();
                 qint64 completed = obj.value("completed").toDouble();
@@ -112,10 +124,18 @@ void OllamaClient::pullModel(const QString& modelName) {
         }
     });
 
-    connect(reply, &QNetworkReply::finished, this, [this, reply, modelName]() {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, modelName, hasError, errorMsg]() {
         m_activePulls.remove(reply);
         m_pullBuffers.remove(reply);
-        emit pullFinished(modelName);
+
+        if (reply->error() != QNetworkReply::NoError) {
+            emit pullFinished(modelName, false, reply->errorString());
+        } else if (*hasError) {
+            emit pullFinished(modelName, false, *errorMsg);
+        } else {
+            emit pullFinished(modelName, true);
+        }
+
         fetchModels();
         reply->deleteLater();
     });
