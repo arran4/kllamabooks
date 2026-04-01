@@ -1610,6 +1610,25 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
                 currentDb->addDocument(folderId, name, "");
                 loadDocumentsAndNotes();
             }
+        } else if (newFromTemplateAction && selectedAction == newFromTemplateAction) {
+            // Placeholder: Not fully implemented yet
+        } else if (newFromPromptAction && selectedAction == newFromPromptAction) {
+            // Trigger AIOperationsDialog with preselected Fork mode
+            AIOperationsDialog aiDlg("", this);
+            aiDlg.setForkOnlyMode(true);
+            if (aiDlg.exec() == QDialog::Accepted) {
+                QString prompt = aiDlg.getPrompt();
+                if (!prompt.isEmpty() && currentDb) {
+                    QString name = QString("Prompt: %1").arg(prompt.left(20));
+                    int folderId = item->data(Qt::UserRole).toInt();
+                    int newDocId = currentDb->addDocument(folderId, name, "");
+                    // Enqueue the newly created prompt as a document generation request
+                    // Using default values for model and parentId, and setting targetType="document" and
+                    // targetAction="fork"
+                    currentDb->enqueuePrompt(newDocId, "", prompt, 0, "document", 0, "fork");
+                    loadDocumentsAndNotes();
+                }
+            }
         } else if (importFileAction && selectedAction == importFileAction) {
             QString fileName = QFileDialog::getOpenFileName(this, tr("Import File"), QDir::homePath(),
                                                             tr("Text Files (*.md *.txt);;All Files (*)"));
@@ -1696,23 +1715,7 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
         }
 
         QAction* selectedAction = menu.exec(globalPos);
-        if (newFromTemplateAction && selectedAction == newFromTemplateAction) {
-            // Placeholder: Not fully implemented yet
-        } else if (newFromPromptAction && selectedAction == newFromPromptAction) {
-            // Trigger AIOperationsDialog with preselected Fork mode
-            AIOperationsDialog aiDlg(this);
-            aiDlg.setForkOnlyMode(true);
-            if (aiDlg.exec() == QDialog::Accepted) {
-                QString prompt = aiDlg.getPrompt();
-                if (!prompt.isEmpty() && currentDb) {
-                    QString name = QString("Prompt: %1").arg(prompt.left(20));
-                    int folderId = item->data(Qt::UserRole).toInt();
-                    int newDocId = currentDb->addDocument(folderId, name, "");
-                    currentDb->addQueueItem("document", newDocId, prompt, "pending", 0, "fork");
-                    loadDocumentsAndNotes();
-                }
-            }
-        } else if (loadTemplateAction && selectedAction == loadTemplateAction) {
+        if (loadTemplateAction && selectedAction == loadTemplateAction) {
             int docId = item->data(Qt::UserRole).toInt();
             if (currentDb) {
                 QList<DocumentNode> templates = currentDb->getTemplates();

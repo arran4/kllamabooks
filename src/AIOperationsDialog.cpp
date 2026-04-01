@@ -89,3 +89,14 @@ QString AIOperationsDialog::getOperation() const { return m_operationCombo->curr
 QString AIOperationsDialog::getPrompt() const { return m_promptEdit->toPlainText(); }
 
 QString AIOperationsDialog::getTargetAction() const { return m_targetActionCombo->currentData().toString(); }
+
+void AIOperationsDialog::setForkOnlyMode(bool enabled) {
+    if (enabled) {
+        m_operationCombo->setEnabled(false);
+        m_targetActionCombo->setCurrentIndex(m_targetActionCombo->findData("fork"));
+        m_targetActionCombo->setEnabled(false);
+    } else {
+        m_operationCombo->setEnabled(true);
+        m_targetActionCombo->setEnabled(true);
+    }
+}
