@@ -1682,6 +1682,15 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
 
         QAction* settingsAction = menu.addAction(QIcon::fromTheme("configure"), "Chat Settings...");
 
+        menu.addSeparator();
+        QMenu* dangerMenu = menu.addMenu(QIcon::fromTheme("dialog-warning"), "Danger Zone");
+        QAction* deleteAction = nullptr;
+        if (type == "chat_session") {
+            deleteAction = dangerMenu->addAction(QIcon::fromTheme("edit-delete"), "Delete Chat Session");
+        } else {
+            deleteAction = dangerMenu->addAction(QIcon::fromTheme("edit-delete"), "Delete Message");
+        }
+
         QAction* selectedAction = menu.exec(globalPos);
         if (selectedAction == copyAction) {
             QString fullText = item->text();
@@ -1705,6 +1714,20 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
             exportChatSession();
         } else if (selectedAction == settingsAction) {
             showChatSettingsDialog(item->data(Qt::UserRole).toInt());
+        } else if (selectedAction == deleteAction) {
+            int id = item->data(Qt::UserRole).toInt();
+            if (currentDb) {
+                QString confirmMsg = type == "chat_session" ? tr("Are you sure you want to delete this Chat Session?") : tr("Are you sure you want to delete this Message?");
+                if (QMessageBox::question(this, tr("Confirm Delete"), confirmMsg, QMessageBox::Yes | QMessageBox::No) == QMessageBox::Yes) {
+                    if (type == "chat_session") {
+                        currentDb->deleteFolder(id);
+                    } else {
+                        currentDb->deleteMessage(id);
+                    }
+                    loadDocumentsAndNotes();
+                    statusBar->showMessage(tr("Deleted successfully."), 3000);
+                }
+            }
         }
     } else if (type == "document" || type == "note" || type == "template" || type == "draft") {
         QMenu menu(this);
@@ -1721,15 +1744,24 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
             menu.addSeparator();
         }
 
-        QAction* discardAction = nullptr;
-        if (type == "draft") {
-            discardAction = menu.addAction(QIcon::fromTheme("edit-delete"), "Discard Draft");
-            menu.addSeparator();
-        }
-
         if (type == "document" || type == "note") {
             exportAction = menu.addAction(QIcon::fromTheme("document-export"), "Export Markdown...");
             replaceAction = menu.addAction(QIcon::fromTheme("document-import"), "Replace with Import...");
+        }
+
+        menu.addSeparator();
+        QMenu* dangerMenu = menu.addMenu(QIcon::fromTheme("dialog-warning"), "Danger Zone");
+        QAction* discardAction = nullptr;
+        QAction* deleteAction = nullptr;
+
+        if (type == "draft") {
+            discardAction = dangerMenu->addAction(QIcon::fromTheme("edit-delete"), "Discard Draft");
+        } else if (type == "document") {
+            deleteAction = dangerMenu->addAction(QIcon::fromTheme("edit-delete"), "Delete Document");
+        } else if (type == "note") {
+            deleteAction = dangerMenu->addAction(QIcon::fromTheme("edit-delete"), "Delete Note");
+        } else if (type == "template") {
+            deleteAction = dangerMenu->addAction(QIcon::fromTheme("edit-delete"), "Delete Template");
         }
 
         QAction* selectedAction = menu.exec(globalPos);
@@ -1761,6 +1793,21 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
                 currentDb->deleteDraft(docId);
                 loadDocumentsAndNotes();
                 statusBar->showMessage(tr("Draft discarded."), 3000);
+            }
+        } else if (deleteAction && selectedAction == deleteAction) {
+            int id = item->data(Qt::UserRole).toInt();
+            if (currentDb) {
+                if (QMessageBox::question(this, tr("Confirm Delete"), tr("Are you sure you want to delete this item?"), QMessageBox::Yes | QMessageBox::No) == QMessageBox::Yes) {
+                    if (type == "document") {
+                        currentDb->deleteDocument(id);
+                    } else if (type == "note") {
+                        currentDb->deleteNote(id);
+                    } else if (type == "template") {
+                        currentDb->deleteTemplate(id);
+                    }
+                    loadDocumentsAndNotes();
+                    statusBar->showMessage(tr("Deleted successfully."), 3000);
+                }
             }
         } else if (exportAction && selectedAction == exportAction) {
             exportDocument(item->data(Qt::UserRole).toInt(), type);
