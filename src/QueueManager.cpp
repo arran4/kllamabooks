@@ -26,11 +26,40 @@ void QueueManager::addDatabase(std::shared_ptr<BookDatabase> db) {
 void QueueManager::removeDatabase(std::shared_ptr<BookDatabase> db) {
     m_databases.removeAll(db);
     if (m_activeDb == db) m_activeDb = nullptr;
-    if (m_currentDb == db) {
-        m_currentDb = nullptr;
-        m_isProcessing = false;
+
+    QList<int> keysToRemove;
+    for (auto it = m_activeItems.begin(); it != m_activeItems.end(); ++it) {
+        if (it.value().db == db) {
+            keysToRemove.append(it.key());
+        }
+    }
+    for (int key : keysToRemove) {
+        m_activeItems.remove(key);
     }
     emit queueChanged();
+}
+
+QList<QueueItem> QueueManager::currentProcessingItems() const {
+    QList<QueueItem> items;
+    for (const auto& mergedItem : m_activeItems) {
+        items.append(mergedItem.item);
+    }
+    return items;
+}
+
+QList<std::shared_ptr<BookDatabase>> QueueManager::currentProcessingDbs() const {
+    QList<std::shared_ptr<BookDatabase>> dbs;
+    for (const auto& mergedItem : m_activeItems) {
+        if (!dbs.contains(mergedItem.db)) {
+            dbs.append(mergedItem.db);
+        }
+    }
+    return dbs;
+}
+
+void QueueManager::setMaxConcurrent(int max) {
+    m_maxConcurrent = max;
+    QTimer::singleShot(0, this, &QueueManager::checkQueue);
 }
 
 void QueueManager::retryItem(std::shared_ptr<BookDatabase> db, int queueId) {
@@ -97,7 +126,7 @@ int QueueManager::pendingCount(std::shared_ptr<BookDatabase> db) const {
 }
 
 void QueueManager::checkQueue() {
-    if (m_isProcessing || m_isPaused || !m_client || m_databases.isEmpty()) return;
+    if (m_activeItems.size() >= m_maxConcurrent || m_isPaused || !m_client || m_databases.isEmpty()) return;
     processNext();
 }
 
@@ -124,10 +153,9 @@ QList<QueueManager::MergedQueueItem> QueueManager::getMergedQueue() const {
  */
 void QueueManager::cancelItem(std::shared_ptr<BookDatabase> db, int queueId) {
     if (db) db->deleteQueueItem(queueId);
-    if (m_currentDb == db && m_currentItem.id == queueId) {
+    if (m_activeItems.contains(queueId) && m_activeItems[queueId].db == db) {
         // Ideally we'd abort the network request here
-        m_isProcessing = false;
-        m_currentDb = nullptr;
+        m_activeItems.remove(queueId);
     }
     emit queueChanged();
 }
@@ -164,7 +192,7 @@ void QueueManager::resumeQueue() {
  * @brief Advances the queue consumer to begin execution of the next pending element.
  */
 void QueueManager::processNext() {
-    if (m_isProcessing) return;
+    if (m_activeItems.size() >= m_maxConcurrent) return;
 
     QSettings settings;
     QString processingMode = settings.value("queueProcessing", "FCFS").toString();
@@ -175,7 +203,7 @@ void QueueManager::processNext() {
         if (!db || !db->isOpen()) continue;
         auto items = db->getQueue();
         for (const auto& item : items) {
-            if (item.processingId == 0 && item.lastError.isEmpty()) {
+            if (item.processingId == 0 && item.lastError.isEmpty() && !m_activeItems.contains(item.id)) {
                 allPending.append({db, item});
             }
         }
@@ -231,32 +259,35 @@ void QueueManager::processNext() {
                   }
               });
 
-    auto nextItem = allPending.first();
-    m_currentDb = nextItem.db;
-    m_currentItem = nextItem.item;
+    while (m_activeItems.size() < m_maxConcurrent && !allPending.isEmpty()) {
+        auto nextItem = allPending.takeFirst();
+        int queueId = nextItem.item.id;
 
-    m_isProcessing = true;
-    m_currentItem.processingId = QCoreApplication::applicationPid();
-    m_currentDb->updateQueueProcessingId(m_currentItem.id, m_currentItem.processingId);
-    m_currentDb->updateQueueItemState(m_currentItem.id, "processing");
-    m_currentItem.state = "processing";
-    m_lastProcessedModel = m_currentItem.model;
-    emit processingStarted(m_currentDb, m_currentItem.messageId, m_currentItem.targetType);
-    emit queueChanged();
+        nextItem.item.processingId = QCoreApplication::applicationPid();
+        nextItem.db->updateQueueProcessingId(queueId, nextItem.item.processingId);
+        nextItem.db->updateQueueItemState(queueId, "processing");
+        nextItem.item.state = "processing";
+        m_lastProcessedModel = nextItem.item.model;
 
-    QString sysPrompt = m_currentDb->getInheritedSetting(m_currentItem.messageId, "systemPrompt");
-    if (sysPrompt.isEmpty()) {
-        sysPrompt = m_currentDb->getSetting("book", 0, "systemPrompt", "");
+        m_activeItems[queueId] = nextItem;
+
+        emit processingStarted(nextItem.db, nextItem.item.messageId, nextItem.item.targetType);
+        emit queueChanged();
+
+        QString sysPrompt = nextItem.db->getInheritedSetting(nextItem.item.messageId, "systemPrompt");
+        if (sysPrompt.isEmpty()) {
+            sysPrompt = nextItem.db->getSetting("book", 0, "systemPrompt", "");
+        }
+        if (sysPrompt.isEmpty()) {
+            QSettings settings;
+            sysPrompt = settings.value("globalSystemPrompt", "").toString();
+        }
+        m_client->setSystemPrompt(sysPrompt);
+
+        m_client->generate(
+            nextItem.item.model, nextItem.item.prompt, [this, queueId](const QString& chunk) { onChunk(queueId, chunk); },
+            [this, queueId](const QString& response) { onComplete(queueId, response); }, [this, queueId](const QString& error) { onError(queueId, error); });
     }
-    if (sysPrompt.isEmpty()) {
-        QSettings settings;
-        sysPrompt = settings.value("globalSystemPrompt", "").toString();
-    }
-    m_client->setSystemPrompt(sysPrompt);
-
-    m_client->generate(
-        m_currentItem.model, m_currentItem.prompt, [this](const QString& chunk) { onChunk(chunk); },
-        [this](const QString& response) { onComplete(response); }, [this](const QString& error) { onError(error); });
 }
 
 /**
@@ -264,25 +295,26 @@ void QueueManager::processNext() {
  *
  * @param chunk The text sequence slice.
  */
-void QueueManager::onChunk(const QString& chunk) {
-    if (!m_isProcessing) return;
-    if (m_currentDb && m_currentDb->isOpen()) {
+void QueueManager::onChunk(int queueId, const QString& chunk) {
+    if (!m_activeItems.contains(queueId)) return;
+    auto item = m_activeItems[queueId];
+    if (item.db && item.db->isOpen()) {
         QString currentContent;
-        if (m_currentItem.targetType == "document") {
+        if (item.item.targetType == "document") {
             // For documents, we do not update the document directly.
             // Just emit the chunk for the preview.
         } else {
             // Get existing content and append
-            auto messages = m_currentDb->getMessages();
+            auto messages = item.db->getMessages();
             for (const auto& m : messages) {
-                if (m.id == m_currentItem.messageId) {
+                if (m.id == item.item.messageId) {
                     currentContent = m.content;
                     break;
                 }
             }
-            m_currentDb->updateMessage(m_currentItem.messageId, currentContent + chunk);
+            item.db->updateMessage(item.item.messageId, currentContent + chunk);
         }
-        emit processingChunk(m_currentDb, m_currentItem.messageId, chunk, m_currentItem.targetType);
+        emit processingChunk(item.db, item.item.messageId, chunk, item.item.targetType);
     }
 }
 
@@ -291,38 +323,36 @@ void QueueManager::onChunk(const QString& chunk) {
  *
  * @param response The complete generated text payload.
  */
-void QueueManager::onComplete(const QString& response) {
-    if (!m_isProcessing) return;
-    if (m_currentDb && m_currentDb->isOpen()) {
-        if (m_currentItem.targetType == "document") {
+void QueueManager::onComplete(int queueId, const QString& response) {
+    if (!m_activeItems.contains(queueId)) return;
+    auto item = m_activeItems.take(queueId);
+
+    if (item.db && item.db->isOpen()) {
+        if (item.item.targetType == "document") {
             // Document results are queued for review, NOT applied immediately.
-            m_currentDb->updateQueueItemState(m_currentItem.id, "completed", response);
-            m_currentDb->addNotification(m_currentItem.id, "review_needed");
+            item.db->updateQueueItemState(item.item.id, "completed", response);
+            item.db->addNotification(item.item.id, "review_needed");
         } else {
-            m_currentDb->updateMessage(m_currentItem.messageId, response);
-            m_currentDb->deleteQueueItem(m_currentItem.id);
-            m_currentDb->addNotification(m_currentItem.messageId, "responded_to");
+            item.db->updateMessage(item.item.messageId, response);
+            item.db->deleteQueueItem(item.item.id);
+            item.db->addNotification(item.item.messageId, "responded_to");
         }
 
-        m_currentItem.processingId = 0;
+        item.item.processingId = 0;
 
-        // Remove tracking completed items in memory to let DB act as source of truth.
-        // m_completedItems.append({m_currentDb, m_currentItem}); // deprecated
+        item.db->setSetting(item.item.targetType, item.item.messageId, "model", item.item.model);
 
-        m_currentDb->setSetting(m_currentItem.targetType, m_currentItem.messageId, "model", m_currentItem.model);
-
-        QString sysPrompt = m_currentDb->getInheritedSetting(m_currentItem.messageId, "systemPrompt");
+        QString sysPrompt = item.db->getInheritedSetting(item.item.messageId, "systemPrompt");
         if (sysPrompt.isEmpty()) {
-            sysPrompt = m_currentDb->getSetting("book", 0, "systemPrompt", "");
+            sysPrompt = item.db->getSetting("book", 0, "systemPrompt", "");
         }
         if (sysPrompt.isEmpty()) {
             QSettings settings;
             sysPrompt = settings.value("globalSystemPrompt", "").toString();
         }
-        m_currentDb->setSetting(m_currentItem.targetType, m_currentItem.messageId, "systemPrompt", sysPrompt);
+        item.db->setSetting(item.item.targetType, item.item.messageId, "systemPrompt", sysPrompt);
     }
-    m_isProcessing = false;
-    emit processingFinished(m_currentDb, m_currentItem.messageId, true, m_currentItem.targetType);
+    emit processingFinished(item.db, item.item.messageId, true, item.item.targetType);
     emit queueChanged();
 
     // Pick up next item after a short delay to avoid tight loop issues
@@ -334,14 +364,15 @@ void QueueManager::onComplete(const QString& response) {
  *
  * @param error The descriptive error message.
  */
-void QueueManager::onError(const QString& error) {
-    if (!m_isProcessing) return;
-    if (m_currentDb && m_currentDb->isOpen()) {
-        m_currentDb->updateQueueError(m_currentItem.id, error);
-        m_currentDb->addNotification(m_currentItem.messageId, "error");
+void QueueManager::onError(int queueId, const QString& error) {
+    if (!m_activeItems.contains(queueId)) return;
+    auto item = m_activeItems.take(queueId);
+
+    if (item.db && item.db->isOpen()) {
+        item.db->updateQueueError(item.item.id, error);
+        item.db->addNotification(item.item.messageId, "error");
     }
-    m_isProcessing = false;
-    emit processingFinished(m_currentDb, m_currentItem.messageId, false, m_currentItem.targetType);
+    emit processingFinished(item.db, item.item.messageId, false, item.item.targetType);
     emit queueChanged();
 
     QTimer::singleShot(500, this, &QueueManager::checkQueue);
