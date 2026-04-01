@@ -92,6 +92,7 @@ class MainWindow : public KXmlGuiWindow {
     void onBreadcrumbClicked(const QString& type, int id);
     void onRenameCurrentItem();
     void onDiscardChanges();
+    void onDismissDraft();
     void showBookContextMenu(const QPoint& pos);
     void showDocumentAIToolsMenu();
     void onDocumentAIOperations();
@@ -190,6 +191,7 @@ class MainWindow : public KXmlGuiWindow {
     ChatInputWidget* inputField;  // Using HEAD's custom input field
     QPushButton* sendButton;
     QPushButton* discardChangesBtn;
+    QPushButton* dismissDraftBtn;
     QPushButton* modelSelectButton;
     QStringList m_availableModels;
     QString m_selectedModel;
