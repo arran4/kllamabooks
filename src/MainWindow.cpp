@@ -685,8 +685,12 @@ void MainWindow::setupUi() {
         }
     });
 
+    connect(&ollamaClient, &OllamaClient::modelInfoUpdated, this, [this](const QList<OllamaModelInfo>& infos) {
+        m_availableModelInfos = infos;
+    });
+
     connect(modelSelectButton, &QPushButton::clicked, this, [this]() {
-        ModelSelectionDialog dlg(m_availableModels, this);
+        ModelSelectionDialog dlg(m_availableModelInfos, m_availableModels, this);
         if (dlg.exec() == QDialog::Accepted) {
             QString selected = dlg.selectedModel();
             if (!selected.isEmpty()) {

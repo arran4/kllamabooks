@@ -42,16 +42,46 @@ void OllamaClient::fetchModels() {
             if (doc.isObject() && doc.object().contains("models") && doc.object()["models"].isArray()) {
                 QJsonArray modelsArray = doc.object()["models"].toArray();
                 QStringList modelNames;
+                QList<OllamaModelInfo> modelInfos;
                 for (const auto& modelVal : modelsArray) {
                     if (modelVal.isObject() && modelVal.toObject().contains("name")) {
-                        modelNames.append(modelVal.toObject()["name"].toString());
+                        QJsonObject modelObj = modelVal.toObject();
+                        QString name = modelObj["name"].toString();
+                        modelNames.append(name);
+
+                        OllamaModelInfo info;
+                        info.name = name;
+
+                        // Parse size
+                        if (modelObj.contains("size")) {
+                            qint64 sizeBytes = modelObj["size"].toVariant().toLongLong();
+                            if (sizeBytes > 1024LL * 1024LL * 1024LL) {
+                                info.size = QString::number(sizeBytes / (1024.0 * 1024.0 * 1024.0), 'f', 1) + " GB";
+                            } else if (sizeBytes > 1024 * 1024) {
+                                info.size = QString::number(sizeBytes / (1024.0 * 1024.0), 'f', 1) + " MB";
+                            } else {
+                                info.size = QString::number(sizeBytes) + " B";
+                            }
+                        }
+
+                        // Parse details
+                        if (modelObj.contains("details") && modelObj["details"].isObject()) {
+                            QJsonObject detailsObj = modelObj["details"].toObject();
+                            info.family = detailsObj["family"].toString();
+                            info.parameterSize = detailsObj["parameter_size"].toString();
+                            info.quantizationLevel = detailsObj["quantization_level"].toString();
+                        }
+
+                        modelInfos.append(info);
                     }
                 }
                 emit modelListUpdated(modelNames);
+                emit modelInfoUpdated(modelInfos);
             }
         } else {
             emit connectionStatusChanged(false);
             emit modelListUpdated(QStringList());  // Clear on error
+            emit modelInfoUpdated(QList<OllamaModelInfo>());
         }
         reply->deleteLater();
     });
