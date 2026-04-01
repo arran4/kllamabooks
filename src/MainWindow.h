@@ -139,6 +139,7 @@ class MainWindow : public KXmlGuiWindow {
     void getPathToRoot(int nodeId, const QList<MessageNode>& allMessages, QList<MessageNode>& path);
     int getEndOfLinearPath(int startId, const QList<MessageNode>& allMessages, QList<MessageNode>& outChildren);
     QString getChatNodeTitle(int nodeId, const QList<MessageNode>& allMessages);
+    QString getDefaultContentType() const;
    public slots:
     void loadDocumentsAndNotes();
 
@@ -168,12 +169,13 @@ class MainWindow : public KXmlGuiWindow {
     QTextEdit* documentEditorView;
     QTextBrowser* documentPreviewView;
     QPushButton* saveDocBtn;
-    QPushButton* previewDocBtn;
+    QComboBox* docContentTypeCombo;
     QPushButton* editDocBtn;
 
     QWidget* noteContainer;
     QTextEdit* noteEditorView;
     QPushButton* saveNoteBtn;
+    QComboBox* noteContentTypeCombo;
 
     QTextEdit* multiLineInput;
     QPushButton* toggleInputModeBtn;

@@ -174,10 +174,12 @@ void DocumentReviewDialog::onFork() {
     auto docs = m_db->getDocuments();
     QString title;
     int folderId = 0;
+    QString contentType = "markdown";
     for (const auto& d : docs) {
         if (d.id == m_documentId) {
             title = d.title;
             folderId = d.folderId;
+            contentType = d.contentType;
             break;
         }
     }
@@ -186,7 +188,7 @@ void DocumentReviewDialog::onFork() {
     QString newTitle = QInputDialog::getText(this, tr("New Document Name"), tr("Title:"), QLineEdit::Normal,
                                              title + " (AI Fork)", &ok);
     if (ok && !newTitle.isEmpty()) {
-        m_db->addDocument(folderId, newTitle, m_resultEdit->toPlainText(),
+        m_db->addDocument(folderId, newTitle, m_resultEdit->toPlainText(), contentType,
                           m_documentId);  // pass parentId to track lineage
         finalizeAndClose(true);
     }
@@ -198,10 +200,12 @@ void DocumentReviewDialog::onSaveAsDraft() {
     auto docs = m_db->getDocuments();
     QString title;
     int folderId = 0;
+    QString contentType = "markdown";
     for (const auto& d : docs) {
         if (d.id == m_documentId) {
             title = d.title;
             folderId = d.folderId;
+            contentType = d.contentType;
             break;
         }
     }
@@ -210,7 +214,7 @@ void DocumentReviewDialog::onSaveAsDraft() {
     QString newTitle =
         QInputDialog::getText(this, tr("New Draft Name"), tr("Title:"), QLineEdit::Normal, title + " (AI Draft)", &ok);
     if (ok && !newTitle.isEmpty()) {
-        m_db->addDraft(folderId, newTitle, m_resultEdit->toPlainText());
+        m_db->addDraft(folderId, newTitle, m_resultEdit->toPlainText(), contentType);
         finalizeAndClose(true);
     }
 }

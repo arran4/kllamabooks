@@ -210,14 +210,16 @@ int DocumentEditWindow::forkDocument(const QString& newTitle) {
 
     auto docs = m_db->getDocuments();
     int folderId = 0;
+    QString contentType = "markdown";
     for (const auto& d : docs) {
         if (d.id == m_documentId) {
             folderId = d.folderId;
+            contentType = d.contentType;
             break;
         }
     }
 
-    return m_db->addDocument(folderId, newTitle, m_editor->toPlainText(), m_documentId);
+    return m_db->addDocument(folderId, newTitle, m_editor->toPlainText(), contentType, m_documentId);
 }
 
 int DocumentEditWindow::saveToDraft(const QString& newTitle) {
@@ -225,14 +227,16 @@ int DocumentEditWindow::saveToDraft(const QString& newTitle) {
 
     auto docs = m_db->getDocuments();
     int folderId = 0;
+    QString contentType = "markdown";
     for (const auto& d : docs) {
         if (d.id == m_documentId) {
             folderId = d.folderId;
+            contentType = d.contentType;
             break;
         }
     }
 
-    return m_db->addDraft(folderId, newTitle, m_editor->toPlainText());
+    return m_db->addDraft(folderId, newTitle, m_editor->toPlainText(), contentType);
 }
 
 bool DocumentEditWindow::saveToDb() {

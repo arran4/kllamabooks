@@ -134,13 +134,15 @@ class BookDatabase {
     QList<DocumentHistoryEntry> getDocumentHistory(int documentId) const;
 
     // Templates
-    int addTemplate(int folderId, const QString& title, const QString& content);
+    int addTemplate(int folderId, const QString& title, const QString& content, const QString& contentType);
     bool updateTemplate(int id, const QString& newTitle, const QString& newContent);
+    bool updateTemplateContentType(int id, const QString& contentType);
     QList<DocumentNode> getTemplates(int folderId = -1) const;
 
     // Drafts
-    int addDraft(int folderId, const QString& title, const QString& content);
+    int addDraft(int folderId, const QString& title, const QString& content, const QString& contentType);
     bool updateDraft(int id, const QString& newTitle, const QString& newContent);
+    bool updateDraftContentType(int id, const QString& contentType);
     QList<DocumentNode> getDrafts(int folderId = -1) const;
     bool deleteDraft(int id);
 

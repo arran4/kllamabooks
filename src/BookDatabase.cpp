@@ -894,10 +894,10 @@ bool BookDatabase::deleteNote(int id) {
     return rc == SQLITE_DONE;
 }
 
-int BookDatabase::addTemplate(int folderId, const QString& title, const QString& content) {
+int BookDatabase::addTemplate(int folderId, const QString& title, const QString& content, const QString& contentType) {
     if (!m_isOpen) return -1;
 
-    const char* sql = "INSERT INTO templates (folder_id, title, content) VALUES (?, ?, ?);";
+    const char* sql = "INSERT INTO templates (folder_id, title, content, content_type) VALUES (?, ?, ?, ?);";
     sqlite3_stmt* stmt;
     int rc = sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return -1;
@@ -905,6 +905,7 @@ int BookDatabase::addTemplate(int folderId, const QString& title, const QString&
     sqlite3_bind_int(stmt, 1, folderId);
     sqlite3_bind_text(stmt, 2, title.toUtf8().constData(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 3, content.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 4, contentType.toUtf8().constData(), -1, SQLITE_TRANSIENT);
 
     rc = sqlite3_step(stmt);
     if (rc != SQLITE_DONE) {
@@ -928,6 +929,22 @@ bool BookDatabase::updateTemplate(int id, const QString& newTitle, const QString
     sqlite3_bind_text(stmt, 1, newTitle.toUtf8().constData(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 2, newContent.toUtf8().constData(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_int(stmt, 3, id);
+
+    rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
+}
+
+bool BookDatabase::updateTemplateContentType(int id, const QString& contentType) {
+    if (!m_isOpen) return false;
+
+    const char* sql = "UPDATE templates SET content_type = ? WHERE id = ?;";
+    sqlite3_stmt* stmt;
+    int rc = sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr);
+    if (rc != SQLITE_OK) return false;
+
+    sqlite3_bind_text(stmt, 1, contentType.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 2, id);
 
     rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
@@ -963,10 +980,10 @@ QList<DocumentNode> BookDatabase::getTemplates(int folderId) const {
     return nodes;
 }
 
-int BookDatabase::addDraft(int folderId, const QString& title, const QString& content) {
+int BookDatabase::addDraft(int folderId, const QString& title, const QString& content, const QString& contentType) {
     if (!m_isOpen) return -1;
 
-    const char* sql = "INSERT INTO drafts (folder_id, title, content) VALUES (?, ?, ?);";
+    const char* sql = "INSERT INTO drafts (folder_id, title, content, content_type) VALUES (?, ?, ?, ?);";
     sqlite3_stmt* stmt;
     int rc = sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return -1;
@@ -974,6 +991,7 @@ int BookDatabase::addDraft(int folderId, const QString& title, const QString& co
     sqlite3_bind_int(stmt, 1, folderId);
     sqlite3_bind_text(stmt, 2, title.toUtf8().constData(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 3, content.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 4, contentType.toUtf8().constData(), -1, SQLITE_TRANSIENT);
 
     rc = sqlite3_step(stmt);
     if (rc != SQLITE_DONE) {
@@ -997,6 +1015,22 @@ bool BookDatabase::updateDraft(int id, const QString& newTitle, const QString& n
     sqlite3_bind_text(stmt, 1, newTitle.toUtf8().constData(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 2, newContent.toUtf8().constData(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_int(stmt, 3, id);
+
+    rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
+}
+
+bool BookDatabase::updateDraftContentType(int id, const QString& contentType) {
+    if (!m_isOpen) return false;
+
+    const char* sql = "UPDATE drafts SET content_type = ? WHERE id = ?;";
+    sqlite3_stmt* stmt;
+    int rc = sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr);
+    if (rc != SQLITE_OK) return false;
+
+    sqlite3_bind_text(stmt, 1, contentType.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 2, id);
 
     rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);

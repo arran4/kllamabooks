@@ -242,8 +242,9 @@ void MainWindow::setupUi() {
     saveDocBtn->hide();  // kept just in case but we don't need it on this toolbar
 
     QPushButton* backToDocsBtn = new QPushButton(QIcon::fromTheme("go-previous"), "Back to Documents", this);
-    previewDocBtn = new QPushButton(QIcon::fromTheme("view-preview"), "As Markdown", this);
-    previewDocBtn->setCheckable(true);
+    docContentTypeCombo = new QComboBox(this);
+    docContentTypeCombo->addItem(QIcon::fromTheme("text-markdown"), "Markdown", "markdown");
+    docContentTypeCombo->addItem(QIcon::fromTheme("text-plain"), "Text", "text");
 
     QPushButton* aiOperationsBtn = new QPushButton(QIcon::fromTheme("tools-wizard"), "AI Operations", this);
     connect(aiOperationsBtn, &QPushButton::clicked, this, &MainWindow::onDocumentAIOperations);
@@ -253,7 +254,7 @@ void MainWindow::setupUi() {
 
     docToolbar->addWidget(backToDocsBtn);
     docToolbar->addWidget(editDocBtn);
-    docToolbar->addWidget(previewDocBtn);
+    docToolbar->addWidget(docContentTypeCombo);
     docToolbar->addWidget(docHistoryBtn);
     docToolbar->addWidget(aiOperationsBtn);
     docLayout->addWidget(docToolbar);
@@ -271,14 +272,27 @@ void MainWindow::setupUi() {
 
     connect(editDocBtn, &QPushButton::clicked, this, &MainWindow::onEditDocument);
 
-    connect(previewDocBtn, &QPushButton::toggled, this, [this](bool checked) {
-        if (checked) {
+    connect(docContentTypeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int index) {
+        QString type = docContentTypeCombo->itemData(index).toString();
+        if (type == "markdown") {
             documentPreviewView->setMarkdown(documentEditorView->toPlainText());
             documentStack->setCurrentWidget(documentPreviewView);
-            previewDocBtn->setText("As Text");
         } else {
             documentStack->setCurrentWidget(documentEditorView);
-            previewDocBtn->setText("As Markdown");
+        }
+        if (currentDb && currentDocumentId > 0) {
+            QModelIndex idx = openBooksTree->currentIndex();
+            QStandardItem* item = openBooksModel->itemFromIndex(idx);
+            if (item) {
+                QString itemType = item->data(Qt::UserRole + 1).toString();
+                if (itemType == "document") {
+                     currentDb->updateDocumentContentType(currentDocumentId, type);
+                } else if (itemType == "template") {
+                     currentDb->updateTemplateContentType(currentDocumentId, type);
+                } else if (itemType == "draft") {
+                     currentDb->updateDraftContentType(currentDocumentId, type);
+                }
+            }
         }
     });
 
@@ -289,9 +303,25 @@ void MainWindow::setupUi() {
     QToolBar* noteToolbar = new QToolBar(this);
     saveNoteBtn = new QPushButton(QIcon::fromTheme("document-save"), "Save Note", this);
     QPushButton* backToNotesBtn = new QPushButton(QIcon::fromTheme("go-previous"), "Back to Notes", this);
+    noteContentTypeCombo = new QComboBox(this);
+    noteContentTypeCombo->addItem(QIcon::fromTheme("text-markdown"), "Markdown", "markdown");
+    noteContentTypeCombo->addItem(QIcon::fromTheme("text-plain"), "Text", "text");
+
     noteToolbar->addWidget(backToNotesBtn);
     noteToolbar->addWidget(saveNoteBtn);
+    noteToolbar->addWidget(noteContentTypeCombo);
     noteLayout->addWidget(noteToolbar);
+
+    connect(noteContentTypeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int index) {
+        QString type = noteContentTypeCombo->itemData(index).toString();
+        if (currentDb && currentNoteId > 0) {
+            QModelIndex idx = openBooksTree->currentIndex();
+            QStandardItem* item = openBooksModel->itemFromIndex(idx);
+            if (item && item->data(Qt::UserRole + 1).toString() == "note") {
+                 currentDb->updateNoteContentType(currentNoteId, type);
+            }
+        }
+    });
 
     noteEditorView = new QTextEdit(this);
 
@@ -351,7 +381,7 @@ void MainWindow::setupUi() {
         QString textToSave = (mainContentStack->currentWidget() == docContainer) ? documentEditorView->toPlainText()
                                                                                  : noteEditorView->toPlainText();
         if (currentAutoDraftId == 0) {
-            currentAutoDraftId = currentDb->addDraft(0, title, textToSave);
+            currentAutoDraftId = currentDb->addDraft(0, title, textToSave, getDefaultContentType());
         } else {
             currentDb->updateDraft(currentAutoDraftId, title, textToSave);
         }
@@ -1070,7 +1100,7 @@ void MainWindow::showInputSettingsMenu() {
         QString title =
             QInputDialog::getText(this, "Save Draft", "Name this draft:", QLineEdit::Normal, "New Draft", &ok);
         if (ok && !title.isEmpty()) {
-            currentDb->addDraft(0, title, content);
+            currentDb->addDraft(0, title, content, getDefaultContentType());
             statusBar->showMessage(tr("Draft saved."), 3000);
             loadSession(0);
         }
@@ -1084,7 +1114,7 @@ void MainWindow::showInputSettingsMenu() {
         QString title =
             QInputDialog::getText(this, "Save Template", "Name this template:", QLineEdit::Normal, "New Template", &ok);
         if (ok && !title.isEmpty()) {
-            currentDb->addTemplate(0, title, content);
+            currentDb->addTemplate(0, title, content, getDefaultContentType());
             statusBar->showMessage(tr("Template saved."), 3000);
             loadDocumentsAndNotes();
         }
@@ -1619,7 +1649,7 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
                 QInputDialog::getText(this, "New Document", "Enter document name:", QLineEdit::Normal, "New Document");
             if (!name.isEmpty() && currentDb) {
                 int folderId = item->data(Qt::UserRole).toInt();
-                currentDb->addDocument(folderId, name, "");
+                currentDb->addDocument(folderId, name, "", getDefaultContentType());
                 loadDocumentsAndNotes();
             }
         } else if (newFromTemplateAction && selectedAction == newFromTemplateAction) {
@@ -1633,7 +1663,7 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
                 if (!prompt.isEmpty() && currentDb) {
                     QString name = QString("Prompt: %1").arg(prompt.left(20));
                     int folderId = item->data(Qt::UserRole).toInt();
-                    int newDocId = currentDb->addDocument(folderId, name, "");
+                    int newDocId = currentDb->addDocument(folderId, name, "", getDefaultContentType());
                     // Enqueue the newly created prompt as a document generation request
                     // Using default values for model and parentId, and setting targetType="document" and
                     // targetAction="fork"
@@ -1653,13 +1683,13 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
                     int parentId = item->data(Qt::UserRole).toInt();
 
                     if (type == "notes_folder") {
-                        currentDb->addNote(parentId, fileInfo.fileName(), content);
+                        currentDb->addNote(parentId, fileInfo.fileName(), content, getDefaultContentType());
                     } else if (type == "templates_folder") {
-                        currentDb->addTemplate(parentId, fileInfo.fileName(), content);
+                        currentDb->addTemplate(parentId, fileInfo.fileName(), content, getDefaultContentType());
                     } else if (type == "drafts_folder") {
-                        currentDb->addDraft(parentId, fileInfo.fileName(), content);
+                        currentDb->addDraft(parentId, fileInfo.fileName(), content, getDefaultContentType());
                     } else {
-                        currentDb->addDocument(parentId, fileInfo.fileName(), content);
+                        currentDb->addDocument(parentId, fileInfo.fileName(), content, getDefaultContentType());
                     }
                     loadDocumentsAndNotes();
                 }
@@ -1727,13 +1757,45 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
             menu.addSeparator();
         }
 
+        QMenu* contentTypeMenu = menu.addMenu(QIcon::fromTheme("text-plain"), "Change Content Type");
+        QAction* setMarkdownAction = contentTypeMenu->addAction(QIcon::fromTheme("text-markdown"), "Markdown");
+        QAction* setTextAction = contentTypeMenu->addAction(QIcon::fromTheme("text-plain"), "Text");
+
         if (type == "document" || type == "note") {
             exportAction = menu.addAction(QIcon::fromTheme("document-export"), "Export Markdown...");
             replaceAction = menu.addAction(QIcon::fromTheme("document-import"), "Replace with Import...");
         }
 
         QAction* selectedAction = menu.exec(globalPos);
-        if (loadTemplateAction && selectedAction == loadTemplateAction) {
+        if (selectedAction == setMarkdownAction || selectedAction == setTextAction) {
+            QString newType = (selectedAction == setMarkdownAction) ? "markdown" : "text";
+            int id = item->data(Qt::UserRole).toInt();
+            if (currentDb) {
+                if (type == "document") currentDb->updateDocumentContentType(id, newType);
+                else if (type == "note") currentDb->updateNoteContentType(id, newType);
+                else if (type == "template") currentDb->updateTemplateContentType(id, newType);
+                else if (type == "draft") currentDb->updateDraftContentType(id, newType);
+
+                // If it's the currently open document, sync the combo box
+                if ((type == "document" || type == "template" || type == "draft") && currentDocumentId == id) {
+                    docContentTypeCombo->blockSignals(true);
+                    int cIdx = docContentTypeCombo->findData(newType);
+                    if (cIdx >= 0) docContentTypeCombo->setCurrentIndex(cIdx);
+                    docContentTypeCombo->blockSignals(false);
+                    if (newType == "markdown") {
+                        documentPreviewView->setMarkdown(documentEditorView->toPlainText());
+                        documentStack->setCurrentWidget(documentPreviewView);
+                    } else {
+                        documentStack->setCurrentWidget(documentEditorView);
+                    }
+                } else if (type == "note" && currentNoteId == id) {
+                    noteContentTypeCombo->blockSignals(true);
+                    int cIdx = noteContentTypeCombo->findData(newType);
+                    if (cIdx >= 0) noteContentTypeCombo->setCurrentIndex(cIdx);
+                    noteContentTypeCombo->blockSignals(false);
+                }
+            }
+        } else if (loadTemplateAction && selectedAction == loadTemplateAction) {
             int docId = item->data(Qt::UserRole).toInt();
             if (currentDb) {
                 QList<DocumentNode> templates = currentDb->getTemplates();
@@ -2078,6 +2140,13 @@ int MainWindow::getEndOfLinearPath(int startId, const QList<MessageNode>& allMes
 /** * @brief Executes logic for getChatNodeTitle. This function manages component initialization and handles state
  * transitions for the UI. *  * This function is an integral component of the MainWindow class structure. * It ensures
  * that side effects map accurately to internal application models. */
+QString MainWindow::getDefaultContentType() const {
+    QSettings settings;
+    QString dbDefaultType = currentDb ? currentDb->getSetting("book", 0, "defaultContentType", "") : "";
+    if (dbDefaultType.isEmpty()) dbDefaultType = settings.value("defaultContentType", "markdown").toString();
+    return dbDefaultType;
+}
+
 QString MainWindow::getChatNodeTitle(int nodeId, const QList<MessageNode>& allMessages) {
     if (!currentDb || !currentDb->isOpen()) return "New Chat";
 
@@ -2598,7 +2667,7 @@ void MainWindow::onSendMessage() {
 
         QAbstractButton* clicked = msgBox.clickedButton();
         if (clicked == draftsBtn) {
-            currentDb->addDraft(0, text.left(30) + "...", text);
+            currentDb->addDraft(0, text.left(30) + "...", text, getDefaultContentType());
             if (!toggleInputModeBtn->isChecked())
                 inputField->clear();
             else
@@ -3049,13 +3118,13 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
                         }
 
                         if (targetType == "notes_folder") {
-                            currentDb->addNote(targetFolderId, fileInfo.fileName(), content);
+                            currentDb->addNote(targetFolderId, fileInfo.fileName(), content, getDefaultContentType());
                         } else if (targetType == "templates_folder") {
-                            currentDb->addTemplate(targetFolderId, fileInfo.fileName(), content);
+                            currentDb->addTemplate(targetFolderId, fileInfo.fileName(), content, getDefaultContentType());
                         } else if (targetType == "drafts_folder") {
-                            currentDb->addDraft(targetFolderId, fileInfo.fileName(), content);
+                            currentDb->addDraft(targetFolderId, fileInfo.fileName(), content, getDefaultContentType());
                         } else {
-                            currentDb->addDocument(targetFolderId, fileInfo.fileName(), content);
+                            currentDb->addDocument(targetFolderId, fileInfo.fileName(), content, getDefaultContentType());
                         }
 
                         loadDocumentsAndNotes();
@@ -3339,6 +3408,14 @@ void MainWindow::onOpenBooksSelectionChanged(const QItemSelection& selected, con
                     for (const auto& note : notes) {
                         if (note.id == currentNoteId) {
                             noteEditorView->setPlainText(note.content);
+                            noteContentTypeCombo->blockSignals(true);
+                            int typeIdx = noteContentTypeCombo->findData(note.contentType);
+                            if (typeIdx >= 0) {
+                                noteContentTypeCombo->setCurrentIndex(typeIdx);
+                            } else {
+                                noteContentTypeCombo->setCurrentIndex(noteContentTypeCombo->findData("markdown"));
+                            }
+                            noteContentTypeCombo->blockSignals(false);
                             mainContentStack->setCurrentWidget(noteContainer);
                             break;
                         }
@@ -4108,25 +4185,25 @@ bool MainWindow::moveItemToFolder(QStandardItem* draggedItem, QStandardItem* tar
         if (itemType == "document" && targetType == "docs_folder") {
             for (const auto& d : db->getDocuments(-1))
                 if (d.id == itemId) {
-                    db->addDocument(targetFolderId, "Copy of " + d.title, d.content);
+                    db->addDocument(targetFolderId, "Copy of " + d.title, d.content, d.contentType);
                     copied = true;
                 }
         } else if (itemType == "template" && targetType == "templates_folder") {
             for (const auto& d : db->getTemplates(-1))
                 if (d.id == itemId) {
-                    db->addTemplate(targetFolderId, "Copy of " + d.title, d.content);
+                    db->addTemplate(targetFolderId, "Copy of " + d.title, d.content, d.contentType);
                     copied = true;
                 }
         } else if (itemType == "draft" && targetType == "drafts_folder") {
             for (const auto& d : db->getDrafts(-1))
                 if (d.id == itemId) {
-                    db->addDraft(targetFolderId, "Copy of " + d.title, d.content);
+                    db->addDraft(targetFolderId, "Copy of " + d.title, d.content, d.contentType);
                     copied = true;
                 }
         } else if (itemType == "note" && targetType == "notes_folder") {
             for (const auto& d : db->getNotes(-1))
                 if (d.id == itemId) {
-                    db->addNote(targetFolderId, "Copy of " + d.title, d.content);
+                    db->addNote(targetFolderId, "Copy of " + d.title, d.content, d.contentType);
                     copied = true;
                 }
         } else if ((itemType == "chat_session" || itemType == "chat_node") && targetType == "chats_folder") {
@@ -4267,6 +4344,22 @@ void MainWindow::onOpenBooksTreeDoubleClicked(const QModelIndex& index) {
             if (doc.id == docId) {
                 currentDocumentId = docId;
                 documentEditorView->setPlainText(doc.content);
+                docContentTypeCombo->blockSignals(true);
+                int typeIdx = docContentTypeCombo->findData(doc.contentType);
+                if (typeIdx >= 0) {
+                    docContentTypeCombo->setCurrentIndex(typeIdx);
+                } else {
+                    docContentTypeCombo->setCurrentIndex(docContentTypeCombo->findData("markdown"));
+                }
+                docContentTypeCombo->blockSignals(false);
+
+                if (doc.contentType == "markdown") {
+                    documentPreviewView->setMarkdown(documentEditorView->toPlainText());
+                    documentStack->setCurrentWidget(documentPreviewView);
+                } else {
+                    documentStack->setCurrentWidget(documentEditorView);
+                }
+
                 mainContentStack->setCurrentWidget(docContainer);
                 break;
             }
@@ -4383,7 +4476,7 @@ void MainWindow::onSaveNoteBtnClicked() {
         if (item->parent()) {
             folderId = item->parent()->data(Qt::UserRole).toInt();
         }
-        int newId = currentDb->addNote(folderId, currentTitle, noteEditorView->toPlainText());
+        int newId = currentDb->addNote(folderId, currentTitle, noteEditorView->toPlainText(), getDefaultContentType());
         statusBar->showMessage(tr("Note saved."), 3000);
         if (currentAutoDraftId != 0) {
             currentDb->deleteDraft(currentAutoDraftId);
@@ -4464,7 +4557,7 @@ void MainWindow::onChatTextAreaContextMenu(const QPoint& pos) {
         bool ok;
         QString name = QInputDialog::getText(this, "Save as Draft", "Draft Name:", QLineEdit::Normal, "New Draft", &ok);
         if (ok && !name.isEmpty() && currentDb) {
-            currentDb->addDraft(0, name, chatTextArea->toPlainText());
+            currentDb->addDraft(0, name, chatTextArea->toPlainText(), getDefaultContentType());
             loadDocumentsAndNotes();
         }
     } else if (selectedAction == saveTemplateAction) {
@@ -4472,7 +4565,7 @@ void MainWindow::onChatTextAreaContextMenu(const QPoint& pos) {
         QString name =
             QInputDialog::getText(this, "Save as Template", "Template Name:", QLineEdit::Normal, "New Template", &ok);
         if (ok && !name.isEmpty() && currentDb) {
-            currentDb->addTemplate(0, name, chatTextArea->toPlainText());
+            currentDb->addTemplate(0, name, chatTextArea->toPlainText(), getDefaultContentType());
             loadDocumentsAndNotes();
         }
     } else if (selectedAction == forkAction && forkAction) {

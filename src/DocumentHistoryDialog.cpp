@@ -123,9 +123,11 @@ void DocumentHistoryDialog::onRestore() {
         // Actually, the simplest approach for "open version" is to create a new draft/fork with it.
         // Let's just fork it immediately and open that.
         int folderId = 0;
+        QString contentType = "markdown";
         for (const auto& d : docs) {
             if (d.id == m_documentId) {
                 folderId = d.folderId;
+                contentType = d.contentType;
                 break;
             }
         }
@@ -133,7 +135,7 @@ void DocumentHistoryDialog::onRestore() {
         QDateTime dt = QDateTime::fromString(m_entries[idx].timestamp, Qt::ISODate);
         QString displayTime = dt.isValid() ? dt.toString("yyyy-MM-dd_HH-mm") : m_entries[idx].timestamp;
 
-        int newId = m_db->addDocument(folderId, title + " (" + displayTime + ")", m_entries[idx].content, m_documentId);
+        int newId = m_db->addDocument(folderId, title + " (" + displayTime + ")", m_entries[idx].content, contentType, m_documentId);
         if (newId > 0) {
             DocumentEditWindow* editWin = new DocumentEditWindow(m_db, newId, title + " (" + displayTime + ")");
 
