@@ -2,6 +2,8 @@
 
 #include <QCoreApplication>
 #include <QDebug>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QRegularExpression>
 #include <QTimer>
 
@@ -254,9 +256,57 @@ void QueueManager::processNext() {
     }
     m_client->setSystemPrompt(sysPrompt);
 
-    m_client->generate(
-        m_currentItem.model, m_currentItem.prompt, [this](const QString& chunk) { onChunk(chunk); },
-        [this](const QString& response) { onComplete(response); }, [this](const QString& error) { onError(error); });
+    if (m_currentItem.targetType == "message") {
+        QJsonArray messagesArray;
+        QList<MessageNode> allMessages = m_currentDb->getMessages();
+
+        // Tracing back from the target ai message's parent (which is the user message) to the root
+        QList<MessageNode> path;
+        int currentId = 0;
+
+        // Find the AI message first to get its parent
+        for (const auto& msg : allMessages) {
+            if (msg.id == m_currentItem.messageId) {
+                currentId = msg.parentId;
+                break;
+            }
+        }
+
+        while (currentId != 0) {
+            bool found = false;
+            for (const auto& msg : allMessages) {
+                if (msg.id == currentId) {
+                    path.prepend(msg);
+                    currentId = msg.parentId;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) break;  // Break if tree is broken
+        }
+
+        for (int i = 0; i < path.size(); ++i) {
+            QJsonObject msgObj;
+            msgObj["role"] = path[i].role;
+            // For the last user message, we use the potentially updated prompt from the queue
+            if (i == path.size() - 1 && path[i].role == "user") {
+                msgObj["content"] = m_currentItem.prompt;
+            } else {
+                msgObj["content"] = path[i].content;
+            }
+            messagesArray.append(msgObj);
+        }
+
+        m_client->generateChat(
+            m_currentItem.model, messagesArray, [this](const QString& chunk) { onChunk(chunk); },
+            [this](const QString& response) { onComplete(response); },
+            [this](const QString& error) { onError(error); });
+    } else {
+        m_client->generate(
+            m_currentItem.model, m_currentItem.prompt, [this](const QString& chunk) { onChunk(chunk); },
+            [this](const QString& response) { onComplete(response); },
+            [this](const QString& error) { onError(error); });
+    }
 }
 
 /**
