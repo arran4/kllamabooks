@@ -26,6 +26,9 @@ class OllamaClient : public QObject {
     void generate(const QString& model, const QString& prompt, std::function<void(const QString&)> onChunk,
                   std::function<void(const QString&)> onComplete, std::function<void(const QString&)> onError);
 
+    void generateChat(const QString& model, const QJsonArray& messages, std::function<void(const QString&)> onChunk,
+                      std::function<void(const QString&)> onComplete, std::function<void(const QString&)> onError);
+
    signals:
     void connectionStatusChanged(bool isOk);
     void modelListUpdated(const QStringList& models);

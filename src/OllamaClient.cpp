@@ -204,3 +204,107 @@ void OllamaClient::generate(const QString& model, const QString& prompt, std::fu
         reply->deleteLater();
     });
 }
+
+/**
+ * @brief Opens a POST stream sequence to the Ollama chat endpoint.
+ *
+ * @param model The target model hash or tag.
+ * @param messages The complete chat history in the format required by Ollama API.
+ * @param onChunk Fired per JSON line received.
+ * @param onComplete Fired when the JSON EOF boolean is detected.
+ * @param onError Fired on socket or HTTP error conditions.
+ */
+void OllamaClient::generateChat(const QString& model, const QJsonArray& messages,
+                                std::function<void(const QString&)> onChunk,
+                                std::function<void(const QString&)> onComplete,
+                                std::function<void(const QString&)> onError) {
+    QUrl url(m_baseUrl + "/api/chat");
+    QNetworkRequest request(url);
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    if (!m_authKey.isEmpty()) {
+        request.setRawHeader("Authorization", ("Bearer " + m_authKey).toUtf8());
+    }
+
+    QJsonObject json;
+    json["model"] = model;
+    json["messages"] = messages;
+    json["stream"] = true;
+
+    if (!m_systemPrompt.isEmpty()) {
+        // According to Ollama API documentation, system prompt can be passed either
+        // as a top level parameter in chat or injected as a system role message.
+        // We will stick to top-level `system` property if they support it, but
+        // it is safer to inject it as the first message with role="system".
+        QJsonObject sysMsg;
+        sysMsg["role"] = "system";
+        sysMsg["content"] = m_systemPrompt;
+
+        QJsonArray newMessages;
+        newMessages.append(sysMsg);
+        for (const auto& msg : messages) {
+            newMessages.append(msg);
+        }
+        json["messages"] = newMessages;
+    }
+
+    QJsonDocument doc(json);
+    QByteArray data = doc.toJson();
+
+    // Re-use requestSent with stringified prompt to maintain compatibility with GlobalSpy
+    QJsonDocument debugDoc(json["messages"].toArray());
+    emit requestSent(model, m_systemPrompt, QString(debugDoc.toJson(QJsonDocument::Compact)));
+
+    QNetworkReply* reply = m_networkManager->post(request, data);
+
+    auto fullResponse = std::make_shared<QString>();
+    auto buffer = std::make_shared<QByteArray>();
+
+    connect(reply, &QNetworkReply::readyRead, this, [this, reply, onChunk, fullResponse, buffer]() {
+        buffer->append(reply->readAll());
+
+        while (true) {
+            int newlineIndex = buffer->indexOf('\n');
+            if (newlineIndex == -1) break;
+
+            QByteArray line = buffer->left(newlineIndex);
+            buffer->remove(0, newlineIndex + 1);
+
+            if (line.trimmed().isEmpty()) continue;
+
+            QJsonParseError error;
+            QJsonDocument doc = QJsonDocument::fromJson(line, &error);
+            if (error.error == QJsonParseError::NoError && doc.isObject()) {
+                QJsonObject obj = doc.object();
+
+                // For /api/chat, the actual response string is nested inside "message" object
+                QString responsePart;
+                if (obj.contains("message") && obj.value("message").isObject()) {
+                    responsePart = obj.value("message").toObject().value("content").toString();
+                }
+
+                if (!responsePart.isEmpty()) {
+                    fullResponse->append(responsePart);
+                    onChunk(responsePart);
+                }
+
+                if (obj.value("done").toBool()) {
+                    double evalCount = obj.value("eval_count").toDouble();
+                    double evalDuration = obj.value("eval_duration").toDouble();
+                    if (evalDuration > 0 && evalCount > 0) {
+                        double tokensPerSecond = (evalCount / evalDuration) * 1e9;
+                        emit generationMetrics(tokensPerSecond);
+                    }
+                }
+            }
+        }
+    });
+
+    connect(reply, &QNetworkReply::finished, this, [reply, onComplete, onError, fullResponse]() {
+        if (reply->error() != QNetworkReply::NoError) {
+            onError(reply->errorString());
+        } else {
+            onComplete(*fullResponse);
+        }
+        reply->deleteLater();
+    });
+}
