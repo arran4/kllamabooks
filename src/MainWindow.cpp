@@ -530,10 +530,6 @@ void MainWindow::setupUi() {
     splitter->setStretchFactor(1, 1);
 
     QAction* newBookAction = new QAction(QIcon::fromTheme("document-new"), tr("New Book"), this);
-    QAction* exportChatAction = new QAction(QIcon::fromTheme("document-export"), tr("Export Chat Session"), this);
-    actionCollection()->addAction(QStringLiteral("export_chat_session"), exportChatAction);
-    connect(exportChatAction, &QAction::triggered, this, &MainWindow::exportChatSession);
-
     actionCollection()->addAction(QStringLiteral("new_book"), newBookAction);
 
     QAction* openBookAction = new QAction(QIcon::fromTheme("document-open"), tr("Open Book"), this);
@@ -654,11 +650,17 @@ void MainWindow::setupUi() {
     connect(draftDebounceTimer, &QTimer::timeout, this, saveDraftFunc);
     connect(inputField, &ChatInputWidget::textChanged, this, [this, draftDebounceTimer]() {
         draftDebounceTimer->start();
-        if (inputField->toPlainText().isEmpty()) dismissDraftBtn->hide(); else dismissDraftBtn->show();
+        if (inputField->toPlainText().isEmpty())
+            dismissDraftBtn->hide();
+        else
+            dismissDraftBtn->show();
     });
     connect(multiLineInput, &QTextEdit::textChanged, this, [this, draftDebounceTimer]() {
         draftDebounceTimer->start();
-        if (multiLineInput->toPlainText().isEmpty()) dismissDraftBtn->hide(); else dismissDraftBtn->show();
+        if (multiLineInput->toPlainText().isEmpty())
+            dismissDraftBtn->hide();
+        else
+            dismissDraftBtn->show();
     });
 
     connect(chatModel, &QStandardItemModel::itemChanged, this, &MainWindow::onItemChanged);
@@ -1675,10 +1677,9 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
         QAction* forkAction = menu.addAction(QIcon::fromTheme("call-start"), "Fork from Here");
         menu.addSeparator();
 
-        if (type == "chat_session") {
-            exportAction = menu.addAction("Export Chat Session");
-            menu.addSeparator();
-        }
+        exportAction = menu.addAction(QIcon::fromTheme("document-export"), "Export Chat Session");
+        connect(exportAction, &QAction::triggered, this, &MainWindow::exportChatSession);
+        menu.addSeparator();
 
         QAction* settingsAction = menu.addAction(QIcon::fromTheme("configure"), "Chat Settings...");
 
@@ -1701,8 +1702,6 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
                 mainContentStack->setCurrentWidget(chatWindowView);
                 chatTextArea->setFocus();
             }
-        } else if (exportAction && selectedAction == exportAction) {
-            exportChatSession();
         } else if (selectedAction == settingsAction) {
             showChatSettingsDialog(item->data(Qt::UserRole).toInt());
         }
@@ -2505,7 +2504,7 @@ void MainWindow::onDismissDraft() {
         if (cnDraft.version == m_activeDraftVersion) {
             cnDraft.draftPrompt = "";
             if (currentDb->updateChat(cnDraft)) {
-                m_activeDraftVersion++; // Sync with optimistic lock
+                m_activeDraftVersion++;  // Sync with optimistic lock
             }
         }
     }
@@ -2575,7 +2574,7 @@ void MainWindow::onSendMessage() {
             if (isInCurrentPath) {
                 hasActiveGeneration = true;
                 item = qItem;
-                break; // Found conflicting generation
+                break;  // Found conflicting generation
             }
         }
     }
@@ -2583,13 +2582,12 @@ void MainWindow::onSendMessage() {
     if (hasActiveGeneration) {
         QMessageBox msgBox(this);
         msgBox.setWindowTitle(tr("Active Generation Conflict"));
-        msgBox.setText(tr(
-            "This chat is currently generating a response.\nWhat would you like to do with your new message?"));
+        msgBox.setText(
+            tr("This chat is currently generating a response.\nWhat would you like to do with your new message?"));
 
         QPushButton* queueBtn = msgBox.addButton(tr("Queue to send later"), QMessageBox::AcceptRole);
         QPushButton* forkBtn = msgBox.addButton(tr("Fork and send"), QMessageBox::AcceptRole);
-        QPushButton* cancelReplaceBtn =
-            msgBox.addButton(tr("Cancel previous and replace"), QMessageBox::AcceptRole);
+        QPushButton* cancelReplaceBtn = msgBox.addButton(tr("Cancel previous and replace"), QMessageBox::AcceptRole);
         QPushButton* draftsBtn = msgBox.addButton(tr("Save to drafts"), QMessageBox::ActionRole);
         QPushButton* ignoreBtn = msgBox.addButton(tr("Ignore text and clear"), QMessageBox::DestructiveRole);
         QPushButton* cancelBtn = msgBox.addButton(tr("Cancel"), QMessageBox::RejectRole);
@@ -3875,18 +3873,21 @@ class GlobalSpyWindow : public QWidget {
 
         m_spyTextEdit = new QTextEdit(this);
         m_spyTextEdit->setReadOnly(true);
-        m_spyTextEdit->document()->setMaximumBlockCount(1000); // Act as a circular buffer
+        m_spyTextEdit->document()->setMaximumBlockCount(1000);  // Act as a circular buffer
         baseLayout->addWidget(m_spyTextEdit);
 
         if (OllamaClient* client = QueueManager::instance().client()) {
             connect(client, &OllamaClient::requestSent, this,
                     [this](const QString& model, const QString& systemPrompt, const QString& prompt) {
                         m_spyTextEdit->moveCursor(QTextCursor::End);
-                        m_spyTextEdit->insertHtml(QString("<hr><b>[Request Sent]</b> Model: %1<br>").arg(model.toHtmlEscaped()));
+                        m_spyTextEdit->insertHtml(
+                            QString("<hr><b>[Request Sent]</b> Model: %1<br>").arg(model.toHtmlEscaped()));
                         if (!systemPrompt.isEmpty()) {
-                            m_spyTextEdit->insertHtml(QString("<b>System:</b><br>%1<br>").arg(systemPrompt.toHtmlEscaped().replace("\n", "<br>")));
+                            m_spyTextEdit->insertHtml(QString("<b>System:</b><br>%1<br>")
+                                                          .arg(systemPrompt.toHtmlEscaped().replace("\n", "<br>")));
                         }
-                        m_spyTextEdit->insertHtml(QString("<b>User:</b><br>%1<br><br><b>Response:</b><br>").arg(prompt.toHtmlEscaped().replace("\n", "<br>")));
+                        m_spyTextEdit->insertHtml(QString("<b>User:</b><br>%1<br><br><b>Response:</b><br>")
+                                                      .arg(prompt.toHtmlEscaped().replace("\n", "<br>")));
                         m_spyTextEdit->moveCursor(QTextCursor::End);
                     });
         }
@@ -3901,7 +3902,8 @@ class GlobalSpyWindow : public QWidget {
         connect(&QueueManager::instance(), &QueueManager::processingFinished, this,
                 [this](std::shared_ptr<BookDatabase> db, int messageId, bool success, const QString& type) {
                     m_spyTextEdit->moveCursor(QTextCursor::End);
-                    m_spyTextEdit->insertHtml(success ? "<br><br><b>[Finished]</b><br>" : "<br><br><b><font color='red'>[Error]</font></b><br>");
+                    m_spyTextEdit->insertHtml(success ? "<br><br><b>[Finished]</b><br>"
+                                                      : "<br><br><b><font color='red'>[Error]</font></b><br>");
                     m_spyTextEdit->moveCursor(QTextCursor::End);
                 });
     }
