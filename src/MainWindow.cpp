@@ -1721,6 +1721,12 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
             menu.addSeparator();
         }
 
+        QAction* discardAction = nullptr;
+        if (type == "draft") {
+            discardAction = menu.addAction(QIcon::fromTheme("edit-delete"), "Discard Draft");
+            menu.addSeparator();
+        }
+
         if (type == "document" || type == "note") {
             exportAction = menu.addAction(QIcon::fromTheme("document-export"), "Export Markdown...");
             replaceAction = menu.addAction(QIcon::fromTheme("document-import"), "Replace with Import...");
@@ -1748,6 +1754,13 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
                         break;
                     }
                 }
+            }
+        } else if (discardAction && selectedAction == discardAction) {
+            int docId = item->data(Qt::UserRole).toInt();
+            if (currentDb) {
+                currentDb->deleteDraft(docId);
+                loadDocumentsAndNotes();
+                statusBar->showMessage(tr("Draft discarded."), 3000);
             }
         } else if (exportAction && selectedAction == exportAction) {
             exportDocument(item->data(Qt::UserRole).toInt(), type);
