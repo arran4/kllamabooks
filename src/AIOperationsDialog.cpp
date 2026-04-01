@@ -1,15 +1,20 @@
 #include "AIOperationsDialog.h"
-#include "AIOperationsManager.h"
 
 #include <QComboBox>
+#include <QDialogButtonBox>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QLineEdit>
 #include <QPushButton>
+#include <QRegularExpression>
 #include <QSettings>
 #include <QTextEdit>
 #include <QVBoxLayout>
 
-AIOperationsDialog::AIOperationsDialog(BookDatabase* db, const QString& defaultPrompt, QWidget* parent) : QDialog(parent) {
+#include "AIOperationsManager.h"
+
+AIOperationsDialog::AIOperationsDialog(BookDatabase* db, const QString& defaultPrompt, QWidget* parent)
+    : QDialog(parent) {
     setWindowTitle(tr("AI Document Operations"));
     resize(500, 400);
 
@@ -72,5 +77,67 @@ void AIOperationsDialog::setForkOnlyMode(bool enabled) {
         m_operationCombo->setEnabled(false);
     } else {
         m_operationCombo->setEnabled(true);
+    }
+}
+
+void AIOperationsDialog::accept() {
+    QString prompt = m_promptEdit->toPlainText();
+
+    QRegularExpression inputRegex("\\{input\\s+\"([^\"]+)\"\\}");
+    QRegularExpression textareaRegex("\\{textarea\\s+\"([^\"]+)\"\\}");
+
+    bool hasInput = inputRegex.globalMatch(prompt).hasNext();
+    bool hasTextarea = textareaRegex.globalMatch(prompt).hasNext();
+
+    if (hasInput || hasTextarea) {
+        QDialog formDialog(this);
+        formDialog.setWindowTitle(tr("Provide Prompt Details"));
+        QVBoxLayout* formLayout = new QVBoxLayout(&formDialog);
+
+        QList<QPair<QString, QWidget*>> fields;
+
+        QRegularExpressionMatchIterator i = inputRegex.globalMatch(prompt);
+        while (i.hasNext()) {
+            QRegularExpressionMatch match = i.next();
+            QString labelText = match.captured(1);
+            QLabel* label = new QLabel(labelText, &formDialog);
+            QLineEdit* edit = new QLineEdit(&formDialog);
+            formLayout->addWidget(label);
+            formLayout->addWidget(edit);
+            fields.append({match.captured(0), edit});
+        }
+
+        i = textareaRegex.globalMatch(prompt);
+        while (i.hasNext()) {
+            QRegularExpressionMatch match = i.next();
+            QString labelText = match.captured(1);
+            QLabel* label = new QLabel(labelText, &formDialog);
+            QTextEdit* edit = new QTextEdit(&formDialog);
+            formLayout->addWidget(label);
+            formLayout->addWidget(edit);
+            fields.append({match.captured(0), edit});
+        }
+
+        QDialogButtonBox* buttonBox =
+            new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &formDialog);
+        formLayout->addWidget(buttonBox);
+        connect(buttonBox, &QDialogButtonBox::accepted, &formDialog, &QDialog::accept);
+        connect(buttonBox, &QDialogButtonBox::rejected, &formDialog, &QDialog::reject);
+
+        if (formDialog.exec() == QDialog::Accepted) {
+            for (const auto& pair : fields) {
+                QString val;
+                if (QLineEdit* le = qobject_cast<QLineEdit*>(pair.second)) {
+                    val = le->text();
+                } else if (QTextEdit* te = qobject_cast<QTextEdit*>(pair.second)) {
+                    val = te->toPlainText();
+                }
+                prompt.replace(pair.first, val);
+            }
+            m_promptEdit->setPlainText(prompt);
+            QDialog::accept();
+        }
+    } else {
+        QDialog::accept();
     }
 }

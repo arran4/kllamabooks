@@ -176,6 +176,7 @@ void MainWindow::setupUi() {
     openBooksTree->setDragDropMode(QAbstractItemView::DragDrop);
     openBooksTree->setDefaultDropAction(Qt::MoveAction);
     openBooksTree->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    openBooksTree->setSelectionMode(QAbstractItemView::ExtendedSelection);
     openBooksTree->setDropIndicatorShown(true);
     openBooksTree->installEventFilter(this);
     openBooksTree->viewport()->installEventFilter(this);
@@ -220,6 +221,7 @@ void MainWindow::setupUi() {
     vfsExplorer->setDragDropMode(QAbstractItemView::DragDrop);
     vfsExplorer->setDefaultDropAction(Qt::MoveAction);
     vfsExplorer->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    vfsExplorer->setSelectionMode(QAbstractItemView::ExtendedSelection);
     vfsExplorer->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(vfsExplorer, &QWidget::customContextMenuRequested, this, &MainWindow::showVfsContextMenu);
     vfsExplorer->installEventFilter(this);
@@ -654,11 +656,17 @@ void MainWindow::setupUi() {
     connect(draftDebounceTimer, &QTimer::timeout, this, saveDraftFunc);
     connect(inputField, &ChatInputWidget::textChanged, this, [this, draftDebounceTimer]() {
         draftDebounceTimer->start();
-        if (inputField->toPlainText().isEmpty()) dismissDraftBtn->hide(); else dismissDraftBtn->show();
+        if (inputField->toPlainText().isEmpty())
+            dismissDraftBtn->hide();
+        else
+            dismissDraftBtn->show();
     });
     connect(multiLineInput, &QTextEdit::textChanged, this, [this, draftDebounceTimer]() {
         draftDebounceTimer->start();
-        if (multiLineInput->toPlainText().isEmpty()) dismissDraftBtn->hide(); else dismissDraftBtn->show();
+        if (multiLineInput->toPlainText().isEmpty())
+            dismissDraftBtn->hide();
+        else
+            dismissDraftBtn->show();
     });
 
     connect(chatModel, &QStandardItemModel::itemChanged, this, &MainWindow::onItemChanged);
@@ -1791,6 +1799,38 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
  * application models. */
 void MainWindow::showVfsContextMenu(const QPoint& pos) {
     QModelIndex index = vfsExplorer->indexAt(pos);
+
+    QModelIndexList selectedIndexes = vfsExplorer->selectionModel()->selectedIndexes();
+    if (selectedIndexes.size() > 1) {
+        QList<QStandardItem*> items;
+        QModelIndex parentIndex = openBooksTree->currentIndex();
+        if (parentIndex.isValid() && openBooksModel) {
+            QStandardItem* parentItem = openBooksModel->itemFromIndex(parentIndex);
+            if (parentItem) {
+                for (const QModelIndex& idx : selectedIndexes) {
+                    if (idx.isValid()) {
+                        QStandardItem* vfsItem = vfsModel->itemFromIndex(idx);
+                        if (vfsItem && vfsItem->text() != "..") {
+                            for (int i = 0; i < parentItem->rowCount(); ++i) {
+                                QStandardItem* child = parentItem->child(i);
+                                if (child->text() == vfsItem->text() &&
+                                    child->data(Qt::UserRole) == vfsItem->data(Qt::UserRole) &&
+                                    child->data(Qt::UserRole + 1) == vfsItem->data(Qt::UserRole + 1)) {
+                                    items.append(child);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (items.size() > 1) {
+            showMultiItemContextMenu(items, vfsExplorer->viewport()->mapToGlobal(pos));
+            return;
+        }
+    }
+
     QStandardItem* treeItem = nullptr;
 
     if (index.isValid()) {
@@ -2505,7 +2545,7 @@ void MainWindow::onDismissDraft() {
         if (cnDraft.version == m_activeDraftVersion) {
             cnDraft.draftPrompt = "";
             if (currentDb->updateChat(cnDraft)) {
-                m_activeDraftVersion++; // Sync with optimistic lock
+                m_activeDraftVersion++;  // Sync with optimistic lock
             }
         }
     }
@@ -2575,7 +2615,7 @@ void MainWindow::onSendMessage() {
             if (isInCurrentPath) {
                 hasActiveGeneration = true;
                 item = qItem;
-                break; // Found conflicting generation
+                break;  // Found conflicting generation
             }
         }
     }
@@ -2583,13 +2623,12 @@ void MainWindow::onSendMessage() {
     if (hasActiveGeneration) {
         QMessageBox msgBox(this);
         msgBox.setWindowTitle(tr("Active Generation Conflict"));
-        msgBox.setText(tr(
-            "This chat is currently generating a response.\nWhat would you like to do with your new message?"));
+        msgBox.setText(
+            tr("This chat is currently generating a response.\nWhat would you like to do with your new message?"));
 
         QPushButton* queueBtn = msgBox.addButton(tr("Queue to send later"), QMessageBox::AcceptRole);
         QPushButton* forkBtn = msgBox.addButton(tr("Fork and send"), QMessageBox::AcceptRole);
-        QPushButton* cancelReplaceBtn =
-            msgBox.addButton(tr("Cancel previous and replace"), QMessageBox::AcceptRole);
+        QPushButton* cancelReplaceBtn = msgBox.addButton(tr("Cancel previous and replace"), QMessageBox::AcceptRole);
         QPushButton* draftsBtn = msgBox.addButton(tr("Save to drafts"), QMessageBox::ActionRole);
         QPushButton* ignoreBtn = msgBox.addButton(tr("Ignore text and clear"), QMessageBox::DestructiveRole);
         QPushButton* cancelBtn = msgBox.addButton(tr("Cancel"), QMessageBox::RejectRole);
@@ -3510,6 +3549,58 @@ void MainWindow::loadDocumentsAndNotes() {
 
 // Replaced showDocumentsContextMenu and showNotesContextMenu with showVfsContextMenu
 
+void MainWindow::showMultiItemContextMenu(const QList<QStandardItem*>& items, const QPoint& globalPos) {
+    if (items.size() < 2 || !currentDb) return;
+
+    // Check if all items are documents/notes/templates/drafts
+    for (QStandardItem* item : items) {
+        QString type = item->data(Qt::UserRole + 1).toString();
+        if (type != "document" && type != "note" && type != "template" && type != "draft") {
+            return;
+        }
+    }
+
+    QMenu menu(this);
+    QAction* mergeAction = menu.addAction(QIcon::fromTheme("merge"), "Merge Documents with AI...");
+
+    QAction* selectedAction = menu.exec(globalPos);
+    if (selectedAction == mergeAction) {
+        AIOperationsDialog aiDlg(currentDb.get(), "Merge the following documents:\n\n{context}", this);
+        aiDlg.setForkOnlyMode(true);
+        if (aiDlg.exec() == QDialog::Accepted) {
+            QString prompt = aiDlg.getPrompt();
+            if (!prompt.isEmpty() && currentDb) {
+                QString combinedContext;
+                for (QStandardItem* item : items) {
+                    QString type = item->data(Qt::UserRole + 1).toString();
+                    int id = item->data(Qt::UserRole).toInt();
+                    QString title, content;
+                    getDocumentContent(id, type, title, content);
+
+                    combinedContext += "Title: " + title + "\n";
+                    combinedContext += "Content: " + content + "\n\n";
+                }
+
+                prompt.replace("{context}", combinedContext);
+
+                // Add new document
+                QString name = QString("Merged: %1...").arg(items.first()->text().left(20));
+
+                // Try to find the folder of the first item
+                QStandardItem* firstItem = items.first();
+                int folderId = 0;
+                if (firstItem->parent()) {
+                    folderId = firstItem->parent()->data(Qt::UserRole).toInt();
+                }
+
+                int newDocId = currentDb->addDocument(folderId, name, "");
+                currentDb->enqueuePrompt(newDocId, "", prompt, 0, "document", 0, "fork");
+                loadDocumentsAndNotes();
+            }
+        }
+    }
+}
+
 /**
  * @brief Constructs and displays the context menu for managing items inside the main tree view.
  *
@@ -3518,6 +3609,19 @@ void MainWindow::loadDocumentsAndNotes() {
 void MainWindow::showOpenBookContextMenu(const QPoint& pos) {
     QModelIndex index = openBooksTree->indexAt(pos);
     if (!index.isValid()) return;
+
+    QModelIndexList selectedIndexes = openBooksTree->selectionModel()->selectedIndexes();
+    if (selectedIndexes.size() > 1) {
+        QList<QStandardItem*> items;
+        for (const QModelIndex& idx : selectedIndexes) {
+            if (idx.isValid()) {
+                QStandardItem* item = openBooksModel->itemFromIndex(idx);
+                if (item) items.append(item);
+            }
+        }
+        showMultiItemContextMenu(items, openBooksTree->viewport()->mapToGlobal(pos));
+        return;
+    }
 
     QStandardItem* item = openBooksModel->itemFromIndex(index);
     if (!item) return;
@@ -3875,18 +3979,21 @@ class GlobalSpyWindow : public QWidget {
 
         m_spyTextEdit = new QTextEdit(this);
         m_spyTextEdit->setReadOnly(true);
-        m_spyTextEdit->document()->setMaximumBlockCount(1000); // Act as a circular buffer
+        m_spyTextEdit->document()->setMaximumBlockCount(1000);  // Act as a circular buffer
         baseLayout->addWidget(m_spyTextEdit);
 
         if (OllamaClient* client = QueueManager::instance().client()) {
             connect(client, &OllamaClient::requestSent, this,
                     [this](const QString& model, const QString& systemPrompt, const QString& prompt) {
                         m_spyTextEdit->moveCursor(QTextCursor::End);
-                        m_spyTextEdit->insertHtml(QString("<hr><b>[Request Sent]</b> Model: %1<br>").arg(model.toHtmlEscaped()));
+                        m_spyTextEdit->insertHtml(
+                            QString("<hr><b>[Request Sent]</b> Model: %1<br>").arg(model.toHtmlEscaped()));
                         if (!systemPrompt.isEmpty()) {
-                            m_spyTextEdit->insertHtml(QString("<b>System:</b><br>%1<br>").arg(systemPrompt.toHtmlEscaped().replace("\n", "<br>")));
+                            m_spyTextEdit->insertHtml(QString("<b>System:</b><br>%1<br>")
+                                                          .arg(systemPrompt.toHtmlEscaped().replace("\n", "<br>")));
                         }
-                        m_spyTextEdit->insertHtml(QString("<b>User:</b><br>%1<br><br><b>Response:</b><br>").arg(prompt.toHtmlEscaped().replace("\n", "<br>")));
+                        m_spyTextEdit->insertHtml(QString("<b>User:</b><br>%1<br><br><b>Response:</b><br>")
+                                                      .arg(prompt.toHtmlEscaped().replace("\n", "<br>")));
                         m_spyTextEdit->moveCursor(QTextCursor::End);
                     });
         }
@@ -3901,7 +4008,8 @@ class GlobalSpyWindow : public QWidget {
         connect(&QueueManager::instance(), &QueueManager::processingFinished, this,
                 [this](std::shared_ptr<BookDatabase> db, int messageId, bool success, const QString& type) {
                     m_spyTextEdit->moveCursor(QTextCursor::End);
-                    m_spyTextEdit->insertHtml(success ? "<br><br><b>[Finished]</b><br>" : "<br><br><b><font color='red'>[Error]</font></b><br>");
+                    m_spyTextEdit->insertHtml(success ? "<br><br><b>[Finished]</b><br>"
+                                                      : "<br><br><b><font color='red'>[Error]</font></b><br>");
                     m_spyTextEdit->moveCursor(QTextCursor::End);
                 });
     }

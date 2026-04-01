@@ -99,6 +99,7 @@ class MainWindow : public KXmlGuiWindow {
     void onDocumentHistory();
     void onEditDocument();
     void showItemContextMenu(QStandardItem* item, const QPoint& globalPos);
+    void showMultiItemContextMenu(const QList<QStandardItem*>& items, const QPoint& globalPos);
     void showOpenBookContextMenu(const QPoint& pos);
     void showVfsContextMenu(const QPoint& pos);
     void showInputSettingsMenu();
