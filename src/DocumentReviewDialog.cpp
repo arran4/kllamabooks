@@ -137,6 +137,7 @@ void DocumentReviewDialog::onReplace() {
     m_db->addDocumentHistory(m_documentId, "replace_pre", oldContent);
 
     m_db->updateDocument(m_documentId, title, newContent);
+    m_db->addNotification(m_documentId, "updated");
     finalizeAndClose(true);
 }
 
@@ -158,6 +159,7 @@ void DocumentReviewDialog::onAppend() {
     m_db->addDocumentHistory(m_documentId, "append_pre", oldContent);
 
     m_db->updateDocument(m_documentId, title, oldContent + additionalContent);
+    m_db->addNotification(m_documentId, "updated");
     finalizeAndClose(true);
 }
 

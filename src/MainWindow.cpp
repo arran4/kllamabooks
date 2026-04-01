@@ -3246,6 +3246,10 @@ void MainWindow::onOpenBooksSelectionChanged(const QItemSelection& selected, con
                 documentEditorView->clear();
                 mainContentStack->setCurrentWidget(docContainer);
             } else if (currentDb) {
+                // If it was marked as updated via AI notification modifications, dismiss it
+                currentDb->dismissNotificationByMessageIdAndType(currentDocumentId, "updated");
+                updateNotificationStatus();
+
                 QList<DocumentNode> docs =
                     (type == "template") ? currentDb->getTemplates()
                                          : ((type == "draft") ? currentDb->getDrafts() : currentDb->getDocuments());
@@ -3775,6 +3779,8 @@ void MainWindow::updateNotificationStatus() {
                             break;
                         }
                     }
+                } else if (n.type == "updated") {
+                    activeNotifications[{ "document", n.messageId }] = 1;
                 } else {
                     activeNotifications[{ "chat_node", n.messageId }] = (n.type == "error") ? 2 : 1;
                 }
@@ -4263,6 +4269,9 @@ void MainWindow::onOpenBooksTreeDoubleClicked(const QModelIndex& index) {
     QString type = item->data(Qt::UserRole + 1).toString();
     if (type == "document" || type == "template" || type == "draft") {
         int docId = item->data(Qt::UserRole).toInt();
+
+        currentDb->dismissNotificationByMessageIdAndType(docId, "updated");
+        updateNotificationStatus();
 
         QList<DocumentNode> docs;
         if (type == "document")

@@ -1305,6 +1305,18 @@ bool BookDatabase::dismissNotificationByMessageId(int messageId) {
     return rc == SQLITE_DONE;
 }
 
+bool BookDatabase::dismissNotificationByMessageIdAndType(int messageId, const QString& type) {
+    if (!m_isOpen) return false;
+    const char* sql = "UPDATE notifications SET is_dismissed = 1 WHERE message_id = ? AND type = ?;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_int(stmt, 1, messageId);
+    sqlite3_bind_text(stmt, 2, type.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
+}
+
 QString BookDatabase::getDatabaseDebugInfo() const {
     if (!m_isOpen) return "Database not open.";
 
