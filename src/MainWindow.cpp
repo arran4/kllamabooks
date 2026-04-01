@@ -654,11 +654,17 @@ void MainWindow::setupUi() {
     connect(draftDebounceTimer, &QTimer::timeout, this, saveDraftFunc);
     connect(inputField, &ChatInputWidget::textChanged, this, [this, draftDebounceTimer]() {
         draftDebounceTimer->start();
-        if (inputField->toPlainText().isEmpty()) dismissDraftBtn->hide(); else dismissDraftBtn->show();
+        if (inputField->toPlainText().isEmpty())
+            dismissDraftBtn->hide();
+        else
+            dismissDraftBtn->show();
     });
     connect(multiLineInput, &QTextEdit::textChanged, this, [this, draftDebounceTimer]() {
         draftDebounceTimer->start();
-        if (multiLineInput->toPlainText().isEmpty()) dismissDraftBtn->hide(); else dismissDraftBtn->show();
+        if (multiLineInput->toPlainText().isEmpty())
+            dismissDraftBtn->hide();
+        else
+            dismissDraftBtn->show();
     });
 
     connect(chatModel, &QStandardItemModel::itemChanged, this, &MainWindow::onItemChanged);
@@ -686,22 +692,28 @@ void MainWindow::setupUi() {
     });
 
     connect(modelSelectButton, &QPushButton::clicked, this, [this]() {
-        ModelSelectionDialog dlg(m_availableModels, this);
+        ModelSelectionDialog dlg(m_availableModels, m_selectedModels, this);
         if (dlg.exec() == QDialog::Accepted) {
-            QString selected = dlg.selectedModel();
+            QStringList selected = dlg.selectedModels();
             if (!selected.isEmpty()) {
                 if (currentDb && currentDb->isOpen()) {
                     if (currentLastNodeId != 0) {
                         ChatNode cnMod = currentDb->getChat(currentLastNodeId);
-                        cnMod.model = selected;
+                        cnMod.model = selected.first();
                         currentDb->updateChat(cnMod);
                     } else {
-                        m_newChatModel = selected;
+                        m_newChatModel = selected.first();
                     }
                 }
-                m_selectedModel = selected;
-                modelSelectButton->setText(m_selectedModel);
-                modelLabel->setText(tr("Model: %1 (User Switch)").arg(m_selectedModel));
+                m_selectedModels = selected;
+                m_selectedModel = selected.first();
+                if (selected.size() > 1) {
+                    modelSelectButton->setText(tr("%1 Models Selected").arg(selected.size()));
+                    modelLabel->setText(tr("Model: %1 Models (User Switch)").arg(selected.size()));
+                } else {
+                    modelSelectButton->setText(m_selectedModel);
+                    modelLabel->setText(tr("Model: %1 (User Switch)").arg(m_selectedModel));
+                }
                 updateInputBehavior();
             }
         }
@@ -2505,7 +2517,7 @@ void MainWindow::onDismissDraft() {
         if (cnDraft.version == m_activeDraftVersion) {
             cnDraft.draftPrompt = "";
             if (currentDb->updateChat(cnDraft)) {
-                m_activeDraftVersion++; // Sync with optimistic lock
+                m_activeDraftVersion++;  // Sync with optimistic lock
             }
         }
     }
@@ -2575,7 +2587,7 @@ void MainWindow::onSendMessage() {
             if (isInCurrentPath) {
                 hasActiveGeneration = true;
                 item = qItem;
-                break; // Found conflicting generation
+                break;  // Found conflicting generation
             }
         }
     }
@@ -2583,13 +2595,12 @@ void MainWindow::onSendMessage() {
     if (hasActiveGeneration) {
         QMessageBox msgBox(this);
         msgBox.setWindowTitle(tr("Active Generation Conflict"));
-        msgBox.setText(tr(
-            "This chat is currently generating a response.\nWhat would you like to do with your new message?"));
+        msgBox.setText(
+            tr("This chat is currently generating a response.\nWhat would you like to do with your new message?"));
 
         QPushButton* queueBtn = msgBox.addButton(tr("Queue to send later"), QMessageBox::AcceptRole);
         QPushButton* forkBtn = msgBox.addButton(tr("Fork and send"), QMessageBox::AcceptRole);
-        QPushButton* cancelReplaceBtn =
-            msgBox.addButton(tr("Cancel previous and replace"), QMessageBox::AcceptRole);
+        QPushButton* cancelReplaceBtn = msgBox.addButton(tr("Cancel previous and replace"), QMessageBox::AcceptRole);
         QPushButton* draftsBtn = msgBox.addButton(tr("Save to drafts"), QMessageBox::ActionRole);
         QPushButton* ignoreBtn = msgBox.addButton(tr("Ignore text and clear"), QMessageBox::DestructiveRole);
         QPushButton* cancelBtn = msgBox.addButton(tr("Cancel"), QMessageBox::RejectRole);
@@ -2628,15 +2639,30 @@ void MainWindow::onSendMessage() {
                 multiLineInput->clear();
 
             int userMsgId = currentDb->addMessage(forkParentId, text, "user");
-            int aiId = currentDb->addMessage(userMsgId, "", "assistant");
-            currentLastNodeId = aiId;
 
-            QString model = m_selectedModel;
-            if (model.isEmpty() && !m_availableModels.isEmpty()) {
-                model = m_availableModels.first();
+            QStringList modelsToUse = m_selectedModels;
+            if (modelsToUse.isEmpty()) {
+                QString model = m_selectedModel;
+                if (model.isEmpty() && !m_availableModels.isEmpty()) {
+                    model = m_availableModels.first();
+                }
+                if (!model.isEmpty()) modelsToUse << model;
             }
 
-            QueueManager::instance().enqueuePrompt(aiId, model, text);
+            bool first = true;
+            for (const QString& model : modelsToUse) {
+                int aiId = currentDb->addMessage(userMsgId, "", "assistant");
+
+                ChatNode cnMod = currentDb->getChat(aiId);
+                cnMod.model = model;
+                currentDb->updateChat(cnMod);
+
+                if (first) {
+                    currentLastNodeId = aiId;
+                    first = false;
+                }
+                QueueManager::instance().enqueuePrompt(aiId, model, text);
+            }
 
             loadDocumentsAndNotes();  // Refresh tree
             updateLinearChatView(currentLastNodeId, currentDb->getMessages());
@@ -2742,21 +2768,41 @@ void MainWindow::onSendMessage() {
         }
     }
 
-    // 2. Add Assistant placeholder
-    int aiId = currentDb->addMessage(userMsgId, "", "assistant");
-    currentLastNodeId = aiId;
+    QStringList modelsToUse = m_selectedModels;
+    if (modelsToUse.isEmpty()) {
+        QString model = m_selectedModel;
+        if (model.isEmpty() && !m_availableModels.isEmpty()) {
+            model = m_availableModels.first();
+        }
+        if (!model.isEmpty()) modelsToUse << model;
+    }
 
-    // 3. Enqueue
-    QueueManager::instance().enqueuePrompt(aiId, m_selectedModel, text);
+    bool first = true;
+    for (const QString& model : modelsToUse) {
+        // 2. Add Assistant placeholder
+        int aiId = currentDb->addMessage(userMsgId, "", "assistant");
+
+        ChatNode cnMod = currentDb->getChat(aiId);
+        cnMod.model = model;
+        currentDb->updateChat(cnMod);
+
+        if (first) {
+            currentLastNodeId = aiId;
+            first = false;
+        }
+
+        // 3. Enqueue
+        QueueManager::instance().enqueuePrompt(aiId, model, text);
+    }
 
     // 4. Refresh tree if needed (especially for new chats)
-    if (forkCreated) {
+    if (forkCreated || modelsToUse.size() > 1) {
         loadDocumentsAndNotes();  // Ensure tree refreshes correctly to natively reflect any new forks
     } else if (wasCreatingNewChat) {
         QModelIndex idx = openBooksTree->currentIndex();
         QStandardItem* item = openBooksModel->itemFromIndex(idx);
         if (item && item->data(Qt::UserRole + 1).toString() == "chat_session") {
-            item->setData(aiId, Qt::UserRole);
+            item->setData(currentLastNodeId, Qt::UserRole);
             item->setData("chat_node", Qt::UserRole + 1);
             item->setText(text.left(30));
             QFont f = item->font();
@@ -2768,11 +2814,11 @@ void MainWindow::onSendMessage() {
         if (item) {
             if (item->rowCount() > 0) {
                 QStandardItem* branchItem = new QStandardItem(QIcon::fromTheme("text-x-generic"), text.left(30));
-                branchItem->setData(aiId, Qt::UserRole);
+                branchItem->setData(currentLastNodeId, Qt::UserRole);
                 branchItem->setData("chat_node", Qt::UserRole + 1);
                 item->appendRow(branchItem);
             } else {
-                item->setData(aiId, Qt::UserRole);
+                item->setData(currentLastNodeId, Qt::UserRole);
                 item->setText(text.left(30));
             }
         }
@@ -3875,18 +3921,21 @@ class GlobalSpyWindow : public QWidget {
 
         m_spyTextEdit = new QTextEdit(this);
         m_spyTextEdit->setReadOnly(true);
-        m_spyTextEdit->document()->setMaximumBlockCount(1000); // Act as a circular buffer
+        m_spyTextEdit->document()->setMaximumBlockCount(1000);  // Act as a circular buffer
         baseLayout->addWidget(m_spyTextEdit);
 
         if (OllamaClient* client = QueueManager::instance().client()) {
             connect(client, &OllamaClient::requestSent, this,
                     [this](const QString& model, const QString& systemPrompt, const QString& prompt) {
                         m_spyTextEdit->moveCursor(QTextCursor::End);
-                        m_spyTextEdit->insertHtml(QString("<hr><b>[Request Sent]</b> Model: %1<br>").arg(model.toHtmlEscaped()));
+                        m_spyTextEdit->insertHtml(
+                            QString("<hr><b>[Request Sent]</b> Model: %1<br>").arg(model.toHtmlEscaped()));
                         if (!systemPrompt.isEmpty()) {
-                            m_spyTextEdit->insertHtml(QString("<b>System:</b><br>%1<br>").arg(systemPrompt.toHtmlEscaped().replace("\n", "<br>")));
+                            m_spyTextEdit->insertHtml(QString("<b>System:</b><br>%1<br>")
+                                                          .arg(systemPrompt.toHtmlEscaped().replace("\n", "<br>")));
                         }
-                        m_spyTextEdit->insertHtml(QString("<b>User:</b><br>%1<br><br><b>Response:</b><br>").arg(prompt.toHtmlEscaped().replace("\n", "<br>")));
+                        m_spyTextEdit->insertHtml(QString("<b>User:</b><br>%1<br><br><b>Response:</b><br>")
+                                                      .arg(prompt.toHtmlEscaped().replace("\n", "<br>")));
                         m_spyTextEdit->moveCursor(QTextCursor::End);
                     });
         }
@@ -3901,7 +3950,8 @@ class GlobalSpyWindow : public QWidget {
         connect(&QueueManager::instance(), &QueueManager::processingFinished, this,
                 [this](std::shared_ptr<BookDatabase> db, int messageId, bool success, const QString& type) {
                     m_spyTextEdit->moveCursor(QTextCursor::End);
-                    m_spyTextEdit->insertHtml(success ? "<br><br><b>[Finished]</b><br>" : "<br><br><b><font color='red'>[Error]</font></b><br>");
+                    m_spyTextEdit->insertHtml(success ? "<br><br><b>[Finished]</b><br>"
+                                                      : "<br><br><b><font color='red'>[Error]</font></b><br>");
                     m_spyTextEdit->moveCursor(QTextCursor::End);
                 });
     }
@@ -4218,12 +4268,41 @@ void MainWindow::onDocumentAIOperations() {
         QString prompt = promptTpl;
         prompt.replace("{context}", contextText);
 
-        QString model = m_selectedModel;
-        if (model.isEmpty() && !m_availableModels.isEmpty()) {
-            model = m_availableModels.first();
+        QStringList modelsToUse = m_selectedModels;
+        if (modelsToUse.isEmpty()) {
+            QString model = m_selectedModel;
+            if (model.isEmpty() && !m_availableModels.isEmpty()) {
+                model = m_availableModels.first();
+            }
+            if (!model.isEmpty()) modelsToUse << model;
         }
 
-        QueueManager::instance().enqueuePrompt(currentDocumentId, model, prompt, 0, "document", 0, "");
+        if (modelsToUse.size() > 1) {
+            QString origTitle, origContent;
+            getDocumentContent(currentDocumentId, "document", origTitle, origContent);
+
+            int parentFolderId = 0;
+            QList<DocumentNode> docs = currentDb->getDocuments();
+            for (const auto& doc : docs) {
+                if (doc.id == currentDocumentId) {
+                    parentFolderId = doc.folderId;
+                    break;
+                }
+            }
+
+            int newFolderId = currentDb->addFolder(parentFolderId, origTitle + " (AI Forks)", "document");
+
+            for (const QString& model : modelsToUse) {
+                int forkDocId =
+                    currentDb->addDocument(newFolderId, origTitle + " - " + model, origContent, currentDocumentId);
+                QueueManager::instance().enqueuePrompt(forkDocId, model, prompt, 0, "document", 0, "");
+            }
+            loadDocumentsAndNotes();
+        } else {
+            QueueManager::instance().enqueuePrompt(currentDocumentId, modelsToUse.first(), prompt, 0, "document", 0,
+                                                   "");
+        }
+
         statusBar->showMessage(tr("AI document task queued."), 3000);
     }
 }

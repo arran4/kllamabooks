@@ -195,6 +195,7 @@ class MainWindow : public KXmlGuiWindow {
     QPushButton* modelSelectButton;
     QStringList m_availableModels;
     QString m_selectedModel;
+    QStringList m_selectedModels;
     QToolButton* inputSettingsButton;
     QComboBox* modelComboBox;
 
