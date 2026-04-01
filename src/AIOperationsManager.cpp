@@ -2,9 +2,17 @@
 
 QList<AIOperation> AIOperationsManager::getBuiltInOperations() {
     QList<AIOperation> ops;
-    ops.append({"complete", "Complete this text", "Complete the following text naturally. Only output the continuation.\n\nText:\n{context}", "built-in"});
-    ops.append({"replace", "Replace entirely", "Rewrite the following document according to your instructions. Only output the rewritten document, nothing else.\n\nInstructions: <your instructions here>\n\nDocument:\n{context}", "built-in"});
-    ops.append({"replace_in_place", "Replace in place", "Rewrite the following text according to your instructions. Only output the rewritten text, nothing else.\n\nInstructions: <your instructions here>\n\nText:\n{context}", "built-in"});
+    ops.append({"complete", "Complete this text",
+                "Complete the following text naturally. Only output the continuation.\n\nText:\n{context}",
+                "built-in"});
+    ops.append({"replace", "Replace entirely",
+                "Rewrite the following document according to your instructions. Only output the rewritten document, "
+                "nothing else.\n\nInstructions: <your instructions here>\n\nDocument:\n{context}",
+                "built-in"});
+    ops.append({"replace_in_place", "Replace in place",
+                "Rewrite the following text according to your instructions. Only output the rewritten text, nothing "
+                "else.\n\nInstructions: <your instructions here>\n\nText:\n{context}",
+                "built-in"});
     return ops;
 }
 

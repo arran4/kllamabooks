@@ -1,18 +1,18 @@
 #include "AIOperationsEditorWidget.h"
-#include <QVBoxLayout>
-#include <QHBoxLayout>
-#include <QHeaderView>
+
 #include <QDialog>
 #include <QFormLayout>
-#include <QLineEdit>
-#include <QTextEdit>
-#include <QMessageBox>
+#include <QHBoxLayout>
+#include <QHeaderView>
 #include <QLabel>
+#include <QLineEdit>
 #include <QMessageBox>
+#include <QTextEdit>
 #include <QUuid>
+#include <QVBoxLayout>
 
 class EditOperationDialog : public QDialog {
-public:
+   public:
     EditOperationDialog(const AIOperation& op, QWidget* parent = nullptr) : QDialog(parent) {
         setWindowTitle(op.id.isEmpty() ? tr("Add Operation") : tr("Edit Operation"));
         resize(400, 300);
@@ -51,11 +51,9 @@ public:
         connect(saveBtn, &QPushButton::clicked, this, &QDialog::accept);
     }
 
-    AIOperation getOperation() const {
-        return {m_idEdit->text(), m_nameEdit->text(), m_promptEdit->toPlainText(), ""};
-    }
+    AIOperation getOperation() const { return {m_idEdit->text(), m_nameEdit->text(), m_promptEdit->toPlainText(), ""}; }
 
-private:
+   private:
     QLineEdit* m_idEdit;
     QLineEdit* m_nameEdit;
     QTextEdit* m_promptEdit;
@@ -63,7 +61,6 @@ private:
 
 AIOperationsEditorWidget::AIOperationsEditorWidget(const QString& level, QWidget* parent)
     : QWidget(parent), m_level(level) {
-
     QVBoxLayout* layout = new QVBoxLayout(this);
 
     m_table = new QTableWidget(this);
@@ -97,7 +94,8 @@ AIOperationsEditorWidget::AIOperationsEditorWidget(const QString& level, QWidget
     connect(m_table, &QTableWidget::itemSelectionChanged, this, &AIOperationsEditorWidget::onSelectionChanged);
 }
 
-void AIOperationsEditorWidget::setOperations(const QList<AIOperation>& editableOps, const QList<AIOperation>& inheritedOps) {
+void AIOperationsEditorWidget::setOperations(const QList<AIOperation>& editableOps,
+                                             const QList<AIOperation>& inheritedOps) {
     m_table->setRowCount(0);
 
     for (const AIOperation& op : editableOps) {
@@ -137,12 +135,8 @@ QList<AIOperation> AIOperationsEditorWidget::getOperations() const {
     QList<AIOperation> ops;
     for (int i = 0; i < m_table->rowCount(); ++i) {
         if (m_table->item(i, 2)->text() == m_level) {
-            ops.append({
-                m_table->item(i, 0)->data(Qt::UserRole).toString(),
-                m_table->item(i, 0)->text(),
-                m_table->item(i, 0)->data(Qt::UserRole + 1).toString(),
-                m_level
-            });
+            ops.append({m_table->item(i, 0)->data(Qt::UserRole).toString(), m_table->item(i, 0)->text(),
+                        m_table->item(i, 0)->data(Qt::UserRole + 1).toString(), m_level});
         }
     }
     return ops;
@@ -152,7 +146,7 @@ void AIOperationsEditorWidget::onAdd() {
     EditOperationDialog dlg(AIOperation{"", "", "", m_level}, this);
     if (dlg.exec() == QDialog::Accepted) {
         AIOperation op = dlg.getOperation();
-        int row = 0; // Add to top of editable list (before inherited ones)
+        int row = 0;  // Add to top of editable list (before inherited ones)
         m_table->insertRow(row);
         QTableWidgetItem* nameItem = new QTableWidgetItem(op.name);
         nameItem->setData(Qt::UserRole, op.id);
@@ -195,5 +189,3 @@ void AIOperationsEditorWidget::onSelectionChanged() {
     m_editBtn->setEnabled(isEditable);
     m_removeBtn->setEnabled(isEditable);
 }
-
-// To allow AIOperationsEditorWidget to compile its meta object code we include it

@@ -1,23 +1,24 @@
 #ifndef AIOPERATIONSMANAGER_H
 #define AIOPERATIONSMANAGER_H
 
-#include <QString>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QList>
 #include <QSettings>
-#include <QJsonDocument>
-#include <QJsonArray>
-#include <QJsonObject>
+#include <QString>
+
 #include "BookDatabase.h"
 
 struct AIOperation {
     QString id;
     QString name;
     QString prompt;
-    QString source; // "built-in", "global", "database"
+    QString source;  // "built-in", "global", "database"
 };
 
 class AIOperationsManager {
-public:
+   public:
     static QList<AIOperation> getBuiltInOperations();
     static QList<AIOperation> getGlobalOperations();
     static void setGlobalOperations(const QList<AIOperation>& ops);
