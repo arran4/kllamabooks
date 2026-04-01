@@ -7,6 +7,7 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QTabWidget>
 
 ConnectionDialog::ConnectionDialog(QWidget* parent, const QString& name, const QString& backend, const QString& url,
                                    const QString& authKey)
@@ -89,13 +90,18 @@ void ConnectionDialog::onTestConnection() {
 
 SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
     setWindowTitle(tr("Settings"));
-    resize(500, 300);
+    resize(600, 400);
 
     QVBoxLayout* mainLayout = new QVBoxLayout(this);
+    QTabWidget* tabWidget = new QTabWidget(this);
+
+    // General Settings Tab
+    QWidget* generalTab = new QWidget(this);
+    QVBoxLayout* generalLayout = new QVBoxLayout(generalTab);
 
     // Chat Settings Section
     QLabel* chatSettingsLabel = new QLabel(tr("<b>Chat Settings</b>"), this);
-    mainLayout->addWidget(chatSettingsLabel);
+    generalLayout->addWidget(chatSettingsLabel);
 
     QHBoxLayout* sendBehaviorLayout = new QHBoxLayout();
     QLabel* sendBehaviorLabel = new QLabel(tr("Global Send Behavior:"), this);
@@ -105,7 +111,7 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
     sendBehaviorLayout->addWidget(sendBehaviorLabel);
     sendBehaviorLayout->addWidget(m_sendBehaviorCombo);
     sendBehaviorLayout->addStretch();
-    mainLayout->addLayout(sendBehaviorLayout);
+    generalLayout->addLayout(sendBehaviorLayout);
 
     QHBoxLayout* sysPromptLayout = new QHBoxLayout();
     QLabel* sysPromptLabel = new QLabel(tr("Global System Prompt:"), this);
@@ -114,7 +120,7 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
     m_globalSystemPromptEdit->setPlainText(m_settings.value("globalSystemPrompt", "").toString());
     sysPromptLayout->addWidget(sysPromptLabel);
     sysPromptLayout->addWidget(m_globalSystemPromptEdit);
-    mainLayout->addLayout(sysPromptLayout);
+    generalLayout->addLayout(sysPromptLayout);
 
     QHBoxLayout* queueLayout = new QHBoxLayout();
     QLabel* queueLabel = new QLabel(tr("Queue Processing:"), this);
@@ -132,13 +138,13 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
     m_prioritizeSameModelCheck = new QCheckBox(tr("Prioritize jobs with the same model as just ran"), this);
     queueLayout->addWidget(m_prioritizeSameModelCheck);
 
-    mainLayout->addLayout(queueLayout);
+    generalLayout->addLayout(queueLayout);
 
-    mainLayout->addSpacing(10);
+    generalLayout->addSpacing(10);
 
     // LLM Section
     QLabel* llmLabel = new QLabel(tr("<b>LLM Connections</b>"), this);
-    mainLayout->addWidget(llmLabel);
+    generalLayout->addWidget(llmLabel);
 
     m_connectionsTable = new QTableWidget(this);
     m_connectionsTable->setColumnCount(4);
@@ -146,7 +152,7 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
     m_connectionsTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     m_connectionsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_connectionsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    mainLayout->addWidget(m_connectionsTable);
+    generalLayout->addWidget(m_connectionsTable);
 
     QHBoxLayout* btnManageLayout = new QHBoxLayout();
     m_addButton = new QPushButton(tr("Add"), this);
@@ -159,9 +165,21 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
     btnManageLayout->addWidget(m_removeButton);
     btnManageLayout->addStretch();
     btnManageLayout->addWidget(m_testButton);
-    mainLayout->addLayout(btnManageLayout);
+    generalLayout->addLayout(btnManageLayout);
 
-    mainLayout->addStretch();
+    generalLayout->addStretch();
+
+    tabWidget->addTab(generalTab, tr("General Settings"));
+
+    // AI Operations Tab
+    m_aiOperationsEditor = new AIOperationsEditorWidget("global", this);
+    m_aiOperationsEditor->setOperations(
+        AIOperationsManager::getGlobalOperations(),
+        AIOperationsManager::getBuiltInOperations()
+    );
+    tabWidget->addTab(m_aiOperationsEditor, tr("AI Operations"));
+
+    mainLayout->addWidget(tabWidget);
 
     // Dialog buttons
     QHBoxLayout* btnLayout = new QHBoxLayout();
@@ -314,6 +332,8 @@ void SettingsDialog::onApply() {
     m_settings.setValue("globalSystemPrompt", m_globalSystemPromptEdit->toPlainText().trimmed());
     m_settings.setValue("queueProcessing", m_queueProcessingCombo->currentData().toString());
     m_settings.setValue("prioritizeSameModel", m_prioritizeSameModelCheck->isChecked());
+
+    AIOperationsManager::setGlobalOperations(m_aiOperationsEditor->getOperations());
 
     emit settingsApplied();
     accept();

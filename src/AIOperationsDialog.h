@@ -6,11 +6,12 @@
 
 class QComboBox;
 class QTextEdit;
+class BookDatabase;
 
 class AIOperationsDialog : public QDialog {
     Q_OBJECT
    public:
-    explicit AIOperationsDialog(const QString& defaultPrompt = "", QWidget* parent = nullptr);
+    explicit AIOperationsDialog(BookDatabase* db, const QString& defaultPrompt = "", QWidget* parent = nullptr);
     ~AIOperationsDialog() override;
 
     QString getOperation() const;

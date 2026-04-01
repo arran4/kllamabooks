@@ -1614,7 +1614,7 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
             // Placeholder: Not fully implemented yet
         } else if (newFromPromptAction && selectedAction == newFromPromptAction) {
             // Trigger AIOperationsDialog with preselected Fork mode
-            AIOperationsDialog aiDlg("", this);
+            AIOperationsDialog aiDlg(currentDb.get(), "", this);
             aiDlg.setForkOnlyMode(true);
             if (aiDlg.exec() == QDialog::Accepted) {
                 QString prompt = aiDlg.getPrompt();
@@ -4195,14 +4195,7 @@ void MainWindow::showDocumentAIToolsMenu() {}
 void MainWindow::onDocumentAIOperations() {
     if (m_isGenerating || !currentDb) return;
 
-    QSettings settings;
-    QString defaultPrompt =
-        settings
-            .value("prompt_complete_text",
-                   "Complete the following text naturally. Only output the continuation.\n\nText:\n{context}")
-            .toString();
-
-    AIOperationsDialog dialog(defaultPrompt, this);
+    AIOperationsDialog dialog(currentDb.get(), "", this);
     if (dialog.exec() == QDialog::Accepted) {
         QString op = dialog.getOperation();
         QString promptTpl = dialog.getPrompt();
