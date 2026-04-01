@@ -57,8 +57,8 @@ bool BookDatabase::open(const QString& password) {
 
     // Reset processing queue items to pending on reconnect if the processing process is dead
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2((sqlite3*)m_db, "SELECT id, processing_id FROM queue WHERE processing_id > 0;", -1,
-                           &stmt, nullptr) == SQLITE_OK) {
+    if (sqlite3_prepare_v2((sqlite3*)m_db, "SELECT id, processing_id FROM queue WHERE processing_id > 0;", -1, &stmt,
+                           nullptr) == SQLITE_OK) {
         QList<int> idsToReset;
         while (sqlite3_step(stmt) == SQLITE_ROW) {
             int id = sqlite3_column_int(stmt, 0);
@@ -404,6 +404,45 @@ bool BookDatabase::initSchema() {
         userVersion = 12;
     }
 
+    if (userVersion < 13) {
+        const char* sql_history =
+            "CREATE TABLE IF NOT EXISTS document_history ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "document_id INTEGER, "
+            "action_type TEXT, "
+            "content TEXT, "
+            "timestamp DATETIME DEFAULT CURRENT_TIMESTAMP"
+            ");";
+        sqlite3_exec((sqlite3*)m_db, sql_history, nullptr, nullptr, nullptr);
+
+        const char* sql_alter_state = "ALTER TABLE queue ADD COLUMN state TEXT DEFAULT 'pending';";
+        sqlite3_exec((sqlite3*)m_db, sql_alter_state, nullptr, nullptr, nullptr);
+
+        const char* sql_alter_response = "ALTER TABLE queue ADD COLUMN response TEXT DEFAULT '';";
+        sqlite3_exec((sqlite3*)m_db, sql_alter_response, nullptr, nullptr, nullptr);
+
+        const char* sql_alter_parent = "ALTER TABLE queue ADD COLUMN parent_id INTEGER DEFAULT 0;";
+        sqlite3_exec((sqlite3*)m_db, sql_alter_parent, nullptr, nullptr, nullptr);
+
+        sqlite3_exec((sqlite3*)m_db, "UPDATE queue SET state = 'processing' WHERE processing_id > 0;", nullptr, nullptr,
+                     nullptr);
+
+        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (13);", nullptr, nullptr,
+                     nullptr);
+        sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 13;", nullptr, nullptr, nullptr);
+        userVersion = 13;
+    }
+
+    if (userVersion < 14) {
+        const char* sql_alter_target = "ALTER TABLE queue ADD COLUMN target_action TEXT DEFAULT '';";
+        sqlite3_exec((sqlite3*)m_db, sql_alter_target, nullptr, nullptr, nullptr);
+
+        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (14);", nullptr, nullptr,
+                     nullptr);
+        sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 14;", nullptr, nullptr, nullptr);
+        userVersion = 14;
+    }
+
     return true;
 }
 
@@ -502,6 +541,47 @@ int BookDatabase::addMessage(int parentId, const QString& content, const QString
     int id = sqlite3_last_insert_rowid((sqlite3*)m_db);
     sqlite3_finalize(stmt);
     return id;
+}
+
+bool BookDatabase::addDocumentHistory(int documentId, const QString& actionType, const QString& content) {
+    if (!m_isOpen) return false;
+
+    const char* sql = "INSERT INTO document_history (document_id, action_type, content) VALUES (?, ?, ?);";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+
+    sqlite3_bind_int(stmt, 1, documentId);
+    sqlite3_bind_text(stmt, 2, actionType.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 3, content.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
+}
+
+QList<BookDatabase::DocumentHistoryEntry> BookDatabase::getDocumentHistory(int documentId) const {
+    QList<DocumentHistoryEntry> items;
+    if (!m_isOpen) return items;
+
+    const char* sql =
+        "SELECT id, action_type, content, timestamp FROM document_history WHERE document_id = ? ORDER BY timestamp "
+        "DESC;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return items;
+
+    sqlite3_bind_int(stmt, 1, documentId);
+
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        DocumentHistoryEntry item;
+        item.id = sqlite3_column_int(stmt, 0);
+        item.actionType = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 1));
+        item.content = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 2));
+        item.timestamp = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 3));
+        items.append(item);
+    }
+
+    sqlite3_finalize(stmt);
+    return items;
 }
 
 bool BookDatabase::updateMessage(int id, const QString& newContent) {
@@ -1029,11 +1109,12 @@ QList<FolderNode> BookDatabase::getFolders(const QString& type) const {
 }
 
 int BookDatabase::enqueuePrompt(int messageId, const QString& model, const QString& prompt, int priority,
-                                const QString& targetType) {
+                                const QString& targetType, int parentId, const QString& targetAction) {
     if (!m_isOpen) return -1;
 
     const char* sql =
-        "INSERT INTO queue (message_id, model, prompt, priority, target_type) VALUES (?, ?, ?, ?, ?);";
+        "INSERT INTO queue (message_id, model, prompt, priority, target_type, state, parent_id, target_action) VALUES "
+        "(?, ?, ?, ?, ?, 'pending', ?, ?);";
     sqlite3_stmt* stmt;
     int rc = sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return -1;
@@ -1043,6 +1124,8 @@ int BookDatabase::enqueuePrompt(int messageId, const QString& model, const QStri
     sqlite3_bind_text(stmt, 3, prompt.toUtf8().constData(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_int(stmt, 4, priority);
     sqlite3_bind_text(stmt, 5, targetType.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 6, parentId);
+    sqlite3_bind_text(stmt, 7, targetAction.toUtf8().constData(), -1, SQLITE_TRANSIENT);
 
     rc = sqlite3_step(stmt);
     if (rc != SQLITE_DONE) {
@@ -1055,12 +1138,32 @@ int BookDatabase::enqueuePrompt(int messageId, const QString& model, const QStri
     return id;
 }
 
+bool BookDatabase::updateQueueItemState(int id, const QString& state, const QString& response) {
+    if (!m_isOpen) return false;
+
+    // If response is empty, maybe don't overwrite an existing response unless explicitly asked?
+    // Wait, the prompt said response has a default of "". When we just update state to 'processing',
+    // it will overwrite response with "". This is fine because when it starts processing, response is empty anyway.
+    const char* sql = "UPDATE queue SET state = ?, response = ? WHERE id = ?;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+
+    sqlite3_bind_text(stmt, 1, state.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, response.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 3, id);
+
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
+}
+
 QList<QueueItem> BookDatabase::getQueue() const {
     QList<QueueItem> items;
     if (!m_isOpen) return items;
 
     const char* sql =
-        "SELECT id, message_id, model, prompt, processing_id, last_error, priority, created_at, target_type FROM queue ORDER BY priority "
+        "SELECT id, message_id, model, prompt, processing_id, last_error, priority, created_at, target_type, state, "
+        "response, parent_id, target_action FROM queue ORDER BY priority "
         "DESC, "
         "created_at DESC;";
     sqlite3_stmt* stmt;
@@ -1080,6 +1183,14 @@ QList<QueueItem> BookDatabase::getQueue() const {
             QDateTime::fromString(QString::fromUtf8((const char*)sqlite3_column_text(stmt, 7)), Qt::ISODate);
         item.targetType = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 8));
         if (item.targetType.isEmpty()) item.targetType = "message";
+        const unsigned char* stateText = sqlite3_column_text(stmt, 9);
+        if (stateText) item.state = QString::fromUtf8((const char*)stateText);
+        const unsigned char* responseText = sqlite3_column_text(stmt, 10);
+        if (responseText) item.response = QString::fromUtf8((const char*)responseText);
+        item.parentId = sqlite3_column_int(stmt, 11);
+        const unsigned char* actionText = sqlite3_column_text(stmt, 12);
+        if (actionText) item.targetAction = QString::fromUtf8((const char*)actionText);
+
         items.append(item);
     }
     sqlite3_finalize(stmt);

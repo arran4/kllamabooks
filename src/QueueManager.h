@@ -21,7 +21,7 @@ class QueueManager : public QObject {
 
     void setClient(OllamaClient* client);
     void enqueuePrompt(int messageId, const QString& model, const QString& prompt, int priority = 0,
-                       const QString& targetType = "message");
+                       const QString& targetType = "message", int parentId = 0, const QString& targetAction = "");
 
     int totalPendingCount() const;
     int pendingCount(std::shared_ptr<BookDatabase> db) const;
@@ -36,13 +36,17 @@ class QueueManager : public QObject {
     void retryItem(std::shared_ptr<BookDatabase> db, int queueId);
     void modifyItem(std::shared_ptr<BookDatabase> db, int queueId, const QString& newPrompt);
 
-    QList<MergedQueueItem> m_completedItems;
     void clearCompleted();
     void pauseQueue();
     void resumeQueue();
     bool isPaused() const { return m_isPaused; }
 
     bool isProcessing() const { return m_isProcessing; }
+    QueueItem currentProcessingItem() const { return m_currentItem; }
+    std::shared_ptr<BookDatabase> currentProcessingDb() const { return m_currentDb; }
+
+   public slots:
+    void checkQueue();
 
    signals:
     void queueChanged();
@@ -53,7 +57,6 @@ class QueueManager : public QObject {
                             const QString& targetType = "message");
 
    private slots:
-    void checkQueue();
     void onChunk(const QString& chunk);
     void onComplete(const QString& response);
     void onError(const QString& error);

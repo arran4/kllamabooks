@@ -65,6 +65,10 @@ struct QueueItem {
     int priority;
     QDateTime timestamp;
     QString targetType;  // "message" or "document"
+    QString state;       // "pending", "processing", "completed", "error"
+    QString response;
+    int parentId;
+    QString targetAction;
 };
 
 struct CommentNode {
@@ -119,6 +123,15 @@ class BookDatabase {
     bool updateDocument(int id, const QString& newTitle, const QString& newContent);
     QList<DocumentNode> getDocuments(int folderId = -1) const;  // -1 for all, 0 for root
     bool deleteDocument(int id);
+    bool addDocumentHistory(int documentId, const QString& actionType, const QString& content);
+
+    struct DocumentHistoryEntry {
+        int id;
+        QString actionType;
+        QString content;
+        QString timestamp;
+    };
+    QList<DocumentHistoryEntry> getDocumentHistory(int documentId) const;
 
     // Templates
     int addTemplate(int folderId, const QString& title, const QString& content);
@@ -147,11 +160,12 @@ class BookDatabase {
 
     // Queue
     int enqueuePrompt(int messageId, const QString& model, const QString& prompt, int priority = 0,
-                      const QString& targetType = "message");
+                      const QString& targetType = "message", int parentId = 0, const QString& targetAction = "");
     QList<QueueItem> getQueue() const;
     bool updateQueueProcessingId(int id, int processingId);
     bool updateQueueError(int id, const QString& error);
     bool updateQueueItemPrompt(int id, const QString& prompt);
+    bool updateQueueItemState(int id, const QString& state, const QString& response = "");
     bool deleteQueueItem(int id);
 
     // Comments

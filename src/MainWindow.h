@@ -94,9 +94,9 @@ class MainWindow : public KXmlGuiWindow {
     void onDiscardChanges();
     void showBookContextMenu(const QPoint& pos);
     void showDocumentAIToolsMenu();
-    void onDocumentCompleteText();
-    void onDocumentReplaceEntirely();
-    void onDocumentReplaceInPlace();
+    void onDocumentAIOperations();
+    void onDocumentHistory();
+    void onEditDocument();
     void showItemContextMenu(QStandardItem* item, const QPoint& globalPos);
     void showOpenBookContextMenu(const QPoint& pos);
     void showVfsContextMenu(const QPoint& pos);
@@ -138,7 +138,10 @@ class MainWindow : public KXmlGuiWindow {
     void getPathToRoot(int nodeId, const QList<MessageNode>& allMessages, QList<MessageNode>& path);
     int getEndOfLinearPath(int startId, const QList<MessageNode>& allMessages, QList<MessageNode>& outChildren);
     QString getChatNodeTitle(int nodeId, const QList<MessageNode>& allMessages);
+   public slots:
     void loadDocumentsAndNotes();
+
+   private:
     QStandardItem* findItemById(QStandardItem* parent, int id);
     QStandardItem* findItemInTree(int id, const QString& type);
     QStandardItem* findItemRecursive(QStandardItem* parent, int id, const QString& type);
@@ -165,6 +168,8 @@ class MainWindow : public KXmlGuiWindow {
     QTextBrowser* documentPreviewView;
     QPushButton* saveDocBtn;
     QPushButton* previewDocBtn;
+    QPushButton* editDocBtn;
+
     QWidget* noteContainer;
     QTextEdit* noteEditorView;
     QPushButton* saveNoteBtn;
@@ -192,6 +197,7 @@ class MainWindow : public KXmlGuiWindow {
     QComboBox* modelComboBox;
 
     QMap<QString, std::shared_ptr<BookDatabase>> m_openDatabases;
+    QMap<int, class DocumentEditWindow*> m_openDocEditors;
     std::shared_ptr<BookDatabase> currentDb;
     OllamaClient ollamaClient;
 
