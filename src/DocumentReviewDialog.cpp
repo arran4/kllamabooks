@@ -34,12 +34,14 @@ DocumentReviewDialog::DocumentReviewDialog(std::shared_ptr<BookDatabase> db, int
     m_replaceBtn = new QPushButton(tr("Replace Original"), this);
     m_appendBtn = new QPushButton(tr("Append to Original"), this);
     m_forkBtn = new QPushButton(tr("Create New Document"), this);
+    m_saveAsDraftBtn = new QPushButton(tr("Save as Draft"), this);
     QPushButton* regenerateBtn = new QPushButton(tr("Regenerate"), this);
     QPushButton* discardBtn = new QPushButton(tr("Discard"), this);
 
     btnLayout->addWidget(m_replaceBtn);
     btnLayout->addWidget(m_appendBtn);
     btnLayout->addWidget(m_forkBtn);
+    btnLayout->addWidget(m_saveAsDraftBtn);
     btnLayout->addWidget(regenerateBtn);
     btnLayout->addWidget(discardBtn);
 
@@ -48,6 +50,7 @@ DocumentReviewDialog::DocumentReviewDialog(std::shared_ptr<BookDatabase> db, int
     connect(m_replaceBtn, &QPushButton::clicked, this, &DocumentReviewDialog::onReplace);
     connect(m_appendBtn, &QPushButton::clicked, this, &DocumentReviewDialog::onAppend);
     connect(m_forkBtn, &QPushButton::clicked, this, &DocumentReviewDialog::onFork);
+    connect(m_saveAsDraftBtn, &QPushButton::clicked, this, &DocumentReviewDialog::onSaveAsDraft);
     connect(regenerateBtn, &QPushButton::clicked, this, &DocumentReviewDialog::onRegenerate);
     connect(discardBtn, &QPushButton::clicked, this, &DocumentReviewDialog::onDiscard);
 
@@ -100,6 +103,10 @@ void DocumentReviewDialog::loadData() {
                     m_forkBtn->setDefault(true);
                     m_forkBtn->setFocus();
                     m_forkBtn->setStyleSheet("border: 2px solid #2196F3; font-weight: bold;");
+                } else if (item.targetAction == "draft") {
+                    m_saveAsDraftBtn->setDefault(true);
+                    m_saveAsDraftBtn->setFocus();
+                    m_saveAsDraftBtn->setStyleSheet("border: 2px solid #2196F3; font-weight: bold;");
                 }
             }
 
@@ -181,6 +188,29 @@ void DocumentReviewDialog::onFork() {
     if (ok && !newTitle.isEmpty()) {
         m_db->addDocument(folderId, newTitle, m_resultEdit->toPlainText(),
                           m_documentId);  // pass parentId to track lineage
+        finalizeAndClose(true);
+    }
+}
+
+void DocumentReviewDialog::onSaveAsDraft() {
+    if (!m_db || !m_db->isOpen()) return;
+
+    auto docs = m_db->getDocuments();
+    QString title;
+    int folderId = 0;
+    for (const auto& d : docs) {
+        if (d.id == m_documentId) {
+            title = d.title;
+            folderId = d.folderId;
+            break;
+        }
+    }
+
+    bool ok;
+    QString newTitle =
+        QInputDialog::getText(this, tr("New Draft Name"), tr("Title:"), QLineEdit::Normal, title + " (AI Draft)", &ok);
+    if (ok && !newTitle.isEmpty()) {
+        m_db->addDraft(folderId, newTitle, m_resultEdit->toPlainText());
         finalizeAndClose(true);
     }
 }

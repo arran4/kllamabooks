@@ -21,6 +21,7 @@ class DocumentReviewDialog : public QDialog {
     void onReplace();
     void onAppend();
     void onFork();
+    void onSaveAsDraft();
     void onRegenerate();
     void onDiscard();
 
@@ -36,6 +37,7 @@ class DocumentReviewDialog : public QDialog {
     QPushButton* m_replaceBtn;
     QPushButton* m_appendBtn;
     QPushButton* m_forkBtn;
+    QPushButton* m_saveAsDraftBtn;
 
     void loadData();
     void finalizeAndClose(bool deleteQueueItem);
