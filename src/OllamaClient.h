@@ -32,6 +32,7 @@ class OllamaClient : public QObject {
     void pullProgressUpdated(const QString& modelName, int percent, const QString& status);
     void pullFinished(const QString& modelName);
     void generationMetrics(double tokensPerSecond);
+    void requestSent(const QString& model, const QString& systemPrompt, const QString& prompt);
 
    public slots:
     void pullModel(const QString& modelName);

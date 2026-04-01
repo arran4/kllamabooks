@@ -3810,122 +3810,46 @@ class GlobalSpyWindow : public QWidget {
    public:
     GlobalSpyWindow(QWidget* parent = nullptr) : QWidget(parent, Qt::Window) {
         setWindowTitle(tr("Global Spying"));
-        resize(600, 500);
+        resize(800, 600);
         setAttribute(Qt::WA_DeleteOnClose);
 
         QVBoxLayout* baseLayout = new QVBoxLayout(this);
-        QScrollArea* scrollArea = new QScrollArea(this);
-        scrollArea->setWidgetResizable(true);
-        m_container = new QWidget(scrollArea);
-        m_layout = new QVBoxLayout(m_container);
-        m_layout->setAlignment(Qt::AlignTop);
-        scrollArea->setWidget(m_container);
-        baseLayout->addWidget(scrollArea);
 
-        // Initial check for currently processing items
-        for (const auto& mi : QueueManager::instance().getMergedQueue()) {
-            if (mi.item.processingId > 0) {
-                QString currentContent;
-                if (mi.item.targetType == "document") {
-                    auto docs = mi.db->getDocuments();
-                    for (const auto& d : docs) {
-                        if (d.id == mi.item.messageId) {
-                            currentContent = d.content;
-                            break;
+        m_spyTextEdit = new QTextEdit(this);
+        m_spyTextEdit->setReadOnly(true);
+        m_spyTextEdit->document()->setMaximumBlockCount(1000); // Act as a circular buffer
+        baseLayout->addWidget(m_spyTextEdit);
+
+        if (OllamaClient* client = QueueManager::instance().client()) {
+            connect(client, &OllamaClient::requestSent, this,
+                    [this](const QString& model, const QString& systemPrompt, const QString& prompt) {
+                        m_spyTextEdit->moveCursor(QTextCursor::End);
+                        m_spyTextEdit->insertHtml(QString("<hr><b>[Request Sent]</b> Model: %1<br>").arg(model.toHtmlEscaped()));
+                        if (!systemPrompt.isEmpty()) {
+                            m_spyTextEdit->insertHtml(QString("<b>System:</b><br>%1<br>").arg(systemPrompt.toHtmlEscaped().replace("\n", "<br>")));
                         }
-                    }
-                } else {
-                    auto messages = mi.db->getMessages();
-                    for (const auto& m : messages) {
-                        if (m.id == mi.item.messageId) {
-                            currentContent = m.content;
-                            break;
-                        }
-                    }
-                }
-                addProcessBox(mi.db, mi.item.messageId, mi.item.model, currentContent);
-            }
+                        m_spyTextEdit->insertHtml(QString("<b>User:</b><br>%1<br><br><b>Response:</b><br>").arg(prompt.toHtmlEscaped().replace("\n", "<br>")));
+                        m_spyTextEdit->moveCursor(QTextCursor::End);
+                    });
         }
-
-        connect(&QueueManager::instance(), &QueueManager::processingStarted, this,
-                [this](std::shared_ptr<BookDatabase> db, int messageId, const QString& type) {
-                    addProcessBox(db, messageId, "Generating...", "");
-                });
 
         connect(&QueueManager::instance(), &QueueManager::processingChunk, this,
                 [this](std::shared_ptr<BookDatabase> db, int messageId, const QString& chunk, const QString& type) {
-                    QString key = QString("%1_%2").arg(reinterpret_cast<quintptr>(db.get())).arg(messageId);
-                    if (m_textEdits.contains(key)) {
-                        QTextEdit* textEdit = m_textEdits[key];
-                        textEdit->moveCursor(QTextCursor::End);
-                        textEdit->insertPlainText(chunk);
-                        textEdit->moveCursor(QTextCursor::End);
-
-                        if (m_startTimes[key] == 0) {
-                            m_startTimes[key] = QDateTime::currentMSecsSinceEpoch();
-                        }
-                        m_tokenCounts[key]++;
-                        qint64 elapsed = QDateTime::currentMSecsSinceEpoch() - m_startTimes[key];
-                        if (elapsed > 500) {
-                            double tps = (m_tokenCounts[key] * 1000.0) / elapsed;
-                            m_groupBoxes[key]->setTitle(m_baseTitles[key] + QString(" | %1 tps").arg(tps, 0, 'f', 1));
-                        }
-                    }
+                    m_spyTextEdit->moveCursor(QTextCursor::End);
+                    m_spyTextEdit->insertPlainText(chunk);
+                    m_spyTextEdit->moveCursor(QTextCursor::End);
                 });
 
         connect(&QueueManager::instance(), &QueueManager::processingFinished, this,
                 [this](std::shared_ptr<BookDatabase> db, int messageId, bool success, const QString& type) {
-                    QString key = QString("%1_%2").arg(reinterpret_cast<quintptr>(db.get())).arg(messageId);
-                    if (m_groupBoxes.contains(key)) {
-                        QGroupBox* box = m_groupBoxes[key];
-                        box->setTitle(m_baseTitles[key] + (success ? " (Finished)" : " (Error)"));
-                    }
+                    m_spyTextEdit->moveCursor(QTextCursor::End);
+                    m_spyTextEdit->insertHtml(success ? "<br><br><b>[Finished]</b><br>" : "<br><br><b><font color='red'>[Error]</font></b><br>");
+                    m_spyTextEdit->moveCursor(QTextCursor::End);
                 });
     }
 
    private:
-    QWidget* m_container;
-    QVBoxLayout* m_layout;
-    QMap<QString, QTextEdit*> m_textEdits;
-    QMap<QString, QGroupBox*> m_groupBoxes;
-    QMap<QString, qint64> m_startTimes;
-    QMap<QString, int> m_tokenCounts;
-    QMap<QString, QString> m_baseTitles;
-
-    void addProcessBox(std::shared_ptr<BookDatabase> db, int messageId, const QString& model,
-                       const QString& initialText) {
-        QString key = QString("%1_%2").arg(reinterpret_cast<quintptr>(db.get())).arg(messageId);
-
-        m_startTimes[key] = 0;
-        m_tokenCounts[key] = 0;
-
-        QString title =
-            QString("DB: %1 | Msg: %2 | Model: %3").arg(QFileInfo(db->filepath()).fileName()).arg(messageId).arg(model);
-        m_baseTitles[key] = title;
-
-        if (m_textEdits.contains(key)) {
-            m_textEdits[key]->clear();
-            if (!initialText.isEmpty()) {
-                m_textEdits[key]->setPlainText(initialText);
-            }
-            m_groupBoxes[key]->setTitle(title);
-            return;
-        }
-
-        QGroupBox* groupBox = new QGroupBox(title, m_container);
-        QVBoxLayout* gbLayout = new QVBoxLayout(groupBox);
-        QTextEdit* textEdit = new QTextEdit(groupBox);
-        textEdit->setReadOnly(true);
-        textEdit->setPlainText(initialText);
-        textEdit->moveCursor(QTextCursor::End);
-        textEdit->setMinimumHeight(150);
-
-        gbLayout->addWidget(textEdit);
-        m_layout->addWidget(groupBox);
-
-        m_textEdits[key] = textEdit;
-        m_groupBoxes[key] = groupBox;
-    }
+    QTextEdit* m_spyTextEdit;
 };
 
 void MainWindow::showSpyWindow() {
