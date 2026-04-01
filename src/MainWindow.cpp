@@ -3777,12 +3777,89 @@ void MainWindow::updateNotificationStatus() {
                         documentEditorView->setPlainText(outContent);
                         documentEditorView->blockSignals(false);
                     }
+                } else if (n.type == "error") {
+                    QDialog dialog(this);
+                    dialog.setWindowTitle(tr("Error: Modify and Retry"));
+                    QVBoxLayout* layout = new QVBoxLayout(&dialog);
+
+                    QLabel* summary = new QLabel(QString("<b>Book:</b> %1<br><b>Message ID:</b> %2").arg(bookName, QString::number(n.messageId)));
+                    summary->setWordWrap(true);
+                    layout->addWidget(summary);
+
+                    QString errorMsg, prompt, model;
+                    int queueId = -1;
+                    auto qList = db->getQueue();
+                    for (const auto& qi : qList) {
+                        if (qi.messageId == n.messageId && qi.state == "error") {
+                            errorMsg = qi.lastError;
+                            prompt = qi.prompt;
+                            model = qi.model;
+                            queueId = qi.id;
+                            break;
+                        }
+                    }
+
+                    QLabel* errorLabel = new QLabel(QString("<b>Error:</b> %1").arg(errorMsg));
+                    errorLabel->setWordWrap(true);
+                    errorLabel->setStyleSheet("color: #f44336; font-weight: bold; margin-bottom: 10px;");
+                    layout->addWidget(errorLabel);
+
+                    QTextEdit* promptEdit = new QTextEdit(&dialog);
+                    promptEdit->setPlainText(prompt);
+                    layout->addWidget(new QLabel(tr("Prompt:")));
+                    layout->addWidget(promptEdit);
+
+                    QComboBox* modelCombo = new QComboBox(&dialog);
+                    for (const auto& m : ollamaClient.availableModels()) {
+                        modelCombo->addItem(m.name, m.name);
+                    }
+                    int idx = modelCombo->findData(model);
+                    if (idx >= 0) modelCombo->setCurrentIndex(idx);
+                    layout->addWidget(new QLabel(tr("Model:")));
+                    layout->addWidget(modelCombo);
+
+                    QHBoxLayout* btnLayout = new QHBoxLayout();
+                    QPushButton* retryBtn = new QPushButton(tr("Modify & Retry"), &dialog);
+                    QPushButton* gotoBtn = new QPushButton(tr("Goto Item"), &dialog);
+                    QPushButton* dismissBtn = new QPushButton(tr("Dismiss"), &dialog);
+                    QPushButton* closeBtn = new QPushButton(tr("Close"), &dialog);
+
+                    btnLayout->addWidget(retryBtn);
+                    btnLayout->addWidget(gotoBtn);
+                    btnLayout->addWidget(dismissBtn);
+                    btnLayout->addWidget(closeBtn);
+                    layout->addLayout(btnLayout);
+
+                    connect(retryBtn, &QPushButton::clicked, [&]() {
+                        if (queueId != -1) {
+                            QueueManager::instance().modifyItem(db, queueId, promptEdit->toPlainText(), modelCombo->currentData().toString());
+                            QueueManager::instance().retryItem(db, queueId);
+                            db->dismissNotification(n.id);
+                            updateNotificationStatus();
+                            dialog.accept();
+                        }
+                    });
+
+                    connect(gotoBtn, &QPushButton::clicked, [&]() {
+                        onQueueItemClicked(db, n.messageId);
+                        dialog.accept();
+                    });
+
+                    connect(dismissBtn, &QPushButton::clicked, [&]() {
+                        db->dismissNotification(n.id);
+                        updateNotificationStatus();
+                        dialog.accept();
+                    });
+
+                    connect(closeBtn, &QPushButton::clicked, &dialog, &QDialog::reject);
+
+                    dialog.exec();
                 } else {
                     QDialog dialog(this);
                     dialog.setWindowTitle(tr("Notification Summary"));
                     QVBoxLayout* layout = new QVBoxLayout(&dialog);
 
-                    QString typeStr = (n.type == "error") ? tr("Error") : tr("Finished");
+                    QString typeStr = tr("Finished");
                     QLabel* summary =
                         new QLabel(QString("<b>Book:</b> %1<br><b>Status:</b> %2<br><b>Message ID:</b> %3")
                                        .arg(bookName, typeStr, QString::number(n.messageId)));

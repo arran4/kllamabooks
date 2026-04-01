@@ -43,9 +43,10 @@ void QueueManager::retryItem(std::shared_ptr<BookDatabase> db, int queueId) {
     }
 }
 
-void QueueManager::modifyItem(std::shared_ptr<BookDatabase> db, int queueId, const QString& newPrompt) {
+void QueueManager::modifyItem(std::shared_ptr<BookDatabase> db, int queueId, const QString& newPrompt, const QString& newModel) {
     if (db) {
         db->updateQueueItemPrompt(queueId, newPrompt);
+        if (!newModel.isEmpty()) db->updateQueueItemModel(queueId, newModel);
         db->updateQueueError(queueId, "");
         emit queueChanged();
         QTimer::singleShot(0, this, &QueueManager::checkQueue);

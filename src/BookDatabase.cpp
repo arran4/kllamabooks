@@ -1250,6 +1250,19 @@ bool BookDatabase::updateQueueItemPrompt(int id, const QString& prompt) {
     return rc == SQLITE_DONE;
 }
 
+
+bool BookDatabase::updateQueueItemModel(int id, const QString& model) {
+    if (!m_isOpen) return false;
+    const char* sql = "UPDATE queue SET model = ? WHERE id = ?;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, model.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 2, id);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
+}
+
 bool BookDatabase::deleteQueueItem(int id) {
     if (!m_isOpen) return false;
     const char* sql = "DELETE FROM queue WHERE id = ?;";
