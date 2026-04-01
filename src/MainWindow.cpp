@@ -4234,9 +4234,7 @@ void MainWindow::onDocumentAIOperations() {
             model = m_availableModels.first();
         }
 
-        QString targetAction = dialog.getTargetAction();
-
-        QueueManager::instance().enqueuePrompt(currentDocumentId, model, prompt, 0, "document", 0, targetAction);
+        QueueManager::instance().enqueuePrompt(currentDocumentId, model, prompt, 0, "document", 0, "");
         statusBar->showMessage(tr("AI document task queued."), 3000);
     }
 }
