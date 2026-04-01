@@ -1428,7 +1428,11 @@ void MainWindow::loadBooks() {
  * is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal
  * application models. */
 void MainWindow::showModelExplorer() {
-    ModelExplorer* explorer = new ModelExplorer(&ollamaClient, this);
+    QString endpointName = endpointComboBox ? endpointComboBox->currentText() : "Default";
+    QString endpointUrl = ollamaClient.getBaseUrl();
+    bool isOllama = endpointName.contains("ollama", Qt::CaseInsensitive) || endpointUrl.contains("11434");
+
+    ModelExplorer* explorer = new ModelExplorer(&ollamaClient, isOllama, this);
     explorer->setAttribute(Qt::WA_DeleteOnClose);
     explorer->show();
 }

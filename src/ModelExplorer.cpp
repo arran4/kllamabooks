@@ -1,13 +1,16 @@
 #include "ModelExplorer.h"
 
 #include <QAction>
+#include <QDesktopServices>
 #include <QHeaderView>
 #include <QIcon>
 #include <QMenu>
 #include <QMessageBox>
 #include <QSettings>
+#include <QUrl>
+#include <QUrlQuery>
 
-ModelExplorer::ModelExplorer(OllamaClient* client, QWidget* parent) : QDialog(parent), m_client(client) {
+ModelExplorer::ModelExplorer(OllamaClient* client, bool isOllama, QWidget* parent) : QDialog(parent), m_client(client), m_isOllama(isOllama) {
     setWindowTitle("Model Explorer");
     resize(800, 600);
 
@@ -66,6 +69,19 @@ void ModelExplorer::setupDownloadTab() {
     downloadLayout->addWidget(m_downloadButton);
 
     layout->addLayout(downloadLayout);
+
+    if (m_isOllama) {
+        QHBoxLayout* externalSearchLayout = new QHBoxLayout();
+        QPushButton* searchOllamaButton = new QPushButton("Search Ollama", this);
+        QPushButton* searchHfButton = new QPushButton("Search HF.com", this);
+        externalSearchLayout->addWidget(searchOllamaButton);
+        externalSearchLayout->addWidget(searchHfButton);
+        layout->addLayout(externalSearchLayout);
+
+        connect(searchOllamaButton, &QPushButton::clicked, this, &ModelExplorer::onSearchOllamaClicked);
+        connect(searchHfButton, &QPushButton::clicked, this, &ModelExplorer::onSearchHfClicked);
+    }
+
     layout->addStretch();
 
     connect(m_downloadButton, &QPushButton::clicked, this, &ModelExplorer::onDownloadModelClicked);
@@ -102,6 +118,31 @@ void ModelExplorer::loadFavorites() {
 void ModelExplorer::saveFavorites() {
     QSettings settings;
     settings.setValue("favoriteModels", m_favorites);
+}
+
+void ModelExplorer::onSearchOllamaClicked() {
+    QString query = m_downloadNameField->text().trimmed();
+    QUrl url;
+    if (!query.isEmpty()) {
+        url = QUrl("https://ollama.com/search");
+        QUrlQuery urlQuery;
+        urlQuery.addQueryItem("q", query);
+        url.setQuery(urlQuery);
+    } else {
+        url = QUrl("https://ollama.com/library");
+    }
+    QDesktopServices::openUrl(url);
+}
+
+void ModelExplorer::onSearchHfClicked() {
+    QString query = m_downloadNameField->text().trimmed();
+    QUrl url("https://huggingface.co/models");
+    if (!query.isEmpty()) {
+        QUrlQuery urlQuery;
+        urlQuery.addQueryItem("search", query);
+        url.setQuery(urlQuery);
+    }
+    QDesktopServices::openUrl(url);
 }
 
 void ModelExplorer::onSearchInstalledClicked() {

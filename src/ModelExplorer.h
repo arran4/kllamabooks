@@ -17,11 +17,13 @@
 class ModelExplorer : public QDialog {
     Q_OBJECT
    public:
-    explicit ModelExplorer(OllamaClient* client, QWidget* parent = nullptr);
+    explicit ModelExplorer(OllamaClient* client, bool isOllama = false, QWidget* parent = nullptr);
     ~ModelExplorer();
 
    private slots:
     void onSearchInstalledClicked();
+    void onSearchOllamaClicked();
+    void onSearchHfClicked();
     void onDownloadModelClicked();
     void updateModelList(const QStringList& models);
     void onPullProgressUpdated(const QString& modelName, int percent, const QString& status);
@@ -31,6 +33,7 @@ class ModelExplorer : public QDialog {
 
    private:
     OllamaClient* m_client;
+    bool m_isOllama;
 
     QTabWidget* m_tabWidget;
 
