@@ -152,6 +152,8 @@ void OllamaClient::generate(const QString& model, const QString& prompt, std::fu
     QJsonDocument doc(json);
     QByteArray data = doc.toJson();
 
+    emit requestSent(model, m_systemPrompt, prompt);
+
     QNetworkReply* reply = m_networkManager->post(request, data);
 
     // Shared pointer to accumulate the full response safely

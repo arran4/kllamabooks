@@ -20,6 +20,7 @@ class QueueManager : public QObject {
     QList<std::shared_ptr<BookDatabase>> databases() const { return m_databases; }
 
     void setClient(OllamaClient* client);
+    OllamaClient* client() const { return m_client; }
     void enqueuePrompt(int messageId, const QString& model, const QString& prompt, int priority = 0,
                        const QString& targetType = "message", int parentId = 0, const QString& targetAction = "");
 
