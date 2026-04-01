@@ -418,6 +418,11 @@ void MainWindow::setupUi() {
     discardChangesBtn->hide();  // Initially hidden until an edit happens
     inputLayout->addWidget(discardChangesBtn);
 
+    dismissDraftBtn = new QPushButton("Dismiss Draft", this);
+    dismissDraftBtn->setToolTip(tr("Dismiss the current draft."));
+    dismissDraftBtn->hide();  // Initially hidden until a draft exists
+    inputLayout->addWidget(dismissDraftBtn);
+
     connect(chatTextArea, &QTextEdit::textChanged, this, [this]() {
         if (!chatTextArea->isReadOnly() && !m_isGenerating && currentLastNodeId != 0) {
             discardChangesBtn->show();
@@ -439,6 +444,7 @@ void MainWindow::setupUi() {
     chatInputLayout->addLayout(inputLayout);
 
     connect(discardChangesBtn, &QPushButton::clicked, this, &MainWindow::onDiscardChanges);
+    connect(dismissDraftBtn, &QPushButton::clicked, this, &MainWindow::onDismissDraft);
 
     mainContentStack->addWidget(chatWindowView);
 
@@ -646,8 +652,14 @@ void MainWindow::setupUi() {
     };
 
     connect(draftDebounceTimer, &QTimer::timeout, this, saveDraftFunc);
-    connect(inputField, &ChatInputWidget::textChanged, this, [draftDebounceTimer]() { draftDebounceTimer->start(); });
-    connect(multiLineInput, &QTextEdit::textChanged, this, [draftDebounceTimer]() { draftDebounceTimer->start(); });
+    connect(inputField, &ChatInputWidget::textChanged, this, [this, draftDebounceTimer]() {
+        draftDebounceTimer->start();
+        if (inputField->toPlainText().isEmpty()) dismissDraftBtn->hide(); else dismissDraftBtn->show();
+    });
+    connect(multiLineInput, &QTextEdit::textChanged, this, [this, draftDebounceTimer]() {
+        draftDebounceTimer->start();
+        if (multiLineInput->toPlainText().isEmpty()) dismissDraftBtn->hide(); else dismissDraftBtn->show();
+    });
 
     connect(chatModel, &QStandardItemModel::itemChanged, this, &MainWindow::onItemChanged);
     connect(chatTree->selectionModel(), &QItemSelectionModel::currentChanged, this, &MainWindow::onChatNodeSelected);
@@ -2313,6 +2325,12 @@ void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& 
         multiLineInput->setPlainText(savedDraft);
     }
 
+    if (savedDraft.isEmpty()) {
+        dismissDraftBtn->hide();
+    } else {
+        dismissDraftBtn->show();
+    }
+
     if (tailNodeId != 0) {
         m_newChatDraftPrompt.clear();
         m_newChatUserNote.clear();
@@ -2454,6 +2472,33 @@ void MainWindow::onDiscardChanges() {
     updateLinearChatView(currentLastNodeId, currentDb->getMessages());
     discardChangesBtn->hide();
     statusBar->showMessage(tr("Changes discarded."), 3000);
+}
+
+/** * @brief Discards the current draft, clearing text fields and updating the database. *  * This function
+ * is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal
+ * application models. */
+void MainWindow::onDismissDraft() {
+    m_newChatDraftPrompt.clear();
+
+    inputField->blockSignals(true);
+    multiLineInput->blockSignals(true);
+    inputField->setPlainText("");
+    multiLineInput->setPlainText("");
+    inputField->blockSignals(false);
+    multiLineInput->blockSignals(false);
+
+    if (m_activeDraftNodeId != 0 && currentDb) {
+        ChatNode cnDraft = currentDb->getChat(m_activeDraftNodeId);
+        if (cnDraft.version == m_activeDraftVersion) {
+            cnDraft.draftPrompt = "";
+            if (currentDb->updateChat(cnDraft)) {
+                m_activeDraftVersion++; // Sync with optimistic lock
+            }
+        }
+    }
+
+    dismissDraftBtn->hide();
+    statusBar->showMessage(tr("Draft dismissed."), 3000);
 }
 
 /** * @brief Executes logic for populateTree. This function manages component initialization and handles state
