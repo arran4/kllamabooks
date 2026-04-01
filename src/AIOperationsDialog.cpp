@@ -1,4 +1,5 @@
 #include "AIOperationsDialog.h"
+#include "AIOperationsManager.h"
 
 #include <QComboBox>
 #include <QHBoxLayout>
@@ -8,7 +9,7 @@
 #include <QTextEdit>
 #include <QVBoxLayout>
 
-AIOperationsDialog::AIOperationsDialog(const QString& defaultPrompt, QWidget* parent) : QDialog(parent) {
+AIOperationsDialog::AIOperationsDialog(BookDatabase* db, const QString& defaultPrompt, QWidget* parent) : QDialog(parent) {
     setWindowTitle(tr("AI Document Operations"));
     resize(500, 400);
 
@@ -18,9 +19,13 @@ AIOperationsDialog::AIOperationsDialog(const QString& defaultPrompt, QWidget* pa
     QHBoxLayout* opLayout = new QHBoxLayout();
     opLayout->addWidget(new QLabel(tr("Operation:")));
     m_operationCombo = new QComboBox(this);
-    m_operationCombo->addItem(tr("Complete this text"), "complete");
-    m_operationCombo->addItem(tr("Replace entirely"), "replace");
-    m_operationCombo->addItem(tr("Replace in place"), "replace_in_place");
+
+    QList<AIOperation> ops = AIOperationsManager::getMergedOperations(db);
+    for (const AIOperation& op : ops) {
+        m_operationCombo->addItem(op.name, op.id);
+        m_operationCombo->setItemData(m_operationCombo->count() - 1, op.prompt, Qt::UserRole + 1);
+    }
+
     opLayout->addWidget(m_operationCombo, 1);
     layout->addLayout(opLayout);
 
@@ -46,30 +51,14 @@ AIOperationsDialog::AIOperationsDialog(const QString& defaultPrompt, QWidget* pa
 
     // Auto-update prompt when operation changes
     connect(m_operationCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int index) {
-        QString op = m_operationCombo->itemData(index).toString();
-        QSettings settings;
-        if (op == "complete") {
-            m_promptEdit->setPlainText(
-                settings
-                    .value("prompt_complete",
-                           "Complete the following text naturally. Only output the continuation.\n\nText:\n{context}")
-                    .toString());
-        } else if (op == "replace") {
-            m_promptEdit->setPlainText(
-                settings
-                    .value("prompt_replace_entirely",
-                           "Rewrite the following document according to your instructions. Only output the rewritten "
-                           "document, nothing else.\n\nInstructions: <your instructions here>\n\nDocument:\n{context}")
-                    .toString());
-        } else if (op == "replace_in_place") {
-            m_promptEdit->setPlainText(
-                settings
-                    .value("prompt_replace_in_place",
-                           "Rewrite the following text according to your instructions. Only output the rewritten text, "
-                           "nothing else.\n\nInstructions: <your instructions here>\n\nText:\n{context}")
-                    .toString());
-        }
+        QString prompt = m_operationCombo->itemData(index, Qt::UserRole + 1).toString();
+        m_promptEdit->setPlainText(prompt);
     });
+
+    // Set initial prompt if no default provided
+    if (defaultPrompt.isEmpty() && m_operationCombo->count() > 0) {
+        m_promptEdit->setPlainText(m_operationCombo->itemData(0, Qt::UserRole + 1).toString());
+    }
 }
 
 AIOperationsDialog::~AIOperationsDialog() {}

@@ -15,6 +15,7 @@
 #include <QVBoxLayout>
 #include <QVariantList>
 #include <QVariantMap>
+#include "AIOperationsEditorWidget.h"
 
 class ConnectionDialog : public QDialog {
     Q_OBJECT
@@ -71,6 +72,8 @@ class SettingsDialog : public QDialog {
     QTextEdit* m_globalSystemPromptEdit;
     QComboBox* m_queueProcessingCombo;
     QCheckBox* m_prioritizeSameModelCheck;
+
+    AIOperationsEditorWidget* m_aiOperationsEditor;
 };
 
 #endif  // SETTINGSDIALOG_H
