@@ -173,10 +173,8 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
 
     // AI Operations Tab
     m_aiOperationsEditor = new AIOperationsEditorWidget("global", this);
-    m_aiOperationsEditor->setOperations(
-        AIOperationsManager::getGlobalOperations(),
-        AIOperationsManager::getBuiltInOperations()
-    );
+    m_aiOperationsEditor->setOperations(AIOperationsManager::getGlobalOperations(),
+                                        AIOperationsManager::getBuiltInOperations());
     tabWidget->addTab(m_aiOperationsEditor, tr("AI Operations"));
 
     mainLayout->addWidget(tabWidget);

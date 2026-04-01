@@ -64,8 +64,9 @@ void BookDatabase::cleanupDeadProcessingItems() {
     if (!m_isOpen) return;
 
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2((sqlite3*)m_db, "SELECT id, processing_id FROM queue WHERE processing_id > 0 OR state = 'processing';", -1, &stmt,
-                           nullptr) == SQLITE_OK) {
+    if (sqlite3_prepare_v2((sqlite3*)m_db,
+                           "SELECT id, processing_id FROM queue WHERE processing_id > 0 OR state = 'processing';", -1,
+                           &stmt, nullptr) == SQLITE_OK) {
         QList<int> idsToReset;
         while (sqlite3_step(stmt) == SQLITE_ROW) {
             int id = sqlite3_column_int(stmt, 0);

@@ -52,6 +52,7 @@
 #include "DocumentHistoryDialog.h"
 #include "DocumentReviewDialog.h"
 #include "ModelSelectionDialog.h"
+#include "NewDocumentDialog.h"
 #include "NotificationDelegate.h"
 #include "QueueManager.h"
 #include "QueueWindow.h"
@@ -554,7 +555,7 @@ void MainWindow::setupUi() {
 
     QAction* newDocMenuAction = new QAction(QIcon::fromTheme("document-new"), tr("New Document"), this);
     actionCollection()->addAction(QStringLiteral("new_document"), newDocMenuAction);
-    connect(newDocMenuAction, &QAction::triggered, this, [this]() { addPhantomItem(nullptr, "docs_folder"); });
+    connect(newDocMenuAction, &QAction::triggered, this, [this]() { handleNewDocumentCreation(0); });
 
     QAction* newNoteMenuAction = new QAction(QIcon::fromTheme("document-new"), tr("New Note"), this);
     actionCollection()->addAction(QStringLiteral("new_note"), newNoteMenuAction);
@@ -654,11 +655,17 @@ void MainWindow::setupUi() {
     connect(draftDebounceTimer, &QTimer::timeout, this, saveDraftFunc);
     connect(inputField, &ChatInputWidget::textChanged, this, [this, draftDebounceTimer]() {
         draftDebounceTimer->start();
-        if (inputField->toPlainText().isEmpty()) dismissDraftBtn->hide(); else dismissDraftBtn->show();
+        if (inputField->toPlainText().isEmpty())
+            dismissDraftBtn->hide();
+        else
+            dismissDraftBtn->show();
     });
     connect(multiLineInput, &QTextEdit::textChanged, this, [this, draftDebounceTimer]() {
         draftDebounceTimer->start();
-        if (multiLineInput->toPlainText().isEmpty()) dismissDraftBtn->hide(); else dismissDraftBtn->show();
+        if (multiLineInput->toPlainText().isEmpty())
+            dismissDraftBtn->hide();
+        else
+            dismissDraftBtn->show();
     });
 
     connect(chatModel, &QStandardItemModel::itemChanged, this, &MainWindow::onItemChanged);
@@ -1553,18 +1560,7 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
         else if (type == "drafts_folder")
             actionName = "New Draft";
 
-        QAction* newAction = nullptr;
-        QAction* newFromTemplateAction = nullptr;
-        QAction* newFromPromptAction = nullptr;
-
-        if (type == "docs_folder") {
-            QMenu* newDocMenu = menu.addMenu(QIcon::fromTheme("document-new"), "New Document");
-            newAction = newDocMenu->addAction("Blank Document");
-            newFromTemplateAction = newDocMenu->addAction("From Template");
-            newFromPromptAction = newDocMenu->addAction("From AI Prompt");
-        } else {
-            newAction = menu.addAction(actionName);
-        }
+        QAction* newAction = menu.addAction(actionName);
 
         QAction* createFolderAction = nullptr;
         QAction* importFileAction = nullptr;
@@ -1615,31 +1611,10 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
         } else if (importAction && selectedAction == importAction) {
             importChatSession();
         } else if (newAction && selectedAction == newAction) {
-            QString name =
-                QInputDialog::getText(this, "New Document", "Enter document name:", QLineEdit::Normal, "New Document");
-            if (!name.isEmpty() && currentDb) {
-                int folderId = item->data(Qt::UserRole).toInt();
-                currentDb->addDocument(folderId, name, "");
-                loadDocumentsAndNotes();
-            }
-        } else if (newFromTemplateAction && selectedAction == newFromTemplateAction) {
-            // Placeholder: Not fully implemented yet
-        } else if (newFromPromptAction && selectedAction == newFromPromptAction) {
-            // Trigger AIOperationsDialog with preselected Fork mode
-            AIOperationsDialog aiDlg(currentDb.get(), "", this);
-            aiDlg.setForkOnlyMode(true);
-            if (aiDlg.exec() == QDialog::Accepted) {
-                QString prompt = aiDlg.getPrompt();
-                if (!prompt.isEmpty() && currentDb) {
-                    QString name = QString("Prompt: %1").arg(prompt.left(20));
-                    int folderId = item->data(Qt::UserRole).toInt();
-                    int newDocId = currentDb->addDocument(folderId, name, "");
-                    // Enqueue the newly created prompt as a document generation request
-                    // Using default values for model and parentId, and setting targetType="document" and
-                    // targetAction="fork"
-                    currentDb->enqueuePrompt(newDocId, "", prompt, 0, "document", 0, "fork");
-                    loadDocumentsAndNotes();
-                }
+            if (type == "docs_folder") {
+                handleNewDocumentCreation(item->data(Qt::UserRole).toInt());
+            } else {
+                addPhantomItem(item, type);
             }
         } else if (importFileAction && selectedAction == importFileAction) {
             QString fileName = QFileDialog::getOpenFileName(this, tr("Import File"), QDir::homePath(),
@@ -2505,7 +2480,7 @@ void MainWindow::onDismissDraft() {
         if (cnDraft.version == m_activeDraftVersion) {
             cnDraft.draftPrompt = "";
             if (currentDb->updateChat(cnDraft)) {
-                m_activeDraftVersion++; // Sync with optimistic lock
+                m_activeDraftVersion++;  // Sync with optimistic lock
             }
         }
     }
@@ -2575,7 +2550,7 @@ void MainWindow::onSendMessage() {
             if (isInCurrentPath) {
                 hasActiveGeneration = true;
                 item = qItem;
-                break; // Found conflicting generation
+                break;  // Found conflicting generation
             }
         }
     }
@@ -2583,13 +2558,12 @@ void MainWindow::onSendMessage() {
     if (hasActiveGeneration) {
         QMessageBox msgBox(this);
         msgBox.setWindowTitle(tr("Active Generation Conflict"));
-        msgBox.setText(tr(
-            "This chat is currently generating a response.\nWhat would you like to do with your new message?"));
+        msgBox.setText(
+            tr("This chat is currently generating a response.\nWhat would you like to do with your new message?"));
 
         QPushButton* queueBtn = msgBox.addButton(tr("Queue to send later"), QMessageBox::AcceptRole);
         QPushButton* forkBtn = msgBox.addButton(tr("Fork and send"), QMessageBox::AcceptRole);
-        QPushButton* cancelReplaceBtn =
-            msgBox.addButton(tr("Cancel previous and replace"), QMessageBox::AcceptRole);
+        QPushButton* cancelReplaceBtn = msgBox.addButton(tr("Cancel previous and replace"), QMessageBox::AcceptRole);
         QPushButton* draftsBtn = msgBox.addButton(tr("Save to drafts"), QMessageBox::ActionRole);
         QPushButton* ignoreBtn = msgBox.addButton(tr("Ignore text and clear"), QMessageBox::DestructiveRole);
         QPushButton* cancelBtn = msgBox.addButton(tr("Cancel"), QMessageBox::RejectRole);
@@ -3875,18 +3849,21 @@ class GlobalSpyWindow : public QWidget {
 
         m_spyTextEdit = new QTextEdit(this);
         m_spyTextEdit->setReadOnly(true);
-        m_spyTextEdit->document()->setMaximumBlockCount(1000); // Act as a circular buffer
+        m_spyTextEdit->document()->setMaximumBlockCount(1000);  // Act as a circular buffer
         baseLayout->addWidget(m_spyTextEdit);
 
         if (OllamaClient* client = QueueManager::instance().client()) {
             connect(client, &OllamaClient::requestSent, this,
                     [this](const QString& model, const QString& systemPrompt, const QString& prompt) {
                         m_spyTextEdit->moveCursor(QTextCursor::End);
-                        m_spyTextEdit->insertHtml(QString("<hr><b>[Request Sent]</b> Model: %1<br>").arg(model.toHtmlEscaped()));
+                        m_spyTextEdit->insertHtml(
+                            QString("<hr><b>[Request Sent]</b> Model: %1<br>").arg(model.toHtmlEscaped()));
                         if (!systemPrompt.isEmpty()) {
-                            m_spyTextEdit->insertHtml(QString("<b>System:</b><br>%1<br>").arg(systemPrompt.toHtmlEscaped().replace("\n", "<br>")));
+                            m_spyTextEdit->insertHtml(QString("<b>System:</b><br>%1<br>")
+                                                          .arg(systemPrompt.toHtmlEscaped().replace("\n", "<br>")));
                         }
-                        m_spyTextEdit->insertHtml(QString("<b>User:</b><br>%1<br><br><b>Response:</b><br>").arg(prompt.toHtmlEscaped().replace("\n", "<br>")));
+                        m_spyTextEdit->insertHtml(QString("<b>User:</b><br>%1<br><br><b>Response:</b><br>")
+                                                      .arg(prompt.toHtmlEscaped().replace("\n", "<br>")));
                         m_spyTextEdit->moveCursor(QTextCursor::End);
                     });
         }
@@ -3901,7 +3878,8 @@ class GlobalSpyWindow : public QWidget {
         connect(&QueueManager::instance(), &QueueManager::processingFinished, this,
                 [this](std::shared_ptr<BookDatabase> db, int messageId, bool success, const QString& type) {
                     m_spyTextEdit->moveCursor(QTextCursor::End);
-                    m_spyTextEdit->insertHtml(success ? "<br><br><b>[Finished]</b><br>" : "<br><br><b><font color='red'>[Error]</font></b><br>");
+                    m_spyTextEdit->insertHtml(success ? "<br><br><b>[Finished]</b><br>"
+                                                      : "<br><br><b><font color='red'>[Error]</font></b><br>");
                     m_spyTextEdit->moveCursor(QTextCursor::End);
                 });
     }
@@ -4319,6 +4297,47 @@ void MainWindow::onVfsExplorerDoubleClicked(const QModelIndex& index) {
  * If the document was being auto-saved as a transient draft, the temporary draft entry is purged
  * upon successful explicit save.
  */
+void MainWindow::handleNewDocumentCreation(int defaultFolderId) {
+    if (!currentDb) {
+        QMessageBox::warning(this, tr("No Book Open"), tr("Please open a book first to create a document."));
+        return;
+    }
+    NewDocumentDialog dialog(currentDb, defaultFolderId, this);
+    if (dialog.exec() == QDialog::Accepted) {
+        QString title = dialog.getTitle();
+        int folderId = dialog.getSelectedFolderId();
+        if (title.isEmpty()) title = "New Document";
+
+        if (dialog.getDocumentType() == NewDocumentDialog::Empty) {
+            currentDb->addDocument(folderId, title, "");
+            loadDocumentsAndNotes();
+        } else if (dialog.getDocumentType() == NewDocumentDialog::FromPrompt) {
+            int newDocId = currentDb->addDocument(folderId, title, "*Generating...*");
+            QString prompt = dialog.getPrompt();
+            QString model = m_selectedModel;
+            if (model.isEmpty() && !m_availableModels.isEmpty()) {
+                model = m_availableModels.first();
+            }
+            currentDb->enqueuePrompt(newDocId, model, prompt, 0, "document", 0, "replace");
+            loadDocumentsAndNotes();
+        } else if (dialog.getDocumentType() == NewDocumentDialog::FromTemplate) {
+            int tplId = dialog.getSelectedTemplateId();
+            QString content = "";
+            if (tplId != -1) {
+                QList<DocumentNode> templates = currentDb->getTemplates(-1);
+                for (const auto& t : templates) {
+                    if (t.id == tplId) {
+                        content = t.content;
+                        break;
+                    }
+                }
+            }
+            currentDb->addDocument(folderId, title, content);
+            loadDocumentsAndNotes();
+        }
+    }
+}
+
 void MainWindow::onEditDocument() {
     if (!currentDb || currentDocumentId == 0) return;
 

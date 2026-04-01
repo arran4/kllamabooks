@@ -1,5 +1,4 @@
 #include "AIOperationsDialog.h"
-#include "AIOperationsManager.h"
 
 #include <QComboBox>
 #include <QHBoxLayout>
@@ -9,7 +8,10 @@
 #include <QTextEdit>
 #include <QVBoxLayout>
 
-AIOperationsDialog::AIOperationsDialog(BookDatabase* db, const QString& defaultPrompt, QWidget* parent) : QDialog(parent) {
+#include "AIOperationsManager.h"
+
+AIOperationsDialog::AIOperationsDialog(BookDatabase* db, const QString& defaultPrompt, QWidget* parent)
+    : QDialog(parent) {
     setWindowTitle(tr("AI Document Operations"));
     resize(500, 400);
 

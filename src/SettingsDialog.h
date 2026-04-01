@@ -15,6 +15,7 @@
 #include <QVBoxLayout>
 #include <QVariantList>
 #include <QVariantMap>
+
 #include "AIOperationsEditorWidget.h"
 
 class ConnectionDialog : public QDialog {
