@@ -23,6 +23,7 @@ class QueueWindow : public QWidget {
     void onMoveUp();
     void onMoveDown();
     void onClearCompleted();
+    void onJumpItem();
 
    private:
     QListWidget* m_queueList;
@@ -32,6 +33,7 @@ class QueueWindow : public QWidget {
     QPushButton* m_upBtn;
     QPushButton* m_downBtn;
     QPushButton* m_clearBtn;
+    QPushButton* m_jumpBtn;
 
     void updateButtons();
 };

@@ -22,12 +22,14 @@ QueueWindow::QueueWindow(QWidget* parent) : QWidget(parent, Qt::Window) {
     m_cancelBtn = new QPushButton("Delete", this);
     m_retryBtn = new QPushButton("Retry", this);
     m_modifyBtn = new QPushButton("Modify", this);
+    m_jumpBtn = new QPushButton("Jump", this);
     m_clearBtn = new QPushButton("Clear Completed", this);
 
     QPushButton* pauseBtn = new QPushButton(QueueManager::instance().isPaused() ? "Resume Queue" : "Pause Queue", this);
 
     btnLayout->addWidget(m_upBtn);
     btnLayout->addWidget(m_downBtn);
+    btnLayout->addWidget(m_jumpBtn);
     btnLayout->addWidget(m_cancelBtn);
     btnLayout->addWidget(m_retryBtn);
     btnLayout->addWidget(m_modifyBtn);
@@ -39,35 +41,12 @@ QueueWindow::QueueWindow(QWidget* parent) : QWidget(parent, Qt::Window) {
     connect(m_cancelBtn, &QPushButton::clicked, this, &QueueWindow::onCancelItem);
     connect(m_retryBtn, &QPushButton::clicked, this, &QueueWindow::onRetryItem);
     connect(m_modifyBtn, &QPushButton::clicked, this, &QueueWindow::onModifyItem);
+    connect(m_jumpBtn, &QPushButton::clicked, this, &QueueWindow::onJumpItem);
     connect(m_clearBtn, &QPushButton::clicked, this, &QueueWindow::onClearCompleted);
     connect(m_queueList, &QListWidget::itemSelectionChanged, this, &QueueWindow::updateButtons);
 
-    connect(m_queueList, &QListWidget::itemDoubleClicked, this, [this](QListWidgetItem* item) {
-        if (!item) return;
-        int id = item->data(Qt::UserRole).toInt();
-        QString path = item->data(Qt::UserRole + 1).toString();
-        for (auto db : QueueManager::instance().databases()) {
-            if (db->filepath() == path) {
-                for (const auto& mi : QueueManager::instance().getMergedQueue()) {
-                    if (mi.item.id == id && mi.db == db) {
-                        QWidget* mainWin = nullptr;
-                        for (QWidget* widget : QApplication::topLevelWidgets()) {
-                            if (widget->inherits("MainWindow")) {
-                                mainWin = widget;
-                                break;
-                            }
-                        }
-                        if (mainWin) {
-                            QMetaObject::invokeMethod(mainWin, "onQueueItemClicked",
-                                                      Q_ARG(std::shared_ptr<BookDatabase>, db),
-                                                      Q_ARG(int, mi.item.messageId));
-                        }
-                        break;
-                    }
-                }
-                break;
-            }
-        }
+    connect(m_queueList, &QListWidget::itemDoubleClicked, this, [this](QListWidgetItem*) {
+        onJumpItem();
     });
 
     connect(pauseBtn, &QPushButton::clicked, this, [this, pauseBtn]() {
@@ -95,8 +74,11 @@ void QueueWindow::updateButtons() {
     if (!item) {
         m_retryBtn->setEnabled(false);
         m_modifyBtn->setEnabled(false);
+        m_jumpBtn->setEnabled(false);
         return;
     }
+
+    m_jumpBtn->setEnabled(true);
 
     int id = item->data(Qt::UserRole).toInt();
     QString path = item->data(Qt::UserRole + 1).toString();
@@ -126,9 +108,27 @@ void QueueWindow::refresh() {
                 statusStr = "ERROR";
         }
 
-        QString text = QString("[%1] %2: %3 (%4)")
+        QString targetTitle = "Unknown";
+        if (mi.item.targetType == "document") {
+            auto docs = mi.db->getDocuments(-1);
+            for (const auto& doc : docs) {
+                if (doc.id == mi.item.messageId) {
+                    targetTitle = doc.title;
+                    break;
+                }
+            }
+        } else if (mi.item.targetType == "message") {
+            int rootId = mi.db->getRootMessageId(mi.item.messageId);
+            ChatNode chat = mi.db->getChat(rootId);
+            targetTitle = chat.title;
+            if (targetTitle.isEmpty()) targetTitle = "Chat";
+        }
+
+        QString text = QString("[%1] %2 | %3: %4 | %5 (%6)")
                            .arg(statusStr)
                            .arg(QFileInfo(mi.db->filepath()).fileName())
+                           .arg(mi.item.targetType.toUpper())
+                           .arg(targetTitle)
                            .arg(mi.item.prompt.left(100).replace("\n", " ").trimmed() + "...")
                            .arg(mi.item.model);
 
@@ -209,3 +209,34 @@ void QueueWindow::onMoveUp() {
 }
 
 void QueueWindow::onMoveDown() {}
+
+void QueueWindow::onJumpItem() {
+    auto item = m_queueList->currentItem();
+    if (!item) return;
+
+    int id = item->data(Qt::UserRole).toInt();
+    QString path = item->data(Qt::UserRole + 1).toString();
+
+    for (auto db : QueueManager::instance().databases()) {
+        if (db->filepath() == path) {
+            for (const auto& mi : QueueManager::instance().getMergedQueue()) {
+                if (mi.item.id == id && mi.db == db) {
+                    QWidget* mainWin = nullptr;
+                    for (QWidget* widget : QApplication::topLevelWidgets()) {
+                        if (widget->inherits("MainWindow")) {
+                            mainWin = widget;
+                            break;
+                        }
+                    }
+                    if (mainWin) {
+                        QMetaObject::invokeMethod(mainWin, "onQueueItemClicked",
+                                                  Q_ARG(std::shared_ptr<BookDatabase>, db),
+                                                  Q_ARG(int, mi.item.messageId));
+                    }
+                    break;
+                }
+            }
+            break;
+        }
+    }
+}
