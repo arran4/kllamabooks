@@ -1708,6 +1708,25 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
         }
     } else if (type == "document" || type == "note" || type == "template" || type == "draft") {
         QMenu menu(this);
+
+        QString editLabel = "Edit Item";
+        if (type == "document") editLabel = "Edit Document";
+        else if (type == "note") editLabel = "Edit Note";
+        else if (type == "template") editLabel = "Edit Template";
+        else if (type == "draft") editLabel = "Edit Draft";
+
+        QAction* editAction = menu.addAction(QIcon::fromTheme("document-edit"), editLabel);
+
+        QAction* historyAction = nullptr;
+        QAction* aiAction = nullptr;
+
+        if (type == "document") {
+            historyAction = menu.addAction(QIcon::fromTheme("view-history"), "History");
+            aiAction = menu.addAction(QIcon::fromTheme("tools-wizard"), "AI Operations");
+        }
+
+        menu.addSeparator();
+
         QAction* exportAction = nullptr;
         QAction* replaceAction = nullptr;
         QAction* loadTemplateAction = nullptr;
@@ -1732,8 +1751,39 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
             replaceAction = menu.addAction(QIcon::fromTheme("document-import"), "Replace with Import...");
         }
 
+        menu.addSeparator();
+        QMenu* dangerMenu = menu.addMenu(QIcon::fromTheme("dialog-warning"), "Danger");
+        QAction* deleteAction = dangerMenu->addAction(QIcon::fromTheme("edit-delete"), "Delete");
+
         QAction* selectedAction = menu.exec(globalPos);
-        if (loadTemplateAction && selectedAction == loadTemplateAction) {
+        if (selectedAction) {
+            openBooksTree->setCurrentIndex(item->index());
+        }
+
+        if (selectedAction == editAction) {
+            if (type == "document") {
+                onEditDocument();
+            }
+        } else if (historyAction && selectedAction == historyAction) {
+            onDocumentHistory();
+        } else if (aiAction && selectedAction == aiAction) {
+            onDocumentAIOperations();
+        } else if (selectedAction == deleteAction) {
+            int answer = QMessageBox::question(this, "Delete", tr("Are you sure you want to delete this %1?").arg(type));
+            if (answer == QMessageBox::Yes && currentDb) {
+                int id = item->data(Qt::UserRole).toInt();
+                if (type == "document") {
+                    currentDb->deleteDocument(id);
+                } else if (type == "note") {
+                    currentDb->deleteNote(id);
+                } else if (type == "template") {
+                    currentDb->deleteTemplate(id);
+                } else if (type == "draft") {
+                    currentDb->deleteDraft(id);
+                }
+                loadDocumentsAndNotes();
+            }
+        } else if (loadTemplateAction && selectedAction == loadTemplateAction) {
             int docId = item->data(Qt::UserRole).toInt();
             if (currentDb) {
                 QList<DocumentNode> templates = currentDb->getTemplates();
