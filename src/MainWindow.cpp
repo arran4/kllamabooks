@@ -3695,9 +3695,10 @@ void MainWindow::updateNotificationStatus() {
             connect(action, &QAction::triggered, this, [this, db, n, bookName]() {
                 if (n.type == "review_needed") {
                     DocumentReviewDialog reviewDlg(db, n.messageId, this);
-                    reviewDlg.exec();
-                    db->dismissNotification(n.id);
-                    updateNotificationStatus();
+                    if (reviewDlg.exec() == QDialog::Accepted) {
+                        db->dismissNotification(n.id);
+                        updateNotificationStatus();
+                    }
 
                     if (currentDb == db && currentDocumentId != 0) {
                         // Re-fetch document content in case the review dialog changed it or we need to clear live
@@ -3943,7 +3944,10 @@ void MainWindow::onQueueItemClicked(std::shared_ptr<BookDatabase> db, int messag
     for (const auto& item : db->getQueue()) {
         if (item.messageId == messageId && item.targetType == "document" && item.state == "completed") {
             DocumentReviewDialog reviewDlg(db, item.id, this);
-            reviewDlg.exec();
+            if (reviewDlg.exec() == QDialog::Accepted) {
+                db->dismissNotificationByMessageId(item.id);
+                updateNotificationStatus();
+            }
             openedReview = true;
 
             // Reload document editor view just in case the dialog made edits (replace/append)
