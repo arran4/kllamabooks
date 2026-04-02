@@ -126,6 +126,10 @@ void QueueWindow::refresh() {
                 statusStr = "ERROR";
         }
 
+        if (statusStr == "PENDING" && !QueueManager::instance().isEndpointUp()) {
+            statusStr = "ENDPOINT DOWN";
+        }
+
         QString text = QString("[%1] %2: %3 (%4)")
                            .arg(statusStr)
                            .arg(QFileInfo(mi.db->filepath()).fileName())
@@ -142,6 +146,8 @@ void QueueWindow::refresh() {
             listItem->setBackground(Qt::red);
         } else if (statusStr == "COMPLETED") {
             listItem->setBackground(Qt::green);
+        } else if (statusStr == "ENDPOINT DOWN") {
+            listItem->setBackground(Qt::yellow);
         }
     }
     updateButtons();

@@ -12,9 +12,16 @@ QueueManager& QueueManager::instance() {
     return instance;
 }
 
-QueueManager::QueueManager(QObject* parent) : QObject(parent), m_timer(new QTimer(this)), m_isPaused(false) {
+QueueManager::QueueManager(QObject* parent) : QObject(parent), m_timer(new QTimer(this)), m_isPaused(false), m_probeTimer(new QTimer(this)) {
     connect(m_timer, &QTimer::timeout, this, &QueueManager::checkQueue);
     m_timer->start(1000);  // Check every second
+
+    connect(m_probeTimer, &QTimer::timeout, this, [this]() {
+        if (m_client && totalPendingCount() > 0) {
+            m_client->fetchModels();
+        }
+    });
+    m_probeTimer->setInterval(5000);
 }
 
 void QueueManager::addDatabase(std::shared_ptr<BookDatabase> db) {
@@ -60,7 +67,22 @@ void QueueManager::setActiveDatabase(std::shared_ptr<BookDatabase> db) {
     }
 }
 
-void QueueManager::setClient(OllamaClient* client) { m_client = client; }
+void QueueManager::setClient(OllamaClient* client) {
+    m_client = client;
+    if (m_client) {
+        connect(m_client, &OllamaClient::connectionStatusChanged, this, [this](bool isOk) {
+            m_isEndpointUp = isOk;
+            if (isOk) {
+                m_probeTimer->stop();
+                QTimer::singleShot(0, this, &QueueManager::checkQueue);
+            } else {
+                if (!m_probeTimer->isActive()) {
+                    m_probeTimer->start();
+                }
+            }
+        });
+    }
+}
 
 /**
  * @brief Appends a generation request payload to the processing queue.
@@ -100,6 +122,7 @@ int QueueManager::pendingCount(std::shared_ptr<BookDatabase> db) const {
 
 void QueueManager::checkQueue() {
     if (m_isProcessing || m_isPaused || !m_client || m_databases.isEmpty()) return;
+    if (!m_isEndpointUp) return;
     processNext();
 }
 
@@ -300,12 +323,12 @@ void QueueManager::processNext() {
         m_client->generateChat(
             m_currentItem.model, messagesArray, [this](const QString& chunk) { onChunk(chunk); },
             [this](const QString& response) { onComplete(response); },
-            [this](const QString& error) { onError(error); });
+            [this](QNetworkReply::NetworkError errorCode, const QString& error) { onError(errorCode, error); });
     } else {
         m_client->generate(
             m_currentItem.model, m_currentItem.prompt, [this](const QString& chunk) { onChunk(chunk); },
             [this](const QString& response) { onComplete(response); },
-            [this](const QString& error) { onError(error); });
+            [this](QNetworkReply::NetworkError errorCode, const QString& error) { onError(errorCode, error); });
     }
 }
 
@@ -384,11 +407,18 @@ void QueueManager::onComplete(const QString& response) {
  *
  * @param error The descriptive error message.
  */
-void QueueManager::onError(const QString& error) {
+void QueueManager::onError(QNetworkReply::NetworkError errorCode, const QString& error) {
     if (!m_isProcessing) return;
     if (m_currentDb && m_currentDb->isOpen()) {
-        m_currentDb->updateQueueError(m_currentItem.id, error);
-        m_currentDb->addNotification(m_currentItem.messageId, "error");
+        if (errorCode == QNetworkReply::ConnectionRefusedError ||
+            errorCode == QNetworkReply::HostNotFoundError ||
+            errorCode == QNetworkReply::TimeoutError) {
+            m_currentDb->updateQueueItemState(m_currentItem.id, "pending");
+            m_currentDb->updateQueueError(m_currentItem.id, ""); // also resets processing_id to 0
+        } else {
+            m_currentDb->updateQueueError(m_currentItem.id, error);
+            m_currentDb->addNotification(m_currentItem.messageId, "error");
+        }
     }
     m_isProcessing = false;
     emit processingFinished(m_currentDb, m_currentItem.messageId, false, m_currentItem.targetType);

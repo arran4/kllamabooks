@@ -152,7 +152,7 @@ void OllamaClient::pullModel(const QString& modelName) {
  */
 void OllamaClient::generate(const QString& model, const QString& prompt, std::function<void(const QString&)> onChunk,
                             std::function<void(const QString&)> onComplete,
-                            std::function<void(const QString&)> onError) {
+                            std::function<void(QNetworkReply::NetworkError, const QString&)> onError) {
     QUrl url(m_baseUrl + "/api/generate");
     QNetworkRequest request(url);
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
@@ -215,9 +215,10 @@ void OllamaClient::generate(const QString& model, const QString& prompt, std::fu
         }
     });
 
-    connect(reply, &QNetworkReply::finished, this, [reply, onComplete, onError, fullResponse]() {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, onComplete, onError, fullResponse]() {
         if (reply->error() != QNetworkReply::NoError) {
-            onError(reply->errorString());
+            emit connectionStatusChanged(false);
+            onError(reply->error(), reply->errorString());
         } else {
             onComplete(*fullResponse);
         }
@@ -237,7 +238,7 @@ void OllamaClient::generate(const QString& model, const QString& prompt, std::fu
 void OllamaClient::generateChat(const QString& model, const QJsonArray& messages,
                                 std::function<void(const QString&)> onChunk,
                                 std::function<void(const QString&)> onComplete,
-                                std::function<void(const QString&)> onError) {
+                                std::function<void(QNetworkReply::NetworkError, const QString&)> onError) {
     QUrl url(m_baseUrl + "/api/chat");
     QNetworkRequest request(url);
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
@@ -319,9 +320,10 @@ void OllamaClient::generateChat(const QString& model, const QJsonArray& messages
         }
     });
 
-    connect(reply, &QNetworkReply::finished, this, [reply, onComplete, onError, fullResponse]() {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, onComplete, onError, fullResponse]() {
         if (reply->error() != QNetworkReply::NoError) {
-            onError(reply->errorString());
+            emit connectionStatusChanged(false);
+            onError(reply->error(), reply->errorString());
         } else {
             onComplete(*fullResponse);
         }
