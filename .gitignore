@@ -9,3 +9,5 @@ Makefile
 kllamabooks
 *.db
 /.idea/
+
+*.py

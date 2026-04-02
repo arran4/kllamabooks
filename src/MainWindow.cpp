@@ -51,6 +51,7 @@
 #include "DocumentEditWindow.h"
 #include "DocumentHistoryDialog.h"
 #include "DocumentReviewDialog.h"
+#include "DraftSelectionDialog.h"
 #include "ModelSelectionDialog.h"
 #include "NotificationDelegate.h"
 #include "QueueManager.h"
@@ -1901,7 +1902,19 @@ void MainWindow::onBookSelected(const QModelIndex& index) {
 
     populateDocumentFolders(docsItem, 0, "documents", dbPtr.get());
     populateDocumentFolders(templatesItem, 0, "templates", dbPtr.get());
-    populateDocumentFolders(draftsItem, 0, "drafts", dbPtr.get());
+
+    // Populate Drafts Folders recursively by type
+    QStringList types = {"documents", "templates", "notes"};
+    for (const QString& tType : types) {
+        QString fName = tType;
+        fName = fName.left(1).toUpper() + fName.mid(1);
+        QStandardItem* tItem = new QStandardItem(QIcon::fromTheme("folder-open"), fName);
+        tItem->setData("drafts_folder", Qt::UserRole + 1);
+        tItem->setData(0, Qt::UserRole);
+        populateDraftsFolders(tItem, 0, tType, dbPtr.get());
+        draftsItem->appendRow(tItem);
+    }
+
     populateDocumentFolders(notesItem, 0, "notes", dbPtr.get());
 
     bookItem->appendRow(chatsItem);
@@ -1919,6 +1932,37 @@ void MainWindow::onBookSelected(const QModelIndex& index) {
     loadSession(0);  // For now, load all as one session
 
     openBooksTree->setCurrentIndex(bookItem->index());
+}
+
+
+void MainWindow::populateDraftsFolders(QStandardItem* parentItem, int folderId, const QString& underlyingType,
+                                       BookDatabase* db) {
+    if (!db) return;
+
+    // First, add subfolders of the underlying type
+    QList<FolderNode> folders = db->getFolders(underlyingType);
+    for (const auto& folder : folders) {
+        if (folder.parentId == folderId) {
+            QStandardItem* item = new QStandardItem(QIcon::fromTheme("folder-open"), folder.name);
+            item->setData(folder.id, Qt::UserRole);
+            item->setData("drafts_folder", Qt::UserRole + 1);
+
+            parentItem->appendRow(item);
+            populateDraftsFolders(item, folder.id, underlyingType, db);
+        }
+    }
+
+    // Now, add any drafts whose parentId corresponds to an item in this folder.
+    QList<DocumentNode> allDrafts = db->getDrafts(folderId);
+    for (const auto& doc : allDrafts) {
+        // DocumentNode targetType now works
+        if (doc.targetType == underlyingType || doc.targetType == underlyingType.left(underlyingType.length() - 1)) {
+            QStandardItem* docItem = new QStandardItem(QIcon::fromTheme("text-plain"), doc.title);
+            docItem->setData(doc.id, Qt::UserRole);
+            docItem->setData("draft", Qt::UserRole + 1);
+            parentItem->appendRow(docItem);
+        }
+    }
 }
 
 void MainWindow::populateDocumentFolders(QStandardItem* parentItem, int folderId, const QString& type,
@@ -4338,7 +4382,33 @@ void MainWindow::onEditDocument() {
     QStandardItem* item = index.isValid() ? openBooksModel->itemFromIndex(index) : nullptr;
     QString currentTitle = item ? item->text() : "Document";
 
-    DocumentEditWindow* editWin = new DocumentEditWindow(currentDb, currentDocumentId, currentTitle);
+    QString initialContent = "";
+    QString targetTypeStr = "document";
+    if (item && item->data(Qt::UserRole + 1).toString().startsWith("template")) targetTypeStr = "template";
+    else if (item && item->data(Qt::UserRole + 1).toString().startsWith("note")) targetTypeStr = "note";
+
+    // Check for associated drafts
+    QList<DocumentNode> allDrafts = currentDb->getDrafts();
+    QList<DocumentNode> associatedDrafts;
+    for (const auto& d : allDrafts) {
+        if (d.parentId == currentDocumentId) {
+            associatedDrafts.append(d);
+        }
+    }
+
+    if (!associatedDrafts.isEmpty()) {
+        DraftSelectionDialog dialog(currentDb, currentDocumentId, associatedDrafts, targetTypeStr, this);
+        int res = dialog.exec();
+        if (res == QDialog::Accepted && dialog.didSelectDraft()) {
+            initialContent = dialog.getSelectedDraftContent();
+        }
+        // If Rejected, the user clicked "Ignore Drafts / Cancel", so we just proceed without initialContent
+    }
+
+    DocumentEditWindow* editWin = new DocumentEditWindow(currentDb, currentDocumentId, currentTitle, targetTypeStr);
+    if (!initialContent.isEmpty()) {
+        editWin->setInitialContent(initialContent);
+    }
     m_openDocEditors.insert(currentDocumentId, editWin);
 
     connect(editWin, &DocumentEditWindow::documentModified, this, [this](int docId) {

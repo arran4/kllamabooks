@@ -21,8 +21,9 @@
 #include <QVBoxLayout>
 
 DocumentEditWindow::DocumentEditWindow(std::shared_ptr<BookDatabase> db, int documentId, const QString& title,
+                                       const QString& targetType,
                                        QWidget* parent)
-    : KXmlGuiWindow(parent, Qt::Window), m_db(db), m_documentId(documentId), m_title(title) {
+    : KXmlGuiWindow(parent, Qt::Window), m_db(db), m_documentId(documentId), m_title(title), m_targetType(targetType) {
     setWindowTitle(tr("Editing: %1").arg(title));
     resize(800, 600);
     setAttribute(Qt::WA_DeleteOnClose);
@@ -104,6 +105,10 @@ void DocumentEditWindow::updateStatusBar() {
     }
 }
 
+void DocumentEditWindow::setInitialContent(const QString& content) {
+    m_editor->setPlainText(content);
+}
+
 void DocumentEditWindow::loadDocument() {
     if (!m_db || !m_db->isOpen()) return;
 
@@ -111,7 +116,9 @@ void DocumentEditWindow::loadDocument() {
     for (const auto& d : docs) {
         if (d.id == m_documentId) {
             m_initialContent = d.content;
-            m_editor->setPlainText(m_initialContent);
+            if (m_editor->toPlainText().isEmpty()) {
+                m_editor->setPlainText(m_initialContent);
+            }
             break;
         }
     }
@@ -232,7 +239,7 @@ int DocumentEditWindow::saveToDraft(const QString& newTitle) {
         }
     }
 
-    return m_db->addDraft(folderId, newTitle, m_editor->toPlainText());
+    return m_db->addDraft(folderId, newTitle, m_editor->toPlainText(), m_documentId, m_targetType);
 }
 
 bool DocumentEditWindow::saveToDb() {

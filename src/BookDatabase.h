@@ -24,6 +24,7 @@ struct DocumentNode {
     QString content;
     QDateTime timestamp;
     bool isFolder;  // Deprecated, but keeping for compatibility during migration if needed
+    QString targetType; // Optional, e.g., 'document', 'note', 'template'
 };
 
 struct ChatNode {
@@ -139,7 +140,7 @@ class BookDatabase {
     QList<DocumentNode> getTemplates(int folderId = -1) const;
 
     // Drafts
-    int addDraft(int folderId, const QString& title, const QString& content);
+    int addDraft(int folderId, const QString& title, const QString& content, int parentId = 0, const QString& targetType = "document");
     bool updateDraft(int id, const QString& newTitle, const QString& newContent);
     QList<DocumentNode> getDrafts(int folderId = -1) const;
     bool deleteDraft(int id);
