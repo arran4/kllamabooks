@@ -3,6 +3,7 @@
 
 #include <QComboBox>
 #include <QDialog>
+#include <QFontComboBox>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
@@ -10,6 +11,7 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QSettings>
+#include <QSpinBox>
 #include <QTableWidget>
 #include <QTextEdit>
 #include <QVBoxLayout>
@@ -70,6 +72,8 @@ class SettingsDialog : public QDialog {
     QPushButton* m_cancelButton;
     QSettings m_settings;
     QComboBox* m_sendBehaviorCombo;
+    QFontComboBox* m_fontFamilyCombo;
+    QSpinBox* m_fontSizeSpinBox;
     QTextEdit* m_globalSystemPromptEdit;
     QComboBox* m_queueProcessingCombo;
     QCheckBox* m_prioritizeSameModelCheck;

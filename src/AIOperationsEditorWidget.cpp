@@ -34,7 +34,7 @@ class EditOperationDialog : public QDialog {
 
         m_promptEdit = new QTextEdit(this);
         m_promptEdit->setPlainText(op.prompt);
-        form->addRow(tr("Prompt (use {context}):"), m_promptEdit);
+        form->addRow(tr("Prompt\n(use {context},\n{input \"label\"},\n{textarea \"label\"}):"), m_promptEdit);
 
         layout->addLayout(form);
 

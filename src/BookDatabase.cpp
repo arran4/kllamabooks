@@ -65,42 +65,55 @@ void BookDatabase::cleanupDeadProcessingItems() {
 
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2((sqlite3*)m_db,
-                           "SELECT id, processing_id FROM queue WHERE processing_id > 0 OR state = 'processing';", -1,
+                           "SELECT id, processing_id, last_error FROM queue WHERE processing_id > 0 OR state = "
+                           "'processing' OR (last_error IS NOT NULL AND last_error != '' AND state != 'error');",
+                           -1,
                            &stmt, nullptr) == SQLITE_OK) {
-        QList<int> idsToReset;
+        struct ItemToReset {
+            int id;
+            QString error;
+        };
+        QList<ItemToReset> itemsToReset;
         while (sqlite3_step(stmt) == SQLITE_ROW) {
             int id = sqlite3_column_int(stmt, 0);
             int pid = sqlite3_column_int(stmt, 1);
+            const unsigned char* errText = sqlite3_column_text(stmt, 2);
+            QString lastError = errText ? QString::fromUtf8((const char*)errText) : QString();
+
             if (pid <= 0) {
-                idsToReset.append(id);
+                itemsToReset.append({id, lastError});
             } else {
 #ifdef Q_OS_UNIX
                 if (kill(pid, 0) != 0 && errno == ESRCH) {
-                    idsToReset.append(id);
+                    itemsToReset.append({id, lastError});
                 } else {
                     // Process exists, check if it's kllamabooks
                     QFile commFile(QString("/proc/%1/comm").arg(pid));
                     if (commFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
                         QString comm = QString(commFile.readAll()).trimmed();
                         if (!comm.contains("kllamabooks", Qt::CaseInsensitive)) {
-                            idsToReset.append(id);
+                            itemsToReset.append({id, lastError});
                         }
                     } else {
                         // Could not read comm file, assume dead
-                        idsToReset.append(id);
+                        itemsToReset.append({id, lastError});
                     }
                 }
 #else
                 // Simple fallback for non-Unix if needed, though KllamaBooks is KDE/Linux targeted.
-                idsToReset.append(id);
+                itemsToReset.append({id, lastError});
 #endif
             }
         }
         sqlite3_finalize(stmt);
 
-        for (int id : idsToReset) {
-            updateQueueProcessingId(id, 0);
-            updateQueueItemState(id, "pending");
+        for (const auto& item : itemsToReset) {
+            if (!item.error.isEmpty()) {
+                updateQueueError(item.id, item.error);
+            } else {
+                updateQueueProcessingId(item.id, 0);
+                updateQueueItemState(item.id, "pending");
+            }
         }
     }
 }
@@ -1162,9 +1175,14 @@ bool BookDatabase::updateQueueItemState(int id, const QString& state, const QStr
     // If response is empty, maybe don't overwrite an existing response unless explicitly asked?
     // Wait, the prompt said response has a default of "". When we just update state to 'processing',
     // it will overwrite response with "". This is fine because when it starts processing, response is empty anyway.
-    const char* sql = "UPDATE queue SET state = ?, response = ? WHERE id = ?;";
+    QString sqlStr = "UPDATE queue SET state = ?, response = ?";
+    if (state != "error") {
+        sqlStr += ", last_error = ''";
+    }
+    sqlStr += " WHERE id = ?;";
+
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    if (sqlite3_prepare_v2((sqlite3*)m_db, sqlStr.toUtf8().constData(), -1, &stmt, nullptr) != SQLITE_OK) return false;
 
     sqlite3_bind_text(stmt, 1, state.toUtf8().constData(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 2, response.toUtf8().constData(), -1, SQLITE_TRANSIENT);
@@ -1229,11 +1247,13 @@ bool BookDatabase::updateQueueProcessingId(int id, int processingId) {
 
 bool BookDatabase::updateQueueError(int id, const QString& error) {
     if (!m_isOpen) return false;
-    const char* sql = "UPDATE queue SET last_error = ?, processing_id = 0 WHERE id = ?;";
+    const char* sql = "UPDATE queue SET last_error = ?, processing_id = 0, state = ? WHERE id = ?;";
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
     sqlite3_bind_text(stmt, 1, error.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int(stmt, 2, id);
+    QString state = error.isEmpty() ? "pending" : "error";
+    sqlite3_bind_text(stmt, 2, state.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 3, id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
     return rc == SQLITE_DONE;
@@ -1245,6 +1265,19 @@ bool BookDatabase::updateQueueItemPrompt(int id, const QString& prompt) {
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
     sqlite3_bind_text(stmt, 1, prompt.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 2, id);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
+}
+
+
+bool BookDatabase::updateQueueItemModel(int id, const QString& model) {
+    if (!m_isOpen) return false;
+    const char* sql = "UPDATE queue SET model = ? WHERE id = ?;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, model.toUtf8().constData(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_int(stmt, 2, id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
@@ -1318,6 +1351,18 @@ bool BookDatabase::dismissNotificationByMessageId(int messageId) {
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
     sqlite3_bind_int(stmt, 1, messageId);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
+}
+
+bool BookDatabase::dismissNotificationByMessageIdAndType(int messageId, const QString& type) {
+    if (!m_isOpen) return false;
+    const char* sql = "UPDATE notifications SET is_dismissed = 1 WHERE message_id = ? AND type = ?;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_int(stmt, 1, messageId);
+    sqlite3_bind_text(stmt, 2, type.toUtf8().constData(), -1, SQLITE_TRANSIENT);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
     return rc == SQLITE_DONE;
@@ -1505,4 +1550,15 @@ QSet<int> BookDatabase::getAllChatIds() const {
         sqlite3_finalize(stmt);
     }
     return ids;
+}
+
+bool BookDatabase::deleteTemplate(int id) {
+    if (!m_isOpen) return false;
+    const char* sql = "DELETE FROM templates WHERE id = ?;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_int(stmt, 1, id);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
 }

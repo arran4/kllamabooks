@@ -42,16 +42,46 @@ void OllamaClient::fetchModels() {
             if (doc.isObject() && doc.object().contains("models") && doc.object()["models"].isArray()) {
                 QJsonArray modelsArray = doc.object()["models"].toArray();
                 QStringList modelNames;
+                QList<OllamaModelInfo> modelInfos;
                 for (const auto& modelVal : modelsArray) {
                     if (modelVal.isObject() && modelVal.toObject().contains("name")) {
-                        modelNames.append(modelVal.toObject()["name"].toString());
+                        QJsonObject modelObj = modelVal.toObject();
+                        QString name = modelObj["name"].toString();
+                        modelNames.append(name);
+
+                        OllamaModelInfo info;
+                        info.name = name;
+
+                        // Parse size
+                        if (modelObj.contains("size")) {
+                            qint64 sizeBytes = modelObj["size"].toVariant().toLongLong();
+                            if (sizeBytes > 1024LL * 1024LL * 1024LL) {
+                                info.size = QString::number(sizeBytes / (1024.0 * 1024.0 * 1024.0), 'f', 1) + " GB";
+                            } else if (sizeBytes > 1024 * 1024) {
+                                info.size = QString::number(sizeBytes / (1024.0 * 1024.0), 'f', 1) + " MB";
+                            } else {
+                                info.size = QString::number(sizeBytes) + " B";
+                            }
+                        }
+
+                        // Parse details
+                        if (modelObj.contains("details") && modelObj["details"].isObject()) {
+                            QJsonObject detailsObj = modelObj["details"].toObject();
+                            info.family = detailsObj["family"].toString();
+                            info.parameterSize = detailsObj["parameter_size"].toString();
+                            info.quantizationLevel = detailsObj["quantization_level"].toString();
+                        }
+
+                        modelInfos.append(info);
                     }
                 }
                 emit modelListUpdated(modelNames);
+                emit modelInfoUpdated(modelInfos);
             }
         } else {
             emit connectionStatusChanged(false);
             emit modelListUpdated(QStringList());  // Clear on error
+            emit modelInfoUpdated(QList<OllamaModelInfo>());
         }
         reply->deleteLater();
     });
@@ -152,7 +182,7 @@ void OllamaClient::pullModel(const QString& modelName) {
  */
 void OllamaClient::generate(const QString& model, const QString& prompt, std::function<void(const QString&)> onChunk,
                             std::function<void(const QString&)> onComplete,
-                            std::function<void(const QString&)> onError) {
+                            std::function<void(QNetworkReply::NetworkError, const QString&)> onError) {
     QUrl url(m_baseUrl + "/api/generate");
     QNetworkRequest request(url);
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
@@ -175,6 +205,7 @@ void OllamaClient::generate(const QString& model, const QString& prompt, std::fu
     emit requestSent(model, m_systemPrompt, prompt);
 
     QNetworkReply* reply = m_networkManager->post(request, data);
+    m_activeGenerations.append(reply);
 
     // Shared pointer to accumulate the full response safely
     auto fullResponse = std::make_shared<QString>();
@@ -215,9 +246,11 @@ void OllamaClient::generate(const QString& model, const QString& prompt, std::fu
         }
     });
 
-    connect(reply, &QNetworkReply::finished, this, [reply, onComplete, onError, fullResponse]() {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, onComplete, onError, fullResponse]() {
+        m_activeGenerations.removeAll(reply);
         if (reply->error() != QNetworkReply::NoError) {
-            onError(reply->errorString());
+            emit connectionStatusChanged(false);
+            onError(reply->error(), reply->errorString());
         } else {
             onComplete(*fullResponse);
         }
@@ -237,7 +270,7 @@ void OllamaClient::generate(const QString& model, const QString& prompt, std::fu
 void OllamaClient::generateChat(const QString& model, const QJsonArray& messages,
                                 std::function<void(const QString&)> onChunk,
                                 std::function<void(const QString&)> onComplete,
-                                std::function<void(const QString&)> onError) {
+                                std::function<void(QNetworkReply::NetworkError, const QString&)> onError) {
     QUrl url(m_baseUrl + "/api/chat");
     QNetworkRequest request(url);
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
@@ -275,6 +308,7 @@ void OllamaClient::generateChat(const QString& model, const QJsonArray& messages
     emit requestSent(model, m_systemPrompt, QString(debugDoc.toJson(QJsonDocument::Compact)));
 
     QNetworkReply* reply = m_networkManager->post(request, data);
+    m_activeGenerations.append(reply);
 
     auto fullResponse = std::make_shared<QString>();
     auto buffer = std::make_shared<QByteArray>();
@@ -319,12 +353,22 @@ void OllamaClient::generateChat(const QString& model, const QJsonArray& messages
         }
     });
 
-    connect(reply, &QNetworkReply::finished, this, [reply, onComplete, onError, fullResponse]() {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, onComplete, onError, fullResponse]() {
+        m_activeGenerations.removeAll(reply);
         if (reply->error() != QNetworkReply::NoError) {
-            onError(reply->errorString());
+            emit connectionStatusChanged(false);
+            onError(reply->error(), reply->errorString());
         } else {
             onComplete(*fullResponse);
         }
         reply->deleteLater();
     });
+}
+
+void OllamaClient::abortGenerations() {
+    const auto activeGens = m_activeGenerations;
+    for (QNetworkReply* reply : activeGens) {
+        reply->abort();
+    }
+    // They will be removed from m_activeGenerations in the finished slot
 }

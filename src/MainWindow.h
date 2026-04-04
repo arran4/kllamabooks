@@ -38,6 +38,7 @@
 #include "ModelExplorer.h"
 #include "OllamaClient.h"
 #include "SettingsDialog.h"
+#include "OllamaModelInfo.h"
 
 class CustomItemModel : public QStandardItemModel {
     Q_OBJECT
@@ -105,6 +106,10 @@ class MainWindow : public KXmlGuiWindow {
     void showInputSettingsMenu();
     void showChatSettingsDialog(int messageId);
     void updateInputBehavior();
+    void updateApplicationFont();
+    void zoomIn();
+    void zoomOut();
+    void resetZoom();
     void exportChatSession();
     void importChatSession();
     void exportDocument(int id, const QString& type);
@@ -115,12 +120,14 @@ class MainWindow : public KXmlGuiWindow {
     void showQueueWindow();
     void showSpyWindow();
     void onQueueItemClicked(std::shared_ptr<BookDatabase> db, int messageId);
-    void updateTreeMarkersRecursive(QStandardItem* parent, const QList<Notification>& notifications);
-    void updateVfsMarkers(const QList<Notification>& notifications);
+    void updateTreeMarkersRecursive(QStandardItem* parent, const QMap<QPair<QString, int>, int>& activeNotifications);
+    void updateVfsMarkers(const QMap<QPair<QString, int>, int>& activeNotifications);
     bool moveItemToFolder(QStandardItem* draggedItem, QStandardItem* targetItem, bool isCopy = false);
     void onQueueChunk(std::shared_ptr<BookDatabase> db, int messageId, const QString& chunk, const QString& targetType);
     void onProcessingStarted(std::shared_ptr<BookDatabase> db, int messageId, const QString& targetType);
     void onProcessingFinished(std::shared_ptr<BookDatabase> db, int messageId, bool success, const QString& targetType);
+    void onCancelActiveGeneration();
+    void updateGenerationUI();
 
    protected:
     void closeEvent(QCloseEvent* event) override;
@@ -191,16 +198,18 @@ class MainWindow : public KXmlGuiWindow {
     QStandardItemModel* chatModel;
     ChatInputWidget* inputField;  // Using HEAD's custom input field
     QPushButton* sendButton;
+    QPushButton* cancelGenerationBtn;
     QPushButton* discardChangesBtn;
     QPushButton* dismissDraftBtn;
     QPushButton* modelSelectButton;
     QStringList m_availableModels;
+    QList<OllamaModelInfo> m_availableModelInfos;
     QString m_selectedModel;
     QToolButton* inputSettingsButton;
     QComboBox* modelComboBox;
 
     QMap<QString, std::shared_ptr<BookDatabase>> m_openDatabases;
-    QMap<int, class DocumentEditWindow*> m_openDocEditors;
+    QMap<QString, class DocumentEditWindow*> m_openDocEditors;
     std::shared_ptr<BookDatabase> currentDb;
     OllamaClient ollamaClient;
 

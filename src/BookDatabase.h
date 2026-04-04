@@ -137,6 +137,7 @@ class BookDatabase {
     int addTemplate(int folderId, const QString& title, const QString& content);
     bool updateTemplate(int id, const QString& newTitle, const QString& newContent);
     QList<DocumentNode> getTemplates(int folderId = -1) const;
+    bool deleteTemplate(int id);
 
     // Drafts
     int addDraft(int folderId, const QString& title, const QString& content);
@@ -166,6 +167,7 @@ class BookDatabase {
     bool updateQueueProcessingId(int id, int processingId);
     bool updateQueueError(int id, const QString& error);
     bool updateQueueItemPrompt(int id, const QString& prompt);
+    bool updateQueueItemModel(int id, const QString& model);
     bool updateQueueItemState(int id, const QString& state, const QString& response = "");
     bool deleteQueueItem(int id);
 
@@ -180,6 +182,7 @@ class BookDatabase {
     QList<Notification> getNotifications(bool includeDismissed = false) const;
     bool dismissNotification(int id);
     bool dismissNotificationByMessageId(int messageId);
+    bool dismissNotificationByMessageIdAndType(int messageId, const QString& type);
 
     QString getDatabaseDebugInfo() const;
 
