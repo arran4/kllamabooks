@@ -2408,12 +2408,30 @@ void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& 
             bubbleHtml += "<td width='20%'></td>";
         }
 
+        QString formattedContent;
+        if (node.role == "user") {
+            formattedContent = node.content.toHtmlEscaped().replace("\n", "<br>");
+        } else {
+            // Use a temporary QTextDocument to parse Markdown into HTML
+            QTextDocument tempDoc;
+            tempDoc.setMarkdown(node.content);
+            formattedContent = tempDoc.toHtml();
+
+            // toHtml() wraps everything in <html><head><body>...</body></html>
+            // We just want the body content.
+            int bodyStart = formattedContent.indexOf("<body>");
+            int bodyEnd = formattedContent.lastIndexOf("</body>");
+            if (bodyStart != -1 && bodyEnd != -1) {
+                formattedContent = formattedContent.mid(bodyStart + 6, bodyEnd - bodyStart - 6);
+            }
+        }
+
         bubbleHtml += QString(
             "<td style='background-color: %1; border-radius: 10px; padding: 10px;'>"
             "<div style='font-weight: bold; margin-bottom: 5px;'>%2</div>"
             "<div>%3</div>"
             "</td>"
-        ).arg(bgColor, roleName.toHtmlEscaped(), node.content.toHtmlEscaped().replace("\n", "<br>"));
+        ).arg(bgColor, roleName.toHtmlEscaped(), formattedContent);
 
         if (node.role != "user") {
             bubbleHtml += "<td width='20%'></td>";
