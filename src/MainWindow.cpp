@@ -2216,7 +2216,8 @@ void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& 
     }
 
     if (currentDb) {
-        currentDb->dismissNotificationByMessageId(tailNodeId);
+        // Linear chat view always operates on message nodes (chat_node)
+        currentDb->dismissNotificationByTarget(tailNodeId, "message");
         updateNotificationStatus();
     }
     chatTextArea->blockSignals(true);
@@ -3795,8 +3796,8 @@ void MainWindow::updateNotificationStatus() {
 
                     QString typeStr = (n.type == "error") ? tr("Error") : tr("Finished");
                     QLabel* summary =
-                        new QLabel(QString("<b>Book:</b> %1<br><b>Status:</b> %2<br><b>Message ID:</b> %3")
-                                       .arg(bookName, typeStr, QString::number(n.messageId)));
+                        new QLabel(QString("<b>Book:</b> %1<br><b>Status:</b> %2<br><b>Target ID:</b> %3")
+                                       .arg(bookName, typeStr, QString::number(n.targetId)));
                     summary->setWordWrap(true);
                     layout->addWidget(summary);
 
@@ -4005,12 +4006,12 @@ void MainWindow::updateVfsMarkers(const QList<Notification>& notifications) {
             int id = item->data(Qt::UserRole).toInt();
             QString itemType = item->data(Qt::UserRole + 1).toString();
             int nType = 0;
-            if (itemType == "chat_node") {
-                for (const auto& n : notifications) {
-                    if (n.messageId == id && !n.isDismissed) {
-                        nType = (n.type == "error") ? 2 : 1;
-                        break;
-                    }
+            for (const auto& n : notifications) {
+                QString mappedType = n.targetType;
+                if (mappedType == "message") mappedType = "chat_node";
+                if (n.targetId == id && mappedType == itemType && !n.isDismissed) {
+                    nType = (n.type == "error") ? 2 : 1;
+                    break;
                 }
             }
             item->setData(nType, Qt::UserRole + 10);
@@ -4022,12 +4023,12 @@ void MainWindow::updateVfsMarkers(const QList<Notification>& notifications) {
             int id = item->data(Qt::UserRole).toInt();
             QString itemType = item->data(Qt::UserRole + 1).toString();
             int nType = 0;
-            if (itemType == "chat_node") {
-                for (const auto& n : notifications) {
-                    if (n.messageId == id && !n.isDismissed) {
-                        nType = (n.type == "error") ? 2 : 1;
-                        break;
-                    }
+            for (const auto& n : notifications) {
+                QString mappedType = n.targetType;
+                if (mappedType == "message") mappedType = "chat_node";
+                if (n.targetId == id && mappedType == itemType && !n.isDismissed) {
+                    nType = (n.type == "error") ? 2 : 1;
+                    break;
                 }
             }
             item->setData(nType, Qt::UserRole + 10);
@@ -4046,12 +4047,12 @@ void MainWindow::updateTreeMarkersRecursive(QStandardItem* parent, const QList<N
         int messageId = child->data(Qt::UserRole).toInt();
         QString itemType = child->data(Qt::UserRole + 1).toString();
         int notifyType = 0;
-        if (itemType == "chat_node") {
-            for (const auto& n : notifications) {
-                if (n.messageId == messageId && !n.isDismissed) {
-                    notifyType = (n.type == "error") ? 2 : 1;
-                    break;
-                }
+        for (const auto& n : notifications) {
+            QString mappedType = n.targetType;
+            if (mappedType == "message") mappedType = "chat_node";
+            if (n.targetId == messageId && mappedType == itemType && !n.isDismissed) {
+                notifyType = (n.type == "error") ? 2 : 1;
+                break;
             }
         }
         child->setData(notifyType, Qt::UserRole + 10);

@@ -301,7 +301,7 @@ void QueueManager::onComplete(const QString& response) {
         } else {
             m_currentDb->updateMessage(m_currentItem.messageId, response);
             m_currentDb->deleteQueueItem(m_currentItem.id);
-            m_currentDb->addNotification(m_currentItem.messageId, "responded_to");
+            m_currentDb->addNotification(m_currentItem.messageId, "responded_to", m_currentItem.targetType);
         }
 
         m_currentItem.processingId = 0;
@@ -338,7 +338,7 @@ void QueueManager::onError(const QString& error) {
     if (!m_isProcessing) return;
     if (m_currentDb && m_currentDb->isOpen()) {
         m_currentDb->updateQueueError(m_currentItem.id, error);
-        m_currentDb->addNotification(m_currentItem.messageId, "error");
+        m_currentDb->addNotification(m_currentItem.messageId, "error", m_currentItem.targetType);
     }
     m_isProcessing = false;
     emit processingFinished(m_currentDb, m_currentItem.messageId, false, m_currentItem.targetType);
