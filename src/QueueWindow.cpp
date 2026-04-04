@@ -4,8 +4,10 @@
 #include <QFileInfo>
 #include <QHeaderView>
 #include <QInputDialog>
+#include <QMenu>
 #include <QMessageBox>
 #include <QTextEdit>
+#include <QFormLayout>
 
 QueueWindow::QueueWindow(QWidget* parent) : QWidget(parent, Qt::Window) {
     setWindowTitle("LLM Request Queue");
@@ -16,58 +18,28 @@ QueueWindow::QueueWindow(QWidget* parent) : QWidget(parent, Qt::Window) {
     layout->addWidget(new QLabel("Pending and Processing Tasks", this));
     layout->addWidget(m_queueList);
 
+    m_queueList->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_queueList, &QWidget::customContextMenuRequested, this, &QueueWindow::showContextMenu);
+
     QHBoxLayout* btnLayout = new QHBoxLayout();
     m_upBtn = new QPushButton("Move Up", this);
     m_downBtn = new QPushButton("Move Down", this);
-    m_cancelBtn = new QPushButton("Delete", this);
-    m_retryBtn = new QPushButton("Retry", this);
-    m_modifyBtn = new QPushButton("Modify", this);
     m_clearBtn = new QPushButton("Clear Completed", this);
 
     QPushButton* pauseBtn = new QPushButton(QueueManager::instance().isPaused() ? "Resume Queue" : "Pause Queue", this);
 
     btnLayout->addWidget(m_upBtn);
     btnLayout->addWidget(m_downBtn);
-    btnLayout->addWidget(m_cancelBtn);
-    btnLayout->addWidget(m_retryBtn);
-    btnLayout->addWidget(m_modifyBtn);
     btnLayout->addWidget(pauseBtn);
     btnLayout->addStretch();
     btnLayout->addWidget(m_clearBtn);
     layout->addLayout(btnLayout);
 
-    connect(m_cancelBtn, &QPushButton::clicked, this, &QueueWindow::onCancelItem);
-    connect(m_retryBtn, &QPushButton::clicked, this, &QueueWindow::onRetryItem);
-    connect(m_modifyBtn, &QPushButton::clicked, this, &QueueWindow::onModifyItem);
     connect(m_clearBtn, &QPushButton::clicked, this, &QueueWindow::onClearCompleted);
     connect(m_queueList, &QListWidget::itemSelectionChanged, this, &QueueWindow::updateButtons);
 
-    connect(m_queueList, &QListWidget::itemDoubleClicked, this, [this](QListWidgetItem* item) {
-        if (!item) return;
-        int id = item->data(Qt::UserRole).toInt();
-        QString path = item->data(Qt::UserRole + 1).toString();
-        for (auto db : QueueManager::instance().databases()) {
-            if (db->filepath() == path) {
-                for (const auto& mi : QueueManager::instance().getMergedQueue()) {
-                    if (mi.item.id == id && mi.db == db) {
-                        QWidget* mainWin = nullptr;
-                        for (QWidget* widget : QApplication::topLevelWidgets()) {
-                            if (widget->inherits("MainWindow")) {
-                                mainWin = widget;
-                                break;
-                            }
-                        }
-                        if (mainWin) {
-                            QMetaObject::invokeMethod(mainWin, "onQueueItemClicked",
-                                                      Q_ARG(std::shared_ptr<BookDatabase>, db),
-                                                      Q_ARG(int, mi.item.messageId));
-                        }
-                        break;
-                    }
-                }
-                break;
-            }
-        }
+    connect(m_queueList, &QListWidget::itemDoubleClicked, this, [this](QListWidgetItem*) {
+        onJumpItem();
     });
 
     connect(pauseBtn, &QPushButton::clicked, this, [this, pauseBtn]() {
@@ -91,26 +63,7 @@ QueueWindow::QueueWindow(QWidget* parent) : QWidget(parent, Qt::Window) {
 }
 
 void QueueWindow::updateButtons() {
-    auto item = m_queueList->currentItem();
-    if (!item) {
-        m_retryBtn->setEnabled(false);
-        m_modifyBtn->setEnabled(false);
-        return;
-    }
-
-    int id = item->data(Qt::UserRole).toInt();
-    QString path = item->data(Qt::UserRole + 1).toString();
-
-    bool isError = false;
-    for (const auto& mi : QueueManager::instance().getMergedQueue()) {
-        if (mi.item.id == id && mi.db->filepath() == path) {
-            isError = !mi.item.lastError.isEmpty();
-            break;
-        }
-    }
-
-    m_retryBtn->setEnabled(isError);
-    m_modifyBtn->setEnabled(isError);
+    // Only used to update bulk buttons like up/down now if we enable them
 }
 
 void QueueWindow::refresh() {
@@ -130,9 +83,28 @@ void QueueWindow::refresh() {
             statusStr = "ENDPOINT DOWN";
         }
 
-        QString text = QString("[%1] %2: %3 (%4)")
+        QString targetTitle = "Unknown";
+
+        if (mi.item.targetType == "document") {
+            auto docs = mi.db->getDocuments(-1);
+            for (const auto& doc : docs) {
+                if (doc.id == mi.item.messageId) {
+                    targetTitle = doc.title;
+                    break;
+                }
+            }
+        } else if (mi.item.targetType == "message") {
+            int rootId = mi.db->getRootMessageId(mi.item.messageId);
+            ChatNode chat = mi.db->getChat(rootId);
+            targetTitle = chat.title;
+            if (targetTitle.isEmpty()) targetTitle = "Chat";
+        }
+
+        QString text = QString("[%1] %2 | %3: %4 | %5 (%6)")
                            .arg(statusStr)
                            .arg(QFileInfo(mi.db->filepath()).fileName())
+                           .arg(mi.item.targetType.toUpper())
+                           .arg(targetTitle)
                            .arg(mi.item.prompt.left(100).replace("\n", " ").trimmed() + "...")
                            .arg(mi.item.model);
 
@@ -219,3 +191,149 @@ void QueueWindow::onMoveUp() {
 }
 
 void QueueWindow::onMoveDown() {}
+
+void QueueWindow::showContextMenu(const QPoint& pos) {
+    auto item = m_queueList->itemAt(pos);
+    if (!item) return;
+
+    int id = item->data(Qt::UserRole).toInt();
+    QString path = item->data(Qt::UserRole + 1).toString();
+
+    bool isError = false;
+    for (const auto& mi : QueueManager::instance().getMergedQueue()) {
+        if (mi.item.id == id && mi.db->filepath() == path) {
+            isError = !mi.item.lastError.isEmpty();
+            break;
+        }
+    }
+
+    QMenu menu(this);
+    menu.addAction("Show Details...", this, &QueueWindow::onShowDetails);
+    menu.addAction("Jump to Target", this, &QueueWindow::onJumpItem);
+    menu.addSeparator();
+
+    QAction* modifyAction = menu.addAction("Modify Prompt...", this, &QueueWindow::onModifyItem);
+    modifyAction->setEnabled(isError);
+
+    QAction* retryAction = menu.addAction("Retry", this, &QueueWindow::onRetryItem);
+    retryAction->setEnabled(isError);
+
+    menu.addSeparator();
+    menu.addAction("Delete", this, &QueueWindow::onCancelItem);
+
+    menu.exec(m_queueList->mapToGlobal(pos));
+}
+
+void QueueWindow::onShowDetails() {
+    auto item = m_queueList->currentItem();
+    if (!item) return;
+
+    int id = item->data(Qt::UserRole).toInt();
+    QString path = item->data(Qt::UserRole + 1).toString();
+
+    for (auto db : QueueManager::instance().databases()) {
+        if (db->filepath() == path) {
+            for (const auto& mi : QueueManager::instance().getMergedQueue()) {
+                if (mi.item.id == id && mi.db == db) {
+                    QDialog dlg(this);
+                    dlg.setWindowTitle("Queue Item Details");
+                    dlg.resize(500, 400);
+
+                    QVBoxLayout* layout = new QVBoxLayout(&dlg);
+                    QFormLayout* form = new QFormLayout();
+
+                    form->addRow("Database:", new QLabel(QFileInfo(db->filepath()).fileName()));
+                    form->addRow("State:", new QLabel(mi.item.state.toUpper()));
+                    form->addRow("Model:", new QLabel(mi.item.model));
+                    form->addRow("Target Type:", new QLabel(mi.item.targetType));
+                    form->addRow("Message/Doc ID:", new QLabel(QString::number(mi.item.messageId)));
+                    form->addRow("Priority:", new QLabel(QString::number(mi.item.priority)));
+
+                    layout->addLayout(form);
+
+                    if (!mi.item.lastError.isEmpty()) {
+                        layout->addWidget(new QLabel("Error:"));
+                        QTextEdit* errorEdit = new QTextEdit(mi.item.lastError);
+                        errorEdit->setReadOnly(true);
+                        errorEdit->setStyleSheet("color: red;");
+                        errorEdit->setMaximumHeight(60);
+                        layout->addWidget(errorEdit);
+                    }
+
+                    layout->addWidget(new QLabel("Prompt:"));
+                    QTextEdit* promptEdit = new QTextEdit(mi.item.prompt);
+                    promptEdit->setReadOnly(true);
+                    layout->addWidget(promptEdit);
+
+                    if (!mi.item.response.isEmpty()) {
+                        layout->addWidget(new QLabel("Response (so far):"));
+                        QTextEdit* responseEdit = new QTextEdit(mi.item.response);
+                        responseEdit->setReadOnly(true);
+                        layout->addWidget(responseEdit);
+                    }
+
+                    QPushButton* closeBtn = new QPushButton("Close");
+                    layout->addWidget(closeBtn);
+                    connect(closeBtn, &QPushButton::clicked, &dlg, &QDialog::accept);
+
+                    dlg.exec();
+                    break;
+                }
+            }
+            break;
+        }
+    }
+}
+
+void QueueWindow::onJumpItem() {
+    auto item = m_queueList->currentItem();
+    if (!item) return;
+
+    int id = item->data(Qt::UserRole).toInt();
+    QString path = item->data(Qt::UserRole + 1).toString();
+
+    for (auto db : QueueManager::instance().databases()) {
+        if (db->filepath() == path) {
+            for (const auto& mi : QueueManager::instance().getMergedQueue()) {
+                if (mi.item.id == id && mi.db == db) {
+                    // Validate if the target item still exists
+                    bool isValid = false;
+                    if (mi.item.targetType == "document") {
+                        auto docs = mi.db->getDocuments(-1);
+                        for (const auto& doc : docs) {
+                            if (doc.id == mi.item.messageId) {
+                                isValid = true;
+                                break;
+                            }
+                        }
+                    } else if (mi.item.targetType == "message") {
+                        auto msgs = mi.db->getMessages();
+                        for (const auto& msg : msgs) {
+                            if (msg.id == mi.item.messageId) {
+                                isValid = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (!isValid) return;
+
+                    QWidget* mainWin = nullptr;
+                    for (QWidget* widget : QApplication::topLevelWidgets()) {
+                        if (widget->inherits("MainWindow")) {
+                            mainWin = widget;
+                            break;
+                        }
+                    }
+                    if (mainWin) {
+                        QMetaObject::invokeMethod(mainWin, "onQueueItemClicked",
+                                                  Q_ARG(std::shared_ptr<BookDatabase>, db),
+                                                  Q_ARG(int, mi.item.messageId));
+                    }
+                    break;
+                }
+            }
+            break;
+        }
+    }
+}
