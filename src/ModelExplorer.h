@@ -16,6 +16,7 @@
 #include <QNetworkAccessManager>
 
 #include "OllamaClient.h"
+#include "OllamaModelInfo.h"
 
 class ModelExplorer : public QDialog {
     Q_OBJECT
@@ -29,7 +30,7 @@ class ModelExplorer : public QDialog {
     void onSearchHfClicked();
     void onDownloadFromSearchClicked();
     void onDownloadModelClicked();
-    void updateModelList(const QStringList& models);
+    void updateModelList(const QList<OllamaModelInfo>& models);
     void onOnlineSearchClicked();
     void onLoadMoreClicked();
     void onPullProgressUpdated(const QString& modelName, int percent, const QString& status);
@@ -47,7 +48,7 @@ class ModelExplorer : public QDialog {
 
     // Installed Tab
     QLineEdit* m_installedSearchField;
-    QListWidget* m_installedList;
+    QTableWidget* m_installedTable;
 
     // Download Tab
     QLineEdit* m_downloadNameField;

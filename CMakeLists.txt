@@ -19,6 +19,7 @@ add_executable(kllamabooks
     src/main.cpp
     src/OllamaClient.cpp
     src/OllamaClient.h
+    src/OllamaModelInfo.h
     src/ModelExplorer.cpp
     src/ModelExplorer.h
     src/ModelSelectionDialog.cpp
@@ -57,6 +58,8 @@ add_executable(kllamabooks
     src/DocumentReviewDialog.h
     src/DocumentHistoryDialog.cpp
     src/DocumentHistoryDialog.h
+    src/NewDocumentDialog.cpp
+    src/NewDocumentDialog.h
     src/resources.qrc
 )
 
