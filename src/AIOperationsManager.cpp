@@ -7,11 +7,11 @@ QList<AIOperation> AIOperationsManager::getBuiltInOperations() {
                 "built-in"});
     ops.append({"replace", "Replace entirely",
                 "Rewrite the following document according to your instructions. Only output the rewritten document, "
-                "nothing else.\n\nInstructions: <your instructions here>\n\nDocument:\n{context}",
+                "nothing else.\n\nInstructions: {textarea}\n\nDocument:\n{context}",
                 "built-in"});
     ops.append({"replace_in_place", "Replace in place",
                 "Rewrite the following text according to your instructions. Only output the rewritten text, nothing "
-                "else.\n\nInstructions: <your instructions here>\n\nText:\n{context}",
+                "else.\n\nInstructions: {textarea}\n\nText:\n{context}",
                 "built-in"});
     return ops;
 }

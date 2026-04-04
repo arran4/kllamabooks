@@ -48,12 +48,17 @@ QString AiActionDialog::getPrompt() const {
     return m_finalPrompt;
 }
 
+struct InputWidgetInfo {
+    int start;
+    int length;
+    QWidget* widget;
+};
+
 void AiActionDialog::accept() {
     QString prompt = m_instructionEdit->toPlainText();
-    prompt.replace("{context}", m_contextText);
     m_finalPrompt = prompt;
 
-    QRegularExpression re("\\{(input|textarea)\\s+\"([^\"]+)\"\\}");
+    QRegularExpression re("\\{(input|textarea)(?:\\s+\"([^\"]+)\")?\\}");
     QRegularExpressionMatchIterator i = re.globalMatch(prompt);
 
     if (i.hasNext()) {
@@ -64,13 +69,35 @@ void AiActionDialog::accept() {
         QFormLayout* form = new QFormLayout();
         layout->addLayout(form);
 
-        QList<QPair<QString, QWidget*>> inputWidgets;
+        QList<InputWidgetInfo> inputWidgets;
 
         while (i.hasNext()) {
             QRegularExpressionMatch match = i.next();
             QString type = match.captured(1);
             QString label = match.captured(2);
-            QString fullMatch = match.captured(0);
+
+            if (label.isEmpty()) {
+                int start = match.capturedStart(0);
+                int lineStart = prompt.lastIndexOf('\n', start - 1) + 1;
+                QString preceding = prompt.mid(lineStart, start - lineStart).trimmed();
+                if (!preceding.isEmpty()) {
+                    label = preceding;
+                } else {
+                    int end = match.capturedEnd(0);
+                    int nextLineStart = prompt.indexOf('\n', end);
+                    if (nextLineStart != -1) {
+                        int nextLineEnd = prompt.indexOf('\n', nextLineStart + 1);
+                        if (nextLineEnd == -1) nextLineEnd = prompt.length();
+                        QString nextLine = prompt.mid(nextLineStart + 1, nextLineEnd - nextLineStart - 1).trimmed();
+                        if (!nextLine.isEmpty() && nextLine.length() < 100) {
+                            label = nextLine;
+                        }
+                    }
+                }
+                if (label.isEmpty()) {
+                    label = "Input";
+                }
+            }
 
             QWidget* w = nullptr;
             if (type == "input") {
@@ -81,7 +108,7 @@ void AiActionDialog::accept() {
 
             if (w) {
                 form->addRow(label + ":", w);
-                inputWidgets.append({fullMatch, w});
+                inputWidgets.append({match.capturedStart(0), match.capturedLength(0), w});
             }
         }
 
@@ -97,19 +124,24 @@ void AiActionDialog::accept() {
         connect(okBtn, &QPushButton::clicked, &inputDlg, &QDialog::accept);
 
         if (inputDlg.exec() == QDialog::Accepted) {
-            for (const auto& pair : inputWidgets) {
+            // Replace backwards to preserve indices
+            for (int j = inputWidgets.size() - 1; j >= 0; --j) {
+                const auto& info = inputWidgets[j];
                 QString val;
-                if (QLineEdit* le = qobject_cast<QLineEdit*>(pair.second)) {
+                if (QLineEdit* le = qobject_cast<QLineEdit*>(info.widget)) {
                     val = le->text();
-                } else if (QTextEdit* te = qobject_cast<QTextEdit*>(pair.second)) {
+                } else if (QTextEdit* te = qobject_cast<QTextEdit*>(info.widget)) {
                     val = te->toPlainText();
                 }
-                prompt.replace(pair.first, val);
+                prompt.replace(info.start, info.length, val);
             }
+            prompt.replace("{context}", m_contextText);
             m_finalPrompt = prompt;
             QDialog::accept();
         }
     } else {
+        prompt.replace("{context}", m_contextText);
+        m_finalPrompt = prompt;
         QDialog::accept();
     }
 }
