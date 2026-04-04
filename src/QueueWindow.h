@@ -24,16 +24,14 @@ class QueueWindow : public QWidget {
     void onMoveDown();
     void onClearCompleted();
     void onJumpItem();
+    void showContextMenu(const QPoint& pos);
+    void onShowDetails();
 
    private:
     QListWidget* m_queueList;
-    QPushButton* m_cancelBtn;
-    QPushButton* m_retryBtn;
-    QPushButton* m_modifyBtn;
     QPushButton* m_upBtn;
     QPushButton* m_downBtn;
     QPushButton* m_clearBtn;
-    QPushButton* m_jumpBtn;
 
     void updateButtons();
 };
