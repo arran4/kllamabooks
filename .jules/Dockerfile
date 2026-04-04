@@ -1,8 +1,7 @@
-FROM ubuntu:24.04
+FROM debian:testing
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y software-properties-common && \
-    add-apt-repository ppa:kubuntu-ppa/backports -y && \
-    apt-get update && apt-get install -y \
+
+RUN apt-get update && apt-get install -y \
     build-essential \
     cmake \
     git \
@@ -12,17 +11,17 @@ RUN apt-get update && apt-get install -y software-properties-common && \
     qt6-svg-dev \
     qt6-tools-dev \
     qt6-tools-dev-tools \
-    libgl1-mesa-dev \
-    libsqlcipher-dev \
-    pkg-config
-RUN apt-get update && apt-get install -y \
     libkf6wallet-dev \
     libkf6notifications-dev \
     libkf6coreaddons-dev \
     libkf6xmlgui-dev \
     libkf6configwidgets-dev \
     libkf6i18n-dev \
+    libgl1-mesa-dev \
+    libsqlcipher-dev \
+    pkg-config \
     && rm -rf /var/lib/apt/lists/*
+
 RUN useradd -m jules && echo "jules ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 USER jules
 WORKDIR /workspace
