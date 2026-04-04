@@ -167,7 +167,7 @@ void QueueManager::clearCompleted() {
         if (!db || !db->isOpen()) continue;
         auto items = db->getQueue();
         for (const auto& item : items) {
-            if (item.state == "completed" || item.state == "error") {
+            if (item.state == "completed" || item.state == "error" || !item.lastError.isEmpty()) {
                 if (item.targetType == "document" && item.state == "completed") {
                     // Do not delete completed document generations automatically so user can review them.
                     continue;
