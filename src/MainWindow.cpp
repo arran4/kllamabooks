@@ -4391,7 +4391,7 @@ void MainWindow::onEditDocument() {
         loadDocumentsAndNotes();  // Refresh tree
     });
 
-    connect(editWin, &QObject::destroyed, this, [this, id = currentDocumentId]() { m_openDocEditors.remove(id); });
+    connect(editWin, &QObject::destroyed, this, [this, editorKey]() { m_openDocEditors.remove(editorKey); });
     editWin->show();
 }
 
