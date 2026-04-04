@@ -322,6 +322,68 @@ void MainWindow::setupUi() {
     });
 
     connect(backToNotesBtn, &QPushButton::clicked, this, [this]() {
+        bool hasChanges = false;
+        if (currentDb) {
+            QString currentText = noteEditorView->toPlainText();
+            if (isCreatingNewNote) {
+                if (!currentText.isEmpty()) {
+                    hasChanges = true;
+                }
+            } else {
+                QString dbText;
+                QList<NoteNode> notes = currentDb->getNotes();
+                for (const auto& note : notes) {
+                    if (note.id == currentNoteId) {
+                        dbText = note.content;
+                        break;
+                    }
+                }
+                if (currentText != dbText) {
+                    hasChanges = true;
+                }
+            }
+        }
+
+        if (hasChanges) {
+            QMessageBox msgBox(this);
+            msgBox.setWindowTitle(tr("Unsaved Changes"));
+            msgBox.setText(tr("The note has been modified."));
+            msgBox.setInformativeText(tr("Do you want to save your changes?"));
+            QPushButton* saveBtn = msgBox.addButton(tr("Save"), QMessageBox::AcceptRole);
+            QPushButton* saveDraftBtn = msgBox.addButton(tr("Save to Drafts"), QMessageBox::AcceptRole);
+            QPushButton* discardBtn = msgBox.addButton(tr("Discard"), QMessageBox::DestructiveRole);
+            QPushButton* cancelBtn = msgBox.addButton(tr("Cancel"), QMessageBox::RejectRole);
+            msgBox.setDefaultButton(saveBtn);
+            msgBox.exec();
+
+            if (msgBox.clickedButton() == cancelBtn) {
+                return;
+            } else if (msgBox.clickedButton() == saveBtn) {
+                onSaveNoteBtnClicked();
+            } else if (msgBox.clickedButton() == saveDraftBtn) {
+                QModelIndex index = openBooksTree->currentIndex();
+                QStandardItem* item = index.isValid() ? openBooksModel->itemFromIndex(index) : nullptr;
+                QString title = item ? item->text() : tr("New Note");
+                if (title == "*New Item*")
+                    title = tr("Unsaved Draft");
+                else
+                    title = tr("Draft of: ") + title;
+
+                if (currentAutoDraftId == 0) {
+                    currentAutoDraftId = currentDb->addDraft(0, title, noteEditorView->toPlainText());
+                } else {
+                    currentDb->updateDraft(currentAutoDraftId, title, noteEditorView->toPlainText());
+                }
+                statusBar->showMessage(tr("Note saved to drafts."), 3000);
+            } else if (msgBox.clickedButton() == discardBtn) {
+                // If discard is clicked, we should revert the draft if there was one
+                if (currentAutoDraftId != 0 && currentDb) {
+                    currentDb->deleteDraft(currentAutoDraftId);
+                    currentAutoDraftId = 0;
+                }
+            }
+        }
+
         mainContentStack->setCurrentWidget(vfsExplorer);
         QModelIndex currentIdx = openBooksTree->currentIndex();
         if (currentIdx.isValid()) {
