@@ -766,15 +766,15 @@ void MainWindow::setupUi() {
                 m_availableModels.append("llama2");  // fallback
             }
         }
-        if (m_selectedModel.isEmpty() && !m_availableModels.isEmpty()) {
+        if (m_selectedModels.isEmpty() && !m_availableModels.isEmpty()) {
             QString systemModel = settings.value("systemModel", "").toString();
             if (!systemModel.isEmpty() && m_availableModels.contains(systemModel)) {
-                m_selectedModel = systemModel;
+                m_selectedModels = QStringList() << systemModel;
             } else {
-                m_selectedModel = m_availableModels.first();
+                m_selectedModels = QStringList() << m_availableModels.first();
             }
-            modelSelectButton->setText(m_selectedModel);
-            modelLabel->setText(tr("Model: %1 (System Selected)").arg(m_selectedModel));
+            modelSelectButton->setText(m_selectedModels.first());
+            modelLabel->setText(tr("Model: %1 (System Selected)").arg(m_selectedModels.first()));
         }
     });
 
@@ -1394,12 +1394,12 @@ void MainWindow::updateInputBehavior() {
                 QSettings settings;
                 QString systemModel = settings.value("systemModel", "").toString();
                 if (!systemModel.isEmpty() && m_availableModels.contains(systemModel)) {
-                    m_selectedModel = systemModel;
+                    m_selectedModels = QStringList() << systemModel;
                 } else if (!m_availableModels.isEmpty()) {
                     m_selectedModels = QStringList() << m_availableModels.first();
                 }
-                if (modelLabel) modelLabel->setText(tr("Model: %1 (System Selected)").arg(m_selectedModels.first()));
-                if (modelSelectButton) modelSelectButton->setText(m_selectedModels.first());
+                if (modelLabel && !m_selectedModels.isEmpty()) modelLabel->setText(tr("Model: %1 (System Selected)").arg(m_selectedModels.first()));
+                if (modelSelectButton && !m_selectedModels.isEmpty()) modelSelectButton->setText(m_selectedModels.first());
             }
         }
 
@@ -1653,11 +1653,11 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
                         QSettings settings;
                         QString systemModel = settings.value("systemModel", "").toString();
                         if (!systemModel.isEmpty() && m_availableModels.contains(systemModel)) {
-                            m_selectedModel = systemModel;
+                            m_selectedModels = QStringList() << systemModel;
                         } else if (!m_availableModels.isEmpty()) {
                             m_selectedModels = QStringList() << m_availableModels.first();
                         }
-                        modelLabel->setText(tr("Model: %1 (System Selected)").arg(m_selectedModels.first()));
+                        if (!m_selectedModels.isEmpty()) modelLabel->setText(tr("Model: %1 (System Selected)").arg(m_selectedModels.first()));
                     }
                     if (currentLastNodeId != 0 && mainContentStack->currentWidget() == chatWindowView) {
                         updateLinearChatView(currentLastNodeId, currentDb->getMessages());
