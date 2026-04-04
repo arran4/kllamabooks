@@ -221,6 +221,28 @@ void QueueWindow::onJumpItem() {
         if (db->filepath() == path) {
             for (const auto& mi : QueueManager::instance().getMergedQueue()) {
                 if (mi.item.id == id && mi.db == db) {
+                    // Validate if the target item still exists
+                    bool isValid = false;
+                    if (mi.item.targetType == "document") {
+                        auto docs = mi.db->getDocuments(-1);
+                        for (const auto& doc : docs) {
+                            if (doc.id == mi.item.messageId) {
+                                isValid = true;
+                                break;
+                            }
+                        }
+                    } else if (mi.item.targetType == "message") {
+                        auto msgs = mi.db->getMessages();
+                        for (const auto& msg : msgs) {
+                            if (msg.id == mi.item.messageId) {
+                                isValid = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (!isValid) return;
+
                     QWidget* mainWin = nullptr;
                     for (QWidget* widget : QApplication::topLevelWidgets()) {
                         if (widget->inherits("MainWindow")) {
