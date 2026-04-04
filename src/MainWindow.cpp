@@ -781,29 +781,26 @@ void MainWindow::setupUi() {
         if (dlg.exec() == QDialog::Accepted) {
             QStringList selectedList = dlg.selectedModels();
             if (!selectedList.isEmpty()) {
-                if (currentDb && currentDb->isOpen()) {
-                    if (currentLastNodeId != 0) {
-                        ChatNode cnMod = currentDb->getChat(currentLastNodeId);
-                        cnMod.model = selectedList.first();
-                        currentDb->updateChat(cnMod);
-                    } else {
-                        m_newChatModel = selectedList.first();
-                    }
-                }
                 m_selectedModels = selectedList;
-                QString displayStr = m_selectedModels.size() == 1
-                                         ? m_selectedModels.first()
-                                         : tr("Multiple");
-                modelSelectButton->setText(displayStr);
-                if (m_selectedModels.size() > 1) {
+
+                if (selectedList.size() == 1) {
+                    if (currentDb && currentDb->isOpen()) {
+                        if (currentLastNodeId != 0) {
+                            ChatNode cnMod = currentDb->getChat(currentLastNodeId);
+                            cnMod.model = selectedList.first();
+                            currentDb->updateChat(cnMod);
+                        } else {
+                            m_newChatModel = selectedList.first();
+                        }
+                    }
+                    updateInputBehavior();
+                } else {
+                    QString displayStr = tr("Multiple");
+                    modelSelectButton->setText(displayStr);
                     modelSelectButton->setToolTip(m_selectedModels.join(", "));
                     modelLabel->setToolTip(m_selectedModels.join(", "));
-                } else {
-                    modelSelectButton->setToolTip("");
-                    modelLabel->setToolTip("");
+                    modelLabel->setText(tr("Model: %1 (User Switch)").arg(displayStr));
                 }
-                modelLabel->setText(tr("Model: %1 (User Switch)").arg(displayStr));
-                updateInputBehavior();
             }
         }
     });
