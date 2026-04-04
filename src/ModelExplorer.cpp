@@ -130,12 +130,17 @@ void ModelExplorer::setupOnlineSearchTab() {
     m_searchResultsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     layout->addWidget(m_searchResultsTable);
 
+    m_loadMoreButton = new QPushButton("Load More", this);
+    m_loadMoreButton->hide(); // Hidden initially
+    layout->addWidget(m_loadMoreButton);
+
     QPushButton* downloadSelectedBtn = new QPushButton("Download Selected", this);
     layout->addWidget(downloadSelectedBtn);
 
     connect(m_onlineSearchButton, &QPushButton::clicked, this, &ModelExplorer::onOnlineSearchClicked);
     connect(m_onlineSearchField, &QLineEdit::returnPressed, this, &ModelExplorer::onOnlineSearchClicked);
     connect(downloadSelectedBtn, &QPushButton::clicked, this, &ModelExplorer::onDownloadFromSearchClicked);
+    connect(m_loadMoreButton, &QPushButton::clicked, this, &ModelExplorer::onLoadMoreClicked);
 
     m_tabWidget->addTab(tab, "Online Search");
 }
@@ -188,11 +193,57 @@ void ModelExplorer::onSearchHfClicked() {
     onOnlineSearchClicked();
 }
 
+void ModelExplorer::onLoadMoreClicked() {
+    QString query = m_onlineSearchField->text().trimmed();
+    if (query.isEmpty() || m_searchSourceCombo->currentText() != "Hugging Face") return;
+
+    m_loadMoreButton->setEnabled(false);
+    m_loadMoreButton->setText("Loading...");
+
+    QUrl url("https://huggingface.co/api/models");
+    QUrlQuery urlQuery;
+    urlQuery.addQueryItem("search", query);
+    urlQuery.addQueryItem("limit", "20");
+    m_hfSkipCount += 20;
+    urlQuery.addQueryItem("skip", QString::number(m_hfSkipCount));
+    url.setQuery(urlQuery);
+
+    QNetworkRequest request(url);
+    QNetworkReply* reply = m_networkManager->get(request);
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        if (reply->error() == QNetworkReply::NoError) {
+            QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
+            if (doc.isArray()) {
+                QJsonArray arr = doc.array();
+                if (arr.isEmpty()) {
+                    m_loadMoreButton->hide(); // No more results
+                } else {
+                    for (const QJsonValue& val : arr) {
+                        QJsonObject obj = val.toObject();
+                        QString name = obj["id"].toString();
+                        QString desc = "Downloads: " + QString::number(obj["downloads"].toInt()) + ", Pipeline: " + obj["pipeline_tag"].toString();
+                        int row = m_searchResultsTable->rowCount();
+                        m_searchResultsTable->insertRow(row);
+                        m_searchResultsTable->setItem(row, 0, new QTableWidgetItem(name));
+                        m_searchResultsTable->setItem(row, 1, new QTableWidgetItem(desc));
+                    }
+                }
+            }
+        }
+        reply->deleteLater();
+        m_loadMoreButton->setEnabled(true);
+        m_loadMoreButton->setText("Load More");
+    });
+}
+
 void ModelExplorer::onOnlineSearchClicked() {
     QString query = m_onlineSearchField->text().trimmed();
     if (query.isEmpty()) return;
 
     m_searchResultsTable->setRowCount(0);
+    m_hfSkipCount = 0;
+    m_loadMoreButton->hide();
+
     m_onlineSearchButton->setEnabled(false);
     m_onlineSearchButton->setText("Searching...");
 
@@ -249,6 +300,9 @@ void ModelExplorer::onOnlineSearchClicked() {
                         m_searchResultsTable->insertRow(row);
                         m_searchResultsTable->setItem(row, 0, new QTableWidgetItem(name));
                         m_searchResultsTable->setItem(row, 1, new QTableWidgetItem(desc));
+                    }
+                    if (arr.size() == 20) {
+                        m_loadMoreButton->show();
                     }
                 }
             }

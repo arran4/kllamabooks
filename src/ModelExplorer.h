@@ -31,6 +31,7 @@ class ModelExplorer : public QDialog {
     void onDownloadModelClicked();
     void updateModelList(const QStringList& models);
     void onOnlineSearchClicked();
+    void onLoadMoreClicked();
     void onPullProgressUpdated(const QString& modelName, int percent, const QString& status);
     void onPullFinished(const QString& modelName, bool success, const QString& errorString);
     void showInstalledContextMenu(const QPoint& pos);
@@ -60,6 +61,9 @@ class ModelExplorer : public QDialog {
     QLineEdit* m_onlineSearchField;
     QPushButton* m_onlineSearchButton;
     QTableWidget* m_searchResultsTable;
+    QPushButton* m_loadMoreButton;
+
+    int m_hfSkipCount = 0;
 
     void setupInstalledTab();
     void setupDownloadTab();
