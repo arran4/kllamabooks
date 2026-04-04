@@ -2413,7 +2413,7 @@ void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& 
     }
 
     if (currentDb) {
-        currentDb->dismissNotificationByMessageId(tailNodeId);
+        currentDb->dismissNotificationByTarget(tailNodeId, "message");
         updateNotificationStatus();
     }
     chatTextArea->blockSignals(true);
@@ -3702,7 +3702,7 @@ void MainWindow::onOpenBooksSelectionChanged(const QItemSelection& selected, con
                 mainContentStack->setCurrentWidget(docContainer);
             } else if (currentDb) {
                 // If it was marked as updated via AI notification modifications, dismiss it
-                currentDb->dismissNotificationByMessageIdAndType(currentDocumentId, "updated");
+                currentDb->dismissNotificationByTargetAndType(currentDocumentId, "document", "updated");
                 updateNotificationStatus();
 
                 QList<DocumentNode> docs =
@@ -4151,13 +4151,26 @@ void MainWindow::updateNotificationStatus() {
             QString typeStr =
                 (n.type == "error") ? tr("Error") : (n.type == "review_needed" ? tr("Review Needed") : tr("Finished"));
             QAction* action = notificationMenu->addAction(
-                QString("[%1] %2: Msg %3").arg(bookName, typeStr, QString::number(n.messageId)));
+                QString("[%1] %2: Msg %3").arg(bookName, typeStr, QString::number(n.targetId)));
             connect(action, &QAction::triggered, this, [this, db, n, bookName]() {
                 if (n.type == "review_needed") {
-                    DocumentReviewDialog reviewDlg(db, n.messageId, this);
-                    if (reviewDlg.exec() == QDialog::Accepted) {
-                        db->dismissNotification(n.id);
-                        updateNotificationStatus();
+                    // For document review, n.targetId is the document ID.
+                    // DocumentReviewDialog expects the queueItemId. We need to find the matching completed queue item.
+                    int queueItemId = -1;
+                    auto qList = db->getQueue();
+                    for (const auto& qi : qList) {
+                        if (qi.messageId == n.targetId && qi.targetType == "document" && qi.state == "completed") {
+                            queueItemId = qi.id;
+                            break;
+                        }
+                    }
+
+                    if (queueItemId != -1) {
+                        DocumentReviewDialog reviewDlg(db, queueItemId, this);
+                        if (reviewDlg.exec() == QDialog::Accepted) {
+                            db->dismissNotification(n.id);
+                            updateNotificationStatus();
+                        }
                     }
 
                     if (currentDb == db && currentDocumentId != 0) {
@@ -4174,8 +4187,8 @@ void MainWindow::updateNotificationStatus() {
                     dialog.setWindowTitle(tr("Error: Modify and Retry"));
                     QVBoxLayout* layout = new QVBoxLayout(&dialog);
 
-                    QLabel* summary = new QLabel(QString("<b>Book:</b> %1<br><b>Message ID:</b> %2")
-                                                     .arg(bookName, QString::number(n.messageId)));
+                    QLabel* summary = new QLabel(QString("<b>Book:</b> %1<br><b>Target ID:</b> %2")
+                                                     .arg(bookName, QString::number(n.targetId)));
                     summary->setWordWrap(true);
                     layout->addWidget(summary);
 
@@ -4183,7 +4196,7 @@ void MainWindow::updateNotificationStatus() {
                     int queueId = -1;
                     auto qList = db->getQueue();
                     for (const auto& qi : qList) {
-                        if (qi.messageId == n.messageId && qi.state == "error") {
+                        if (qi.messageId == n.targetId && qi.targetType == n.targetType && qi.state == "error") {
                             errorMsg = qi.lastError;
                             prompt = qi.prompt;
                             model = qi.model;
@@ -4235,7 +4248,7 @@ void MainWindow::updateNotificationStatus() {
                     });
 
                     connect(gotoBtn, &QPushButton::clicked, [&]() {
-                        onQueueItemClicked(db, n.messageId);
+                        onQueueItemClicked(db, n.targetId, n.targetType);
                         dialog.accept();
                     });
 
@@ -4255,8 +4268,8 @@ void MainWindow::updateNotificationStatus() {
 
                     QString typeStr = tr("Finished");
                     QLabel* summary =
-                        new QLabel(QString("<b>Book:</b> %1<br><b>Status:</b> %2<br><b>Message ID:</b> %3")
-                                       .arg(bookName, typeStr, QString::number(n.messageId)));
+                        new QLabel(QString("<b>Book:</b> %1<br><b>Status:</b> %2<br><b>Target ID:</b> %3")
+                                       .arg(bookName, typeStr, QString::number(n.targetId)));
                     summary->setWordWrap(true);
                     layout->addWidget(summary);
 
@@ -4271,7 +4284,7 @@ void MainWindow::updateNotificationStatus() {
                     layout->addLayout(btnLayout);
 
                     connect(gotoBtn, &QPushButton::clicked, [&]() {
-                        onQueueItemClicked(db, n.messageId);
+                        onQueueItemClicked(db, n.targetId, n.targetType);
                         dialog.accept();
                     });
 
@@ -4309,16 +4322,13 @@ void MainWindow::updateNotificationStatus() {
             for (const auto& n : notifications) {
                 if (n.isDismissed) continue;
                 if (n.type == "review_needed") {
-                    for (const auto& q : queueItems) {
-                        if (q.id == n.messageId && q.targetType == "document") {
-                            activeNotifications[{"document", q.messageId}] = 1;
-                            break;
-                        }
-                    }
+                    // review_needed notifications store targetId = Document ID.
+                    activeNotifications[{n.targetType, n.targetId}] = 1;
                 } else if (n.type == "updated") {
-                    activeNotifications[{"document", n.messageId}] = 1;
+                    activeNotifications[{n.targetType, n.targetId}] = 1;
                 } else {
-                    activeNotifications[{"chat_node", n.messageId}] = (n.type == "error") ? 2 : 1;
+                    QString treeType = (n.targetType == "message") ? "chat_node" : n.targetType;
+                    activeNotifications[{treeType, n.targetId}] = (n.type == "error") ? 2 : 1;
                 }
             }
 
@@ -4420,7 +4430,7 @@ void MainWindow::showSpyWindow() {
 /** * @brief Executes logic for onQueueItemClicked. This function manages component initialization and handles state
  * transitions for the UI. *  * This function is an integral component of the MainWindow class structure. * It ensures
  * that side effects map accurately to internal application models. */
-void MainWindow::onQueueItemClicked(std::shared_ptr<BookDatabase> db, int messageId) {
+void MainWindow::onQueueItemClicked(std::shared_ptr<BookDatabase> db, int targetId, const QString& targetType) {
     if (!db) return;
 
     // Check if this is a document queue item that is completed.
@@ -4428,25 +4438,27 @@ void MainWindow::onQueueItemClicked(std::shared_ptr<BookDatabase> db, int messag
     // or the target document ID. Let's find the queue item to be safe.
     // Wait, the signal sends messageId. Let's look up if there's a queue item with this messageId that is completed.
     bool openedReview = false;
-    for (const auto& item : db->getQueue()) {
-        if (item.messageId == messageId && item.targetType == "document" && item.state == "completed") {
-            DocumentReviewDialog reviewDlg(db, item.id, this);
-            if (reviewDlg.exec() == QDialog::Accepted) {
-                db->dismissNotificationByMessageId(item.id);
-                updateNotificationStatus();
-            }
-            openedReview = true;
+    if (targetType == "document") {
+        for (const auto& item : db->getQueue()) {
+            if (item.messageId == targetId && item.targetType == "document" && item.state == "completed") {
+                DocumentReviewDialog reviewDlg(db, item.id, this);
+                if (reviewDlg.exec() == QDialog::Accepted) {
+                    db->dismissNotificationByTarget(item.messageId, item.targetType);
+                    updateNotificationStatus();
+                }
+                openedReview = true;
 
-            // Reload document editor view just in case the dialog made edits (replace/append)
-            // or to revert a live preview if the user discarded.
-            if (currentDocumentId == messageId) {
-                QString outTitle, outContent;
-                getDocumentContent(currentDocumentId, "document", outTitle, outContent);
-                documentEditorView->blockSignals(true);
-                documentEditorView->setPlainText(outContent);
-                documentEditorView->blockSignals(false);
+                // Reload document editor view just in case the dialog made edits (replace/append)
+                // or to revert a live preview if the user discarded.
+                if (currentDocumentId == targetId) {
+                    QString outTitle, outContent;
+                    getDocumentContent(currentDocumentId, "document", outTitle, outContent);
+                    documentEditorView->blockSignals(true);
+                    documentEditorView->setPlainText(outContent);
+                    documentEditorView->blockSignals(false);
+                }
+                break;
             }
-            break;
         }
     }
 
@@ -4461,26 +4473,22 @@ void MainWindow::onQueueItemClicked(std::shared_ptr<BookDatabase> db, int messag
         }
     }
 
-    QStringList types = {"chat_node", "document", "note", "template", "draft"};
-    QStandardItem* foundItem = nullptr;
-    for (const QString& type : types) {
-        foundItem = findItemInTree(messageId, type);
-        if (foundItem) break;
-    }
+    QString treeType = (targetType == "message") ? "chat_node" : targetType;
+    QStandardItem* foundItem = findItemInTree(targetId, treeType);
 
     if (foundItem) {
         openBooksTree->setCurrentIndex(foundItem->index());
         openBooksTree->selectionModel()->select(foundItem->index(),
                                                 QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Current);
         openBooksTree->scrollTo(foundItem->index());
-    } else if (!openedReview) {
+    } else if (!openedReview && targetType == "message") {
         // Fallback to chat node logic just in case it wasn't rendered yet
-        currentLastNodeId = messageId;
+        currentLastNodeId = targetId;
         updateLinearChatView(currentLastNodeId, currentDb->getMessages());
         mainContentStack->setCurrentWidget(chatWindowView);
     }
 
-    db->dismissNotificationByMessageId(messageId);
+    db->dismissNotificationByTarget(targetId, targetType);
     updateNotificationStatus();
 }
 
@@ -4754,7 +4762,7 @@ void MainWindow::onOpenBooksTreeDoubleClicked(const QModelIndex& index) {
     if (type == "document" || type == "template" || type == "draft") {
         int docId = item->data(Qt::UserRole).toInt();
 
-        currentDb->dismissNotificationByMessageIdAndType(docId, "updated");
+        currentDb->dismissNotificationByTargetAndType(docId, "document", "updated");
         updateNotificationStatus();
 
         QList<DocumentNode> docs;
