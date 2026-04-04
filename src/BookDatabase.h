@@ -137,6 +137,7 @@ class BookDatabase {
     int addTemplate(int folderId, const QString& title, const QString& content);
     bool updateTemplate(int id, const QString& newTitle, const QString& newContent);
     QList<DocumentNode> getTemplates(int folderId = -1) const;
+    bool deleteTemplate(int id);
 
     // Drafts
     int addDraft(int folderId, const QString& title, const QString& content);
