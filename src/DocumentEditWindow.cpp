@@ -57,6 +57,9 @@ void DocumentEditWindow::setupWindow() {
     QAction* renameAction = new QAction(QIcon::fromTheme("edit-rename"), tr("Rename"), this);
     connect(renameAction, &QAction::triggered, this, &DocumentEditWindow::onRenameClicked);
 
+    QAction* jumpAction = new QAction(QIcon::fromTheme("go-jump"), tr("Jump to Document"), this);
+    connect(jumpAction, &QAction::triggered, this, &DocumentEditWindow::onJumpClicked);
+
     QAction* closeAction = new QAction(QIcon::fromTheme("window-close"), tr("Close"), this);
     connect(closeAction, &QAction::triggered, this, &QWidget::close);
 
@@ -65,6 +68,7 @@ void DocumentEditWindow::setupWindow() {
     mainToolBar->addAction(saveAsAction);
     mainToolBar->addAction(saveAsDraftAction);
     mainToolBar->addAction(renameAction);
+    mainToolBar->addAction(jumpAction);
     mainToolBar->addAction(closeAction);
     addToolBar(mainToolBar);
 
@@ -74,6 +78,7 @@ void DocumentEditWindow::setupWindow() {
     fileMenu->addAction(saveAsDraftAction);
     fileMenu->addSeparator();
     fileMenu->addAction(renameAction);
+    fileMenu->addAction(jumpAction);
     fileMenu->addSeparator();
     fileMenu->addAction(closeAction);
     menuBar()->addMenu(fileMenu);
@@ -155,6 +160,10 @@ QDateTime DocumentEditWindow::getLatestDbTimestamp() const {
     }
 
     return latest;
+}
+
+void DocumentEditWindow::onJumpClicked() {
+    emit jumpToDocumentRequested(m_documentId);
 }
 
 void DocumentEditWindow::onSaveClicked() {
