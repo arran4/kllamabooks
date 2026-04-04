@@ -3,22 +3,24 @@
 
 #include <QDialog>
 #include <QLineEdit>
-#include <QTableWidget>
 #include <QPushButton>
+#include <QTableWidget>
 
 #include "OllamaModelInfo.h"
 
 class ModelSelectionDialog : public QDialog {
     Q_OBJECT
    public:
-    explicit ModelSelectionDialog(const QList<OllamaModelInfo>& modelInfos, const QStringList& fallbackModels, QWidget* parent = nullptr);
+    explicit ModelSelectionDialog(const QList<OllamaModelInfo>& modelInfos, const QStringList& fallbackModels,
+                                  QWidget* parent = nullptr);
     ~ModelSelectionDialog();
 
-    QString selectedModel() const;
+    QStringList selectedModels() const;
 
    private slots:
     void onSearchChanged(const QString& text);
     void onItemSelected(QTableWidgetItem* item);
+    void onAccept();
 
    private:
     void setupUi();
@@ -27,7 +29,7 @@ class ModelSelectionDialog : public QDialog {
     QTableWidget* m_modelTable;
     QList<OllamaModelInfo> m_modelInfos;
     QStringList m_fallbackModels;
-    QString m_selectedModel;
+    QStringList m_selectedModels;
 };
 
 #endif  // MODELSELECTIONDIALOG_H

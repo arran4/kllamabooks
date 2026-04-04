@@ -778,30 +778,37 @@ void MainWindow::setupUi() {
         }
     });
 
-    connect(&ollamaClient, &OllamaClient::modelInfoUpdated, this, [this](const QList<OllamaModelInfo>& infos) {
-        m_availableModelInfos = infos;
-    });
+    connect(&ollamaClient, &OllamaClient::modelInfoUpdated, this,
+            [this](const QList<OllamaModelInfo>& infos) { m_availableModelInfos = infos; });
 
     connect(modelSelectButton, &QPushButton::clicked, this, [this]() {
         ModelSelectionDialog dlg(m_availableModelInfos, m_availableModels, this);
         if (dlg.exec() == QDialog::Accepted) {
-            QString selected = dlg.selectedModel();
-            if (!selected.isEmpty()) {
-                if (currentDb && currentDb->isOpen()) {
-                    if (currentLastNodeId != 0) {
-                        ChatNode cnMod = currentDb->getChat(currentLastNodeId);
-                        cnMod.model = selected;
-                        currentDb->updateChat(cnMod);
-                    } else {
-                        m_newChatModel = selected;
+            QStringList selectedList = dlg.selectedModels();
+            if (!selectedList.isEmpty()) {
+                m_selectedModels = selectedList;
+
+                if (selectedList.size() == 1) {
+                    if (currentDb && currentDb->isOpen()) {
+                        if (currentLastNodeId != 0) {
+                            ChatNode cnMod = currentDb->getChat(currentLastNodeId);
+                            cnMod.model = selectedList.first();
+                            currentDb->updateChat(cnMod);
+                        } else {
+                            m_newChatModel = selectedList.first();
+                        }
                     }
+                    modelLabel->setText(tr("Model: %1 (User Switch)").arg(selectedList.first()));
+                } else if (selectedList.size() > 1) {
+                    QString displayStr = tr("Multiple");
+                    modelSelectButton->setText(displayStr);
+                    modelSelectButton->setToolTip(m_selectedModels.join(", "));
+                    modelLabel->setToolTip(m_selectedModels.join(", "));
+                    modelLabel->setText(tr("Model: %1 (User Switch)").arg(displayStr));
                 } else {
                     QSettings settings;
-                    settings.setValue("systemModel", selected);
+                    settings.setValue("systemModel", selectedList.first());
                 }
-                m_selectedModel = selected;
-                modelSelectButton->setText(m_selectedModel);
-                modelLabel->setText(tr("Model: %1 (User Switch)").arg(m_selectedModel));
                 updateInputBehavior();
             }
         }
@@ -1374,25 +1381,25 @@ void MainWindow::updateInputBehavior() {
         }
 
         if (!inheritedModel.isEmpty() && inheritedModel != "default") {
-            m_selectedModel = inheritedModel;
-            if (modelLabel) modelLabel->setText(tr("Model: %1 (Chat)").arg(m_selectedModel));
-            if (modelSelectButton) modelSelectButton->setText(m_selectedModel);
+            m_selectedModels = QStringList() << inheritedModel;
+            if (modelLabel) modelLabel->setText(tr("Model: %1 (Chat)").arg(m_selectedModels.first()));
+            if (modelSelectButton) modelSelectButton->setText(m_selectedModels.first());
         } else {
             QString dbModel = currentDb->getSetting("book", 0, "defaultModel", "");
             if (!dbModel.isEmpty()) {
-                m_selectedModel = dbModel;
-                if (modelLabel) modelLabel->setText(tr("Model: %1 (Book Default)").arg(m_selectedModel));
-                if (modelSelectButton) modelSelectButton->setText(m_selectedModel);
+                m_selectedModels = QStringList() << dbModel;
+                if (modelLabel) modelLabel->setText(tr("Model: %1 (Book Default)").arg(m_selectedModels.first()));
+                if (modelSelectButton) modelSelectButton->setText(m_selectedModels.first());
             } else {
                 QSettings settings;
                 QString systemModel = settings.value("systemModel", "").toString();
                 if (!systemModel.isEmpty() && m_availableModels.contains(systemModel)) {
                     m_selectedModel = systemModel;
                 } else if (!m_availableModels.isEmpty()) {
-                    m_selectedModel = m_availableModels.first();
+                    m_selectedModels = QStringList() << m_availableModels.first();
                 }
-                if (modelLabel) modelLabel->setText(tr("Model: %1 (System Selected)").arg(m_selectedModel));
-                if (modelSelectButton) modelSelectButton->setText(m_selectedModel);
+                if (modelLabel) modelLabel->setText(tr("Model: %1 (System Selected)").arg(m_selectedModels.first()));
+                if (modelSelectButton) modelSelectButton->setText(m_selectedModels.first());
             }
         }
 
@@ -1640,17 +1647,17 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
                 if (dlg.exec() == QDialog::Accepted) {
                     QString dbModel = currentDb->getSetting("book", 0, "defaultModel", "");
                     if (!dbModel.isEmpty()) {
-                        m_selectedModel = dbModel;
-                        modelLabel->setText(tr("Model: %1 (Book Default)").arg(m_selectedModel));
+                        m_selectedModels = QStringList() << dbModel;
+                        modelLabel->setText(tr("Model: %1 (Book Default)").arg(m_selectedModels.first()));
                     } else {
                         QSettings settings;
                         QString systemModel = settings.value("systemModel", "").toString();
                         if (!systemModel.isEmpty() && m_availableModels.contains(systemModel)) {
                             m_selectedModel = systemModel;
                         } else if (!m_availableModels.isEmpty()) {
-                            m_selectedModel = m_availableModels.first();
+                            m_selectedModels = QStringList() << m_availableModels.first();
                         }
-                        modelLabel->setText(tr("Model: %1 (System Selected)").arg(m_selectedModel));
+                        modelLabel->setText(tr("Model: %1 (System Selected)").arg(m_selectedModels.first()));
                     }
                     if (currentLastNodeId != 0 && mainContentStack->currentWidget() == chatWindowView) {
                         updateLinearChatView(currentLastNodeId, currentDb->getMessages());
@@ -1803,8 +1810,10 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
         } else if (selectedAction == deleteAction) {
             int id = item->data(Qt::UserRole).toInt();
             if (currentDb) {
-                QString confirmMsg = type == "chat_session" ? tr("Are you sure you want to delete this Chat Session?") : tr("Are you sure you want to delete this Message?");
-                if (QMessageBox::question(this, tr("Confirm Delete"), confirmMsg, QMessageBox::Yes | QMessageBox::No) == QMessageBox::Yes) {
+                QString confirmMsg = type == "chat_session" ? tr("Are you sure you want to delete this Chat Session?")
+                                                            : tr("Are you sure you want to delete this Message?");
+                if (QMessageBox::question(this, tr("Confirm Delete"), confirmMsg, QMessageBox::Yes | QMessageBox::No) ==
+                    QMessageBox::Yes) {
                     if (type == "chat_session") {
                         currentDb->deleteFolder(id);
                     } else {
@@ -1819,10 +1828,14 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
         QMenu menu(this);
 
         QString editLabel = "Edit Item";
-        if (type == "document") editLabel = "Edit Document";
-        else if (type == "note") editLabel = "Edit Note";
-        else if (type == "template") editLabel = "Edit Template";
-        else if (type == "draft") editLabel = "Edit Draft";
+        if (type == "document")
+            editLabel = "Edit Document";
+        else if (type == "note")
+            editLabel = "Edit Note";
+        else if (type == "template")
+            editLabel = "Edit Template";
+        else if (type == "draft")
+            editLabel = "Edit Draft";
 
         QAction* editAction = menu.addAction(QIcon::fromTheme("document-edit"), editLabel);
 
@@ -1886,7 +1899,8 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
         } else if (aiAction && selectedAction == aiAction) {
             onDocumentAIOperations();
         } else if (selectedAction == deleteAction) {
-            int answer = QMessageBox::question(this, "Delete", tr("Are you sure you want to delete this %1?").arg(type));
+            int answer =
+                QMessageBox::question(this, "Delete", tr("Are you sure you want to delete this %1?").arg(type));
             if (answer == QMessageBox::Yes && currentDb) {
                 int id = item->data(Qt::UserRole).toInt();
                 if (type == "document") {
@@ -1932,7 +1946,8 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
         } else if (deleteAction && selectedAction == deleteAction) {
             int id = item->data(Qt::UserRole).toInt();
             if (currentDb) {
-                if (QMessageBox::question(this, tr("Confirm Delete"), tr("Are you sure you want to delete this item?"), QMessageBox::Yes | QMessageBox::No) == QMessageBox::Yes) {
+                if (QMessageBox::question(this, tr("Confirm Delete"), tr("Are you sure you want to delete this item?"),
+                                          QMessageBox::Yes | QMessageBox::No) == QMessageBox::Yes) {
                     if (type == "document") {
                         currentDb->deleteDocument(id);
                     } else if (type == "note") {
@@ -2497,11 +2512,11 @@ void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& 
             for (const auto& qItem : queue) {
                 if (qItem.messageId == tailNodeId && qItem.targetType == "message") {
                     if (qItem.state == "error") {
-                        bgColor = "#FFCDD2"; // Light red
+                        bgColor = "#FFCDD2";  // Light red
                     } else if (qItem.state == "processing") {
-                        bgColor = "#FFF9C4"; // Light yellow
+                        bgColor = "#FFF9C4";  // Light yellow
                     } else if (qItem.state == "pending") {
-                        bgColor = "#E0E0E0"; // Gray
+                        bgColor = "#E0E0E0";  // Gray
                     }
                     break;
                 }
@@ -2513,13 +2528,14 @@ void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& 
         chatTextArea->setTextCursor(cursor);
 
         // Insert hidden marker for context menu index calculation
-        chatTextArea->insertHtml(QString("<div style='color: transparent; font-size: 1px; line-height: 1px; height: 1px; margin: 0; padding: 0;'>[%1]</div>").arg(roleName.toHtmlEscaped()));
+        chatTextArea->insertHtml(QString("<div style='color: transparent; font-size: 1px; line-height: 1px; height: "
+                                         "1px; margin: 0; padding: 0;'>[%1]</div>")
+                                     .arg(roleName.toHtmlEscaped()));
 
         // Insert bubble
         QString bubbleHtml = QString(
             "<table width='100%' cellpadding='0' cellspacing='0' style='margin-bottom: 10px; border: none;'>"
-            "<tr>"
-        );
+            "<tr>");
 
         if (node.role == "user") {
             bubbleHtml += "<td width='20%'></td>";
@@ -2544,11 +2560,11 @@ void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& 
         }
 
         bubbleHtml += QString(
-            "<td style='background-color: %1; border-radius: 10px; padding: 10px;'>"
-            "<div style='font-weight: bold; margin-bottom: 5px;'>%2</div>"
-            "<div>%3</div>"
-            "</td>"
-        ).arg(bgColor, roleName.toHtmlEscaped(), formattedContent);
+                          "<td style='background-color: %1; border-radius: 10px; padding: 10px;'>"
+                          "<div style='font-weight: bold; margin-bottom: 5px;'>%2</div>"
+                          "<div>%3</div>"
+                          "</td>")
+                          .arg(bgColor, roleName.toHtmlEscaped(), formattedContent);
 
         if (node.role != "user") {
             bubbleHtml += "<td width='20%'></td>";
@@ -2870,17 +2886,37 @@ void MainWindow::onSendMessage() {
                 multiLineInput->clear();
 
             int userMsgId = currentDb->addMessage(forkParentId, text, "user");
-            int aiId = currentDb->addMessage(userMsgId, "", "assistant");
-            currentLastNodeId = aiId;
 
-            QString model = m_selectedModel;
-            if (model.isEmpty() && !m_availableModels.isEmpty()) {
-                model = m_availableModels.first();
+            QStringList models = m_selectedModels;
+            if (models.isEmpty() && !m_availableModels.isEmpty()) {
+                models.append(m_availableModels.first());
             }
 
-            QueueManager::instance().enqueuePrompt(aiId, model, text);
+            for (const QString& model : models) {
+                int aiId = currentDb->addMessage(userMsgId, "", "assistant");
+                currentLastNodeId = aiId;  // Will point to the last created fork
+
+                ChatNode cn = currentDb->getChat(aiId);
+                cn.model = model;
+                currentDb->updateChat(cn);
+
+                QueueManager::instance().enqueuePrompt(aiId, model, text);
+            }
+
+            if (m_selectedModels.size() > 1) {
+                m_selectedModels.clear();
+                if (!m_availableModels.isEmpty()) {
+                    m_selectedModels.append(m_availableModels.first());
+                }
+            }
 
             loadDocumentsAndNotes();  // Refresh tree
+            QStandardItem* item = findItemInTree(currentLastNodeId, "chat_node");
+            if (item) {
+                openBooksTree->selectionModel()->select(item->index(), QItemSelectionModel::ClearAndSelect);
+                openBooksTree->setCurrentIndex(item->index());
+                openBooksTree->scrollTo(item->index());
+            }
             updateLinearChatView(currentLastNodeId, currentDb->getMessages());
             statusBar->showMessage(tr("Fork task queued."), 3000);
             return;
@@ -2910,29 +2946,28 @@ void MainWindow::onSendMessage() {
 
         // Passive edit check is no longer reliable because the text is read-only, and we render with HTML tables.
         // The user requirement explicitly asks to keep it read-only but formatting as bubbles.
-        // Wait, if it's read-only, passive edits can't happen! The `chatTextArea->setReadOnly(true);` was already in the code!
-        // But what if they double clicked "Discard Changes"? They can't edit it anyway. Let's just strip the blockText collection
-        // or just accept we don't need to support "passive edits" inside the read-only chatTextArea.
-        // But wait! Is it read-only? "chatTextArea->setReadOnly(true);" IS in setupUi!
-        // If it's read-only, passive edit check doesn't fire because they can't type.
-        // Actually, the discard changes button only shows if (!chatTextArea->isReadOnly()).
-        // So passive edits are only for when read-only is toggled off? Let's leave it as is, but know it might fail
-        // if they somehow make it writable and edit the HTML table structure.
-        // Let's modify it to be safe:
+        // Wait, if it's read-only, passive edits can't happen! The `chatTextArea->setReadOnly(true);` was already in
+        // the code! But what if they double clicked "Discard Changes"? They can't edit it anyway. Let's just strip the
+        // blockText collection or just accept we don't need to support "passive edits" inside the read-only
+        // chatTextArea. But wait! Is it read-only? "chatTextArea->setReadOnly(true);" IS in setupUi! If it's read-only,
+        // passive edit check doesn't fire because they can't type. Actually, the discard changes button only shows if
+        // (!chatTextArea->isReadOnly()). So passive edits are only for when read-only is toggled off? Let's leave it as
+        // is, but know it might fail if they somehow make it writable and edit the HTML table structure. Let's modify
+        // it to be safe:
 
         for (QTextBlock block = doc->begin(); block.isValid(); block = block.next()) {
             QString blockText = block.text();
             if (blockText.trimmed() == expectedUserBlock || blockText.trimmed() == expectedAssistantBlock) {
                 if (!currentRole.isEmpty() && msgIndex < currentChatPath.size()) {
-                    // Extracting text from HTML tables via QTextBlock is messy, we'll just skip the exact match comparison
-                    // and rely on the fact that if they didn't touch it, it should match (mostly).
-                    // Actually, let's just let it run. If it fails, they get a fork.
-                    // But since we use tables, each cell is a block. The name is in a block, the text is in another.
-                    // So we do:
+                    // Extracting text from HTML tables via QTextBlock is messy, we'll just skip the exact match
+                    // comparison and rely on the fact that if they didn't touch it, it should match (mostly). Actually,
+                    // let's just let it run. If it fails, they get a fork. But since we use tables, each cell is a
+                    // block. The name is in a block, the text is in another. So we do:
                     QString cleanContent = currentContent.trimmed();
                     // Remove the redundant role name from the bubble content if it's there
                     if (cleanContent.startsWith(expectedUserBlock)) cleanContent.remove(0, expectedUserBlock.length());
-                    if (cleanContent.startsWith(expectedAssistantBlock)) cleanContent.remove(0, expectedAssistantBlock.length());
+                    if (cleanContent.startsWith(expectedAssistantBlock))
+                        cleanContent.remove(0, expectedAssistantBlock.length());
                     cleanContent = cleanContent.trimmed();
 
                     if (currentRole == currentChatPath[msgIndex].role &&
@@ -3008,40 +3043,63 @@ void MainWindow::onSendMessage() {
         }
     }
 
-    // 2. Add Assistant placeholder
-    int aiId = currentDb->addMessage(userMsgId, "", "assistant");
-    currentLastNodeId = aiId;
+    // 2. Add Assistant placeholders & Enqueue
+    QStringList models = m_selectedModels;
+    if (models.isEmpty() && !m_availableModels.isEmpty()) {
+        models.append(m_availableModels.first());
+    }
 
-    // 3. Enqueue
-    QueueManager::instance().enqueuePrompt(aiId, m_selectedModel, text);
+    for (const QString& model : models) {
+        int aiId = currentDb->addMessage(userMsgId, "", "assistant");
+        currentLastNodeId = aiId;  // Will point to the last created fork
 
-    // 4. Refresh tree if needed (especially for new chats)
-    if (forkCreated) {
+        ChatNode cn = currentDb->getChat(aiId);
+        cn.model = model;
+        currentDb->updateChat(cn);
+
+        QueueManager::instance().enqueuePrompt(aiId, model, text);
+
+    }
+
+    // Refresh tree if needed
+    if (forkCreated || models.size() > 1 || wasCreatingNewChat) {
         loadDocumentsAndNotes();  // Ensure tree refreshes correctly to natively reflect any new forks
-    } else if (wasCreatingNewChat) {
-        QModelIndex idx = openBooksTree->currentIndex();
-        QStandardItem* item = openBooksModel->itemFromIndex(idx);
-        if (item && item->data(Qt::UserRole + 1).toString() == "chat_session") {
-            item->setData(aiId, Qt::UserRole);
-            item->setData("chat_node", Qt::UserRole + 1);
-            item->setText(text.left(30));
-            QFont f = item->font();
-            f.setItalic(false);
-            item->setFont(f);
+        QStandardItem* item = findItemInTree(currentLastNodeId, "chat_node");
+        if (item) {
+            openBooksTree->selectionModel()->select(item->index(), QItemSelectionModel::ClearAndSelect);
+            openBooksTree->setCurrentIndex(item->index());
+            openBooksTree->scrollTo(item->index());
         }
     } else {
         QStandardItem* item = findItemInTree(parentId, "chat_node");
         if (item) {
             if (item->rowCount() > 0) {
                 QStandardItem* branchItem = new QStandardItem(QIcon::fromTheme("text-x-generic"), text.left(30));
-                branchItem->setData(aiId, Qt::UserRole);
+                branchItem->setData(currentLastNodeId, Qt::UserRole);
                 branchItem->setData("chat_node", Qt::UserRole + 1);
                 item->appendRow(branchItem);
+
+                openBooksTree->selectionModel()->select(branchItem->index(), QItemSelectionModel::ClearAndSelect);
+                openBooksTree->setCurrentIndex(branchItem->index());
+                openBooksTree->scrollTo(branchItem->index());
             } else {
-                item->setData(aiId, Qt::UserRole);
+                item->setData(currentLastNodeId, Qt::UserRole);
                 item->setText(text.left(30));
+
+                openBooksTree->selectionModel()->select(item->index(), QItemSelectionModel::ClearAndSelect);
+                openBooksTree->setCurrentIndex(item->index());
+                openBooksTree->scrollTo(item->index());
             }
         }
+    }
+
+    // Restore selection state to a single default to prevent endless multi-generation loop.
+    if (m_selectedModels.size() > 1) {
+        m_selectedModels.clear();
+        if (!m_availableModels.isEmpty()) {
+            m_selectedModels.append(m_availableModels.first());
+        }
+        updateInputBehavior();
     }
 
     // 5. Update view
@@ -3102,7 +3160,7 @@ void MainWindow::onQueueChunk(std::shared_ptr<BookDatabase> db, int messageId, c
                 }
 
                 if (cursor.currentTable()) {
-                    QTextTable *table = cursor.currentTable();
+                    QTextTable* table = cursor.currentTable();
                     // The assistant text is in row 0, column 0 because the AI bubble format is:
                     // <td style='...'>...</td> <td width='20%'></td>
                     // Thus, the text is guaranteed to be in column 0!
@@ -3151,7 +3209,8 @@ void MainWindow::onProcessingStarted(std::shared_ptr<BookDatabase> db, int messa
 
 void MainWindow::updateGenerationUI() {
     bool isGeneratingCurrentChat = false;
-    if (QueueManager::instance().isProcessing() && currentDb && currentDb == QueueManager::instance().currentProcessingDb()) {
+    if (QueueManager::instance().isProcessing() && currentDb &&
+        currentDb == QueueManager::instance().currentProcessingDb()) {
         auto item = QueueManager::instance().currentProcessingItem();
         if (item.targetType == "message" && item.messageId == currentLastNodeId) {
             isGeneratingCurrentChat = true;
@@ -4115,7 +4174,8 @@ void MainWindow::updateNotificationStatus() {
                     dialog.setWindowTitle(tr("Error: Modify and Retry"));
                     QVBoxLayout* layout = new QVBoxLayout(&dialog);
 
-                    QLabel* summary = new QLabel(QString("<b>Book:</b> %1<br><b>Message ID:</b> %2").arg(bookName, QString::number(n.messageId)));
+                    QLabel* summary = new QLabel(QString("<b>Book:</b> %1<br><b>Message ID:</b> %2")
+                                                     .arg(bookName, QString::number(n.messageId)));
                     summary->setWordWrap(true);
                     layout->addWidget(summary);
 
@@ -4165,7 +4225,8 @@ void MainWindow::updateNotificationStatus() {
 
                     connect(retryBtn, &QPushButton::clicked, [&]() {
                         if (queueId != -1) {
-                            QueueManager::instance().modifyItem(db, queueId, promptEdit->toPlainText(), modelCombo->currentData().toString());
+                            QueueManager::instance().modifyItem(db, queueId, promptEdit->toPlainText(),
+                                                                modelCombo->currentData().toString());
                             QueueManager::instance().retryItem(db, queueId);
                             db->dismissNotification(n.id);
                             updateNotificationStatus();
@@ -4250,14 +4311,14 @@ void MainWindow::updateNotificationStatus() {
                 if (n.type == "review_needed") {
                     for (const auto& q : queueItems) {
                         if (q.id == n.messageId && q.targetType == "document") {
-                            activeNotifications[{ "document", q.messageId }] = 1;
+                            activeNotifications[{"document", q.messageId}] = 1;
                             break;
                         }
                     }
                 } else if (n.type == "updated") {
-                    activeNotifications[{ "document", n.messageId }] = 1;
+                    activeNotifications[{"document", n.messageId}] = 1;
                 } else {
-                    activeNotifications[{ "chat_node", n.messageId }] = (n.type == "error") ? 2 : 1;
+                    activeNotifications[{"chat_node", n.messageId}] = (n.type == "error") ? 2 : 1;
                 }
             }
 
@@ -4450,7 +4511,8 @@ void MainWindow::updateVfsMarkers(const QMap<QPair<QString, int>, int>& activeNo
 /** * @brief Executes logic for updateTreeMarkersRecursive. This function manages component initialization and handles
  * state transitions for the UI. *  * This function is an integral component of the MainWindow class structure. * It
  * ensures that side effects map accurately to internal application models. */
-void MainWindow::updateTreeMarkersRecursive(QStandardItem* parent, const QMap<QPair<QString, int>, int>& activeNotifications) {
+void MainWindow::updateTreeMarkersRecursive(QStandardItem* parent,
+                                            const QMap<QPair<QString, int>, int>& activeNotifications) {
     if (!parent) return;
     for (int i = 0; i < parent->rowCount(); ++i) {
         QStandardItem* child = parent->child(i);
@@ -4630,12 +4692,37 @@ void MainWindow::onDocumentAIOperations() {
         QString prompt = promptTpl;
         prompt.replace("{context}", contextText);
 
-        QString model = m_selectedModel;
-        if (model.isEmpty() && !m_availableModels.isEmpty()) {
-            model = m_availableModels.first();
+        QStringList models = m_selectedModels;
+        if (models.isEmpty() && !m_availableModels.isEmpty()) {
+            models.append(m_availableModels.first());
         }
 
-        QueueManager::instance().enqueuePrompt(currentDocumentId, model, prompt, 0, "document", 0, "");
+        if (models.size() > 1) {
+            QString outTitle, outContent;
+            getDocumentContent(currentDocumentId, "document", outTitle, outContent);
+
+            int parentId = 0;
+            QList<DocumentNode> allDocs = currentDb->getDocuments(-1);
+            for (const auto& doc : allDocs) {
+                if (doc.id == currentDocumentId) {
+                    parentId = doc.parentId;
+                    break;
+                }
+            }
+
+            int newFolderId =
+                currentDb->addFolder(parentId, outTitle + tr(" (%1)").arg(dialog.getOperation()), "folder");
+
+            for (const QString& model : models) {
+                QString docTitle = outTitle + " (" + model + ")";
+                int newDocId = currentDb->addDocument(newFolderId, docTitle, outContent);
+                QueueManager::instance().enqueuePrompt(newDocId, model, prompt, 0, "document", 0, "");
+            }
+            loadDocumentsAndNotes();
+        } else {
+            QString model = models.isEmpty() ? "" : models.first();
+            QueueManager::instance().enqueuePrompt(currentDocumentId, model, prompt, 0, "document", 0, "");
+        }
         statusBar->showMessage(tr("AI document task queued."), 3000);
     }
 }
@@ -4753,13 +4840,26 @@ void MainWindow::handleNewDocumentCreation(int defaultFolderId) {
             shouldNavigate = true;
             loadDocumentsAndNotes();
         } else if (dialog.getDocumentType() == NewDocumentDialog::FromPrompt) {
-            newDocId = currentDb->addDocument(folderId, title, "*Generating...*");
             QString prompt = dialog.getPrompt();
-            QString model = m_selectedModel;
-            if (model.isEmpty() && !m_availableModels.isEmpty()) {
-                model = m_availableModels.first();
+
+            QStringList models = m_selectedModels;
+            if (models.isEmpty() && !m_availableModels.isEmpty()) {
+                models.append(m_availableModels.first());
             }
-            currentDb->enqueuePrompt(newDocId, model, prompt, 0, "document", 0, "replace");
+
+            if (models.size() > 1) {
+                int newFolderId = currentDb->addFolder(folderId, title, "folder");
+                for (const QString& model : models) {
+                    QString docTitle = title + " (" + model + ")";
+                    newDocId = currentDb->addDocument(newFolderId, docTitle, "*Generating...*");
+                    currentDb->enqueuePrompt(newDocId, model, prompt, 0, "document", 0, "replace");
+                }
+            } else {
+                QString model = models.isEmpty() ? "" : models.first();
+                newDocId = currentDb->addDocument(folderId, title, "*Generating...*");
+                currentDb->enqueuePrompt(newDocId, model, prompt, 0, "document", 0, "replace");
+                shouldNavigate = true;
+            }
             loadDocumentsAndNotes();
         } else if (dialog.getDocumentType() == NewDocumentDialog::FromTemplate) {
             int tplId = dialog.getSelectedTemplateId();

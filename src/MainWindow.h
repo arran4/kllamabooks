@@ -37,8 +37,8 @@
 #include "ChatInputWidget.h"
 #include "ModelExplorer.h"
 #include "OllamaClient.h"
-#include "SettingsDialog.h"
 #include "OllamaModelInfo.h"
+#include "SettingsDialog.h"
 
 class CustomItemModel : public QStandardItemModel {
     Q_OBJECT
@@ -204,7 +204,7 @@ class MainWindow : public KXmlGuiWindow {
     QPushButton* modelSelectButton;
     QStringList m_availableModels;
     QList<OllamaModelInfo> m_availableModelInfos;
-    QString m_selectedModel;
+    QStringList m_selectedModels;
     QToolButton* inputSettingsButton;
     QComboBox* modelComboBox;
 

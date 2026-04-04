@@ -68,7 +68,7 @@ NewDocumentDialog::NewDocumentDialog(std::shared_ptr<BookDatabase> db, int defau
     m_documentCombo->setEnabled(false);
     draftLayout->addWidget(m_documentCombo);
 
-    connect(m_overwriteCheck, &QCheckBox::stateChanged, this, &NewDocumentDialog::onOverwriteToggled);
+    connect(m_overwriteCheck, &QCheckBox::checkStateChanged, this, &NewDocumentDialog::onOverwriteToggled);
 
     mainLayout->addWidget(m_draftWidget);
     m_draftWidget->hide();
