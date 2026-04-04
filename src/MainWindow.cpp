@@ -49,6 +49,7 @@
 #include "AIOperationsDialog.h"
 #include "AiActionDialog.h"
 #include "ChatSettingsDialog.h"
+#include "MergeDocumentsDialog.h"
 #include "DatabaseSettingsDialog.h"
 #include "DocumentEditWindow.h"
 #include "DocumentHistoryDialog.h"
@@ -766,15 +767,15 @@ void MainWindow::setupUi() {
                 m_availableModels.append("llama2");  // fallback
             }
         }
-        if (m_selectedModel.isEmpty() && !m_availableModels.isEmpty()) {
+        if (m_selectedModels.isEmpty() && !m_availableModels.isEmpty()) {
             QString systemModel = settings.value("systemModel", "").toString();
             if (!systemModel.isEmpty() && m_availableModels.contains(systemModel)) {
-                m_selectedModel = systemModel;
+                m_selectedModels = QStringList() << systemModel;
             } else {
-                m_selectedModel = m_availableModels.first();
+                m_selectedModels = QStringList() << m_availableModels.first();
             }
-            modelSelectButton->setText(m_selectedModel);
-            modelLabel->setText(tr("Model: %1 (System Selected)").arg(m_selectedModel));
+            modelSelectButton->setText(m_selectedModels.first());
+            modelLabel->setText(tr("Model: %1 (System Selected)").arg(m_selectedModels.first()));
         }
     });
 
@@ -1394,7 +1395,7 @@ void MainWindow::updateInputBehavior() {
                 QSettings settings;
                 QString systemModel = settings.value("systemModel", "").toString();
                 if (!systemModel.isEmpty() && m_availableModels.contains(systemModel)) {
-                    m_selectedModel = systemModel;
+                    m_selectedModels = QStringList() << systemModel;
                 } else if (!m_availableModels.isEmpty()) {
                     m_selectedModels = QStringList() << m_availableModels.first();
                 }
@@ -1653,7 +1654,7 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
                         QSettings settings;
                         QString systemModel = settings.value("systemModel", "").toString();
                         if (!systemModel.isEmpty() && m_availableModels.contains(systemModel)) {
-                            m_selectedModel = systemModel;
+                            m_selectedModels = QStringList() << systemModel;
                         } else if (!m_availableModels.isEmpty()) {
                             m_selectedModels = QStringList() << m_availableModels.first();
                         }
@@ -2025,6 +2026,65 @@ void MainWindow::showVfsContextMenu(const QPoint& pos) {
 
     if (treeItem) {
         showItemContextMenu(treeItem, vfsExplorer->viewport()->mapToGlobal(pos));
+    }
+}
+
+void MainWindow::onMergeDocumentsSelected() {
+    if (!currentDb) return;
+
+    QModelIndexList selectedIndexes = vfsExplorer->selectionModel()->selectedIndexes();
+    QList<int> sourceDocumentIds;
+    QStringList sourceTitles;
+
+    for (const QModelIndex& selIndex : selectedIndexes) {
+        QStandardItem* selItem = vfsModel->itemFromIndex(selIndex);
+        if (selItem && selItem->data(Qt::UserRole + 1).toString() == "document") {
+            sourceDocumentIds.append(selItem->data(Qt::UserRole).toInt());
+            sourceTitles.append(selItem->text());
+        }
+    }
+
+    if (sourceDocumentIds.size() < 2) return;
+
+    QModelIndex parentIndex = openBooksTree->currentIndex();
+    int targetFolderId = 0;
+    if (parentIndex.isValid() && openBooksModel) {
+        QStandardItem* parentItem = openBooksModel->itemFromIndex(parentIndex);
+        if (parentItem && parentItem->data(Qt::UserRole + 1).toString() == "docs_folder") {
+            targetFolderId = parentItem->data(Qt::UserRole).toInt();
+        }
+    }
+
+    MergeDocumentsDialog dlg(currentDb.get(), sourceDocumentIds, m_availableModelInfos, m_availableModels, this);
+    if (dlg.exec() == QDialog::Accepted) {
+        QString finalPrompt = dlg.getFinalPrompt();
+        QStringList selectedModels = dlg.getSelectedModels();
+        if (selectedModels.isEmpty() || finalPrompt.isEmpty()) return;
+
+        // Build metadata
+        QJsonObject metaObj;
+        metaObj["type"] = "merge";
+        QJsonArray sourcesArr;
+        for (int id : sourceDocumentIds) sourcesArr.append(id);
+        metaObj["source_documents"] = sourcesArr;
+        metaObj["prompt"] = finalPrompt;
+        QString metaStr = QString::fromUtf8(QJsonDocument(metaObj).toJson(QJsonDocument::Compact));
+
+        QString baseTitle = "Merged: " + sourceTitles.join(", ");
+        if (baseTitle.length() > 50) baseTitle = baseTitle.left(47) + "...";
+
+        if (selectedModels.size() > 1) {
+            int newFolderId = currentDb->addFolder(targetFolderId, baseTitle + " (Models)", "docs_folder");
+            for (const QString& model : selectedModels) {
+                int newDocId = currentDb->addDocument(newFolderId, model + " Generation", "*Generating merge...*", 0, metaStr);
+                currentDb->enqueuePrompt(newDocId, model, finalPrompt, 0, "document", 0, "replace");
+            }
+        } else {
+            int newDocId = currentDb->addDocument(targetFolderId, baseTitle, "*Generating merge...*", 0, metaStr);
+            currentDb->enqueuePrompt(newDocId, selectedModels.first(), finalPrompt, 0, "document", 0, "replace");
+        }
+
+        loadDocumentsAndNotes();
     }
 }
 

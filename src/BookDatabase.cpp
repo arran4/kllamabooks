@@ -474,6 +474,17 @@ bool BookDatabase::initSchema() {
         userVersion = 14;
     }
 
+    if (userVersion < 19) {
+        // Skip 15, 16, 17, 18 per instructions
+        const char* sql_alter_documents = "ALTER TABLE documents ADD COLUMN metadata TEXT DEFAULT '';";
+        sqlite3_exec((sqlite3*)m_db, sql_alter_documents, nullptr, nullptr, nullptr);
+
+        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (19);", nullptr, nullptr,
+                     nullptr);
+        sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 19;", nullptr, nullptr, nullptr);
+        userVersion = 19;
+    }
+
     return true;
 }
 
@@ -747,10 +758,10 @@ QList<MessageNode> BookDatabase::getMessages() const {
     return nodes;
 }
 
-int BookDatabase::addDocument(int folderId, const QString& title, const QString& content, int parentId) {
+int BookDatabase::addDocument(int folderId, const QString& title, const QString& content, int parentId, const QString& metadata) {
     if (!m_isOpen) return -1;
 
-    const char* sql = "INSERT INTO documents (folder_id, title, content, parent_id) VALUES (?, ?, ?, ?);";
+    const char* sql = "INSERT INTO documents (folder_id, title, content, parent_id, metadata) VALUES (?, ?, ?, ?, ?);";
     sqlite3_stmt* stmt;
     int rc = sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return -1;
@@ -759,6 +770,7 @@ int BookDatabase::addDocument(int folderId, const QString& title, const QString&
     sqlite3_bind_text(stmt, 2, title.toUtf8().constData(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 3, content.toUtf8().constData(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_int(stmt, 4, parentId);
+    sqlite3_bind_text(stmt, 5, metadata.toUtf8().constData(), -1, SQLITE_TRANSIENT);
 
     rc = sqlite3_step(stmt);
     if (rc != SQLITE_DONE) {
@@ -771,17 +783,18 @@ int BookDatabase::addDocument(int folderId, const QString& title, const QString&
     return id;
 }
 
-bool BookDatabase::updateDocument(int id, const QString& newTitle, const QString& newContent) {
+bool BookDatabase::updateDocument(int id, const QString& newTitle, const QString& newContent, const QString& metadata) {
     if (!m_isOpen) return false;
 
-    const char* sql = "UPDATE documents SET title = ?, content = ? WHERE id = ?;";
+    const char* sql = "UPDATE documents SET title = ?, content = ?, metadata = ? WHERE id = ?;";
     sqlite3_stmt* stmt;
     int rc = sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return false;
 
     sqlite3_bind_text(stmt, 1, newTitle.toUtf8().constData(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 2, newContent.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int(stmt, 3, id);
+    sqlite3_bind_text(stmt, 3, metadata.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 4, id);
 
     rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
