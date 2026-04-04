@@ -21,8 +21,8 @@
 #include <QVBoxLayout>
 
 DocumentEditWindow::DocumentEditWindow(std::shared_ptr<BookDatabase> db, int documentId, const QString& title,
-                                       QWidget* parent)
-    : KXmlGuiWindow(parent, Qt::Window), m_db(db), m_documentId(documentId), m_title(title) {
+                                       const QString& itemType, QWidget* parent)
+    : KXmlGuiWindow(parent, Qt::Window), m_db(db), m_documentId(documentId), m_title(title), m_itemType(itemType) {
     setWindowTitle(tr("Editing: %1").arg(title));
     resize(800, 600);
     setAttribute(Qt::WA_DeleteOnClose);
@@ -107,7 +107,11 @@ void DocumentEditWindow::updateStatusBar() {
 void DocumentEditWindow::loadDocument() {
     if (!m_db || !m_db->isOpen()) return;
 
-    auto docs = m_db->getDocuments();
+    QList<DocumentNode> docs;
+    if (m_itemType == "document") docs = m_db->getDocuments();
+    else if (m_itemType == "draft") docs = m_db->getDrafts();
+    else if (m_itemType == "template") docs = m_db->getTemplates();
+
     for (const auto& d : docs) {
         if (d.id == m_documentId) {
             m_initialContent = d.content;
@@ -123,8 +127,11 @@ QDateTime DocumentEditWindow::getLatestDbTimestamp() const {
     if (!m_db || !m_db->isOpen()) return QDateTime::currentDateTime();
 
     QDateTime latest;
-    // We do not have direct access to m_db->m_db. Let's use getDocuments().
-    auto docs = m_db->getDocuments();
+    QList<DocumentNode> docs;
+    if (m_itemType == "document") docs = m_db->getDocuments();
+    else if (m_itemType == "draft") docs = m_db->getDrafts();
+    else if (m_itemType == "template") docs = m_db->getTemplates();
+
     for (const auto& d : docs) {
         if (d.id == m_documentId) {
             latest = d.timestamp;
@@ -132,12 +139,13 @@ QDateTime DocumentEditWindow::getLatestDbTimestamp() const {
         }
     }
 
-    // Check document history
-    auto history = m_db->getDocumentHistory(m_documentId);
-    if (!history.isEmpty()) {
-        QDateTime histTs = QDateTime::fromString(history.first().timestamp, Qt::ISODate);
-        if (histTs > latest) {
-            latest = histTs;
+    if (m_itemType == "document") {
+        auto history = m_db->getDocumentHistory(m_documentId);
+        if (!history.isEmpty()) {
+            QDateTime histTs = QDateTime::fromString(history.first().timestamp, Qt::ISODate);
+            if (histTs > latest) {
+                latest = histTs;
+            }
         }
     }
 
@@ -208,7 +216,11 @@ void DocumentEditWindow::onRenameClicked() {
 int DocumentEditWindow::forkDocument(const QString& newTitle) {
     if (!m_db || !m_db->isOpen()) return 0;
 
-    auto docs = m_db->getDocuments();
+    QList<DocumentNode> docs;
+    if (m_itemType == "document") docs = m_db->getDocuments();
+    else if (m_itemType == "draft") docs = m_db->getDrafts();
+    else if (m_itemType == "template") docs = m_db->getTemplates();
+
     int folderId = 0;
     for (const auto& d : docs) {
         if (d.id == m_documentId) {
@@ -217,13 +229,24 @@ int DocumentEditWindow::forkDocument(const QString& newTitle) {
         }
     }
 
-    return m_db->addDocument(folderId, newTitle, m_editor->toPlainText(), m_documentId);
+    if (m_itemType == "document") {
+        return m_db->addDocument(folderId, newTitle, m_editor->toPlainText(), m_documentId);
+    } else if (m_itemType == "draft") {
+        return m_db->addDraft(folderId, newTitle, m_editor->toPlainText());
+    } else if (m_itemType == "template") {
+        return m_db->addTemplate(folderId, newTitle, m_editor->toPlainText());
+    }
+    return 0;
 }
 
 int DocumentEditWindow::saveToDraft(const QString& newTitle) {
     if (!m_db || !m_db->isOpen()) return 0;
 
-    auto docs = m_db->getDocuments();
+    QList<DocumentNode> docs;
+    if (m_itemType == "document") docs = m_db->getDocuments();
+    else if (m_itemType == "draft") docs = m_db->getDrafts();
+    else if (m_itemType == "template") docs = m_db->getTemplates();
+
     int folderId = 0;
     for (const auto& d : docs) {
         if (d.id == m_documentId) {
@@ -275,8 +298,14 @@ bool DocumentEditWindow::saveToDb() {
         }
     } else {
         // No conflict, save normally
-        m_db->addDocumentHistory(m_documentId, "manual_edit_pre", m_initialContent);
-        m_db->updateDocument(m_documentId, m_title, m_editor->toPlainText());
+        if (m_itemType == "document") {
+            m_db->addDocumentHistory(m_documentId, "manual_edit_pre", m_initialContent);
+            m_db->updateDocument(m_documentId, m_title, m_editor->toPlainText());
+        } else if (m_itemType == "draft") {
+            m_db->updateDraft(m_documentId, m_title, m_editor->toPlainText());
+        } else if (m_itemType == "template") {
+            m_db->updateTemplate(m_documentId, m_title, m_editor->toPlainText());
+        }
         return true;
     }
 }

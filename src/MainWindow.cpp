@@ -1821,10 +1821,28 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
         }
     } else if (type == "document" || type == "note" || type == "template" || type == "draft") {
         QMenu menu(this);
+
+        QString editLabel = "Edit Item";
+        if (type == "document") editLabel = "Edit Document";
+        else if (type == "note") editLabel = "Edit Note";
+        else if (type == "template") editLabel = "Edit Template";
+        else if (type == "draft") editLabel = "Edit Draft";
+
+        QAction* editAction = menu.addAction(QIcon::fromTheme("document-edit"), editLabel);
+
+        QAction* historyAction = nullptr;
+        QAction* aiAction = nullptr;
+
+        if (type == "document") {
+            historyAction = menu.addAction(QIcon::fromTheme("view-history"), "History");
+            aiAction = menu.addAction(QIcon::fromTheme("tools-wizard"), "AI Operations");
+        }
+
+        menu.addSeparator();
+
         QAction* exportAction = nullptr;
         QAction* replaceAction = nullptr;
         QAction* loadTemplateAction = nullptr;
-        QAction* resumeDraftAction = nullptr;
 
         if (type == "template") {
             loadTemplateAction = menu.addAction(QIcon::fromTheme("document-import"), "Load Template");
@@ -1855,7 +1873,37 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
         }
 
         QAction* selectedAction = menu.exec(globalPos);
-        if (loadTemplateAction && selectedAction == loadTemplateAction) {
+        if (selectedAction) {
+            openBooksTree->setCurrentIndex(item->index());
+        }
+
+        if (selectedAction == editAction) {
+            if (type == "document" || type == "draft" || type == "template") {
+                onEditDocument();
+            } else if (type == "note") {
+                mainContentStack->setCurrentWidget(noteContainer);
+                noteEditorView->setFocus();
+            }
+        } else if (historyAction && selectedAction == historyAction) {
+            onDocumentHistory();
+        } else if (aiAction && selectedAction == aiAction) {
+            onDocumentAIOperations();
+        } else if (selectedAction == deleteAction) {
+            int answer = QMessageBox::question(this, "Delete", tr("Are you sure you want to delete this %1?").arg(type));
+            if (answer == QMessageBox::Yes && currentDb) {
+                int id = item->data(Qt::UserRole).toInt();
+                if (type == "document") {
+                    currentDb->deleteDocument(id);
+                } else if (type == "note") {
+                    currentDb->deleteNote(id);
+                } else if (type == "template") {
+                    currentDb->deleteTemplate(id);
+                } else if (type == "draft") {
+                    currentDb->deleteDraft(id);
+                }
+                loadDocumentsAndNotes();
+            }
+        } else if (loadTemplateAction && selectedAction == loadTemplateAction) {
             int docId = item->data(Qt::UserRole).toInt();
             if (currentDb) {
                 QList<DocumentNode> templates = currentDb->getTemplates();
@@ -4495,30 +4543,33 @@ void MainWindow::onVfsExplorerDoubleClicked(const QModelIndex& index) {
 void MainWindow::onEditDocument() {
     if (!currentDb || currentDocumentId == 0) return;
 
-    if (m_openDocEditors.contains(currentDocumentId)) {
-        DocumentEditWindow* win = m_openDocEditors.value(currentDocumentId);
+    QModelIndex index = openBooksTree->currentIndex();
+    QStandardItem* item = index.isValid() ? openBooksModel->itemFromIndex(index) : nullptr;
+    QString type = item ? item->data(Qt::UserRole + 1).toString() : "document";
+    QString currentTitle = item ? item->text() : "Document";
+
+    QString editorKey = QString("%1_%2").arg(type).arg(currentDocumentId);
+
+    if (m_openDocEditors.contains(editorKey)) {
+        DocumentEditWindow* win = m_openDocEditors.value(editorKey);
         if (win) {
             win->show();
             win->raise();
             win->activateWindow();
             return;
         } else {
-            m_openDocEditors.remove(currentDocumentId);
+            m_openDocEditors.remove(editorKey);
         }
     }
 
-    QModelIndex index = openBooksTree->currentIndex();
-    QStandardItem* item = index.isValid() ? openBooksModel->itemFromIndex(index) : nullptr;
-    QString currentTitle = item ? item->text() : "Document";
+    DocumentEditWindow* editWin = new DocumentEditWindow(currentDb, currentDocumentId, currentTitle, type);
+    m_openDocEditors.insert(editorKey, editWin);
 
-    DocumentEditWindow* editWin = new DocumentEditWindow(currentDb, currentDocumentId, currentTitle);
-    m_openDocEditors.insert(currentDocumentId, editWin);
-
-    connect(editWin, &DocumentEditWindow::documentModified, this, [this](int docId) {
+    connect(editWin, &DocumentEditWindow::documentModified, this, [this, type](int docId) {
         loadDocumentsAndNotes();  // Refresh tree
         if (currentDocumentId == docId) {
             QString outTitle, outContent;
-            getDocumentContent(docId, "document", outTitle, outContent);
+            getDocumentContent(docId, type, outTitle, outContent);
             documentEditorView->blockSignals(true);
             documentEditorView->setPlainText(outContent);
             documentEditorView->blockSignals(false);
@@ -4529,7 +4580,7 @@ void MainWindow::onEditDocument() {
         loadDocumentsAndNotes();  // Refresh tree
     });
 
-    connect(editWin, &QObject::destroyed, this, [this, id = currentDocumentId]() { m_openDocEditors.remove(id); });
+    connect(editWin, &QObject::destroyed, this, [this, editorKey]() { m_openDocEditors.remove(editorKey); });
     editWin->show();
 }
 
