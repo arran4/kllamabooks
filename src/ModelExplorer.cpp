@@ -1,13 +1,22 @@
 #include "ModelExplorer.h"
 
 #include <QAction>
+#include <QDesktopServices>
 #include <QHeaderView>
 #include <QIcon>
 #include <QMenu>
 #include <QMessageBox>
 #include <QSettings>
+#include <QUrl>
+#include <QUrlQuery>
+#include <QNetworkRequest>
+#include <QNetworkReply>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
+#include <QRegularExpression>
 
-ModelExplorer::ModelExplorer(OllamaClient* client, QWidget* parent) : QDialog(parent), m_client(client) {
+ModelExplorer::ModelExplorer(OllamaClient* client, bool isOllama, QWidget* parent) : QDialog(parent), m_client(client), m_isOllama(isOllama), m_networkManager(new QNetworkAccessManager(this)) {
     setWindowTitle("Model Explorer");
     resize(800, 600);
 
@@ -19,6 +28,7 @@ ModelExplorer::ModelExplorer(OllamaClient* client, QWidget* parent) : QDialog(pa
     setupInstalledTab();
     setupDownloadTab();
     setupDownloadingTab();
+    setupOnlineSearchTab();
 
     mainLayout->addWidget(m_tabWidget);
 
@@ -72,12 +82,73 @@ void ModelExplorer::setupDownloadTab() {
     downloadLayout->addWidget(m_downloadButton);
 
     layout->addLayout(downloadLayout);
+
+    if (m_isOllama) {
+        QHBoxLayout* externalSearchLayout = new QHBoxLayout();
+        QPushButton* searchOllamaButton = new QPushButton("Search Ollama", this);
+        QPushButton* searchHfButton = new QPushButton("Search HF.com", this);
+        externalSearchLayout->addWidget(searchOllamaButton);
+        externalSearchLayout->addWidget(searchHfButton);
+        layout->addLayout(externalSearchLayout);
+
+        QLabel* hfNoteLabel = new QLabel("Note: Downloading Hugging Face models may require configuring Ollama's HF connection (e.g., via HF CLI).", this);
+        hfNoteLabel->setStyleSheet("color: gray; font-style: italic; font-size: 10px;");
+        layout->addWidget(hfNoteLabel);
+
+        connect(searchOllamaButton, &QPushButton::clicked, this, &ModelExplorer::onSearchOllamaClicked);
+        connect(searchHfButton, &QPushButton::clicked, this, &ModelExplorer::onSearchHfClicked);
+    }
+
     layout->addStretch();
 
     connect(m_downloadButton, &QPushButton::clicked, this, &ModelExplorer::onDownloadModelClicked);
     connect(m_downloadNameField, &QLineEdit::returnPressed, this, &ModelExplorer::onDownloadModelClicked);
 
     m_tabWidget->addTab(tab, "Download Models");
+}
+
+void ModelExplorer::setupOnlineSearchTab() {
+    QWidget* tab = new QWidget(this);
+    QVBoxLayout* layout = new QVBoxLayout(tab);
+
+    QHBoxLayout* searchLayout = new QHBoxLayout();
+    m_searchSourceCombo = new QComboBox(this);
+    if (m_isOllama) {
+        m_searchSourceCombo->addItem("Ollama");
+        m_searchSourceCombo->addItem("Hugging Face");
+    } else {
+        m_searchSourceCombo->addItem("Hugging Face");
+    }
+    m_onlineSearchField = new QLineEdit(this);
+    m_onlineSearchField->setPlaceholderText("Search query...");
+    m_onlineSearchButton = new QPushButton("Search", this);
+
+    searchLayout->addWidget(m_searchSourceCombo);
+    searchLayout->addWidget(m_onlineSearchField);
+    searchLayout->addWidget(m_onlineSearchButton);
+    layout->addLayout(searchLayout);
+
+    m_searchResultsTable = new QTableWidget(0, 2, this);
+    m_searchResultsTable->setHorizontalHeaderLabels({"Model", "Description/Downloads"});
+    m_searchResultsTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    m_searchResultsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    m_searchResultsTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_searchResultsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    layout->addWidget(m_searchResultsTable);
+
+    m_loadMoreButton = new QPushButton("Load More", this);
+    m_loadMoreButton->hide(); // Hidden initially
+    layout->addWidget(m_loadMoreButton);
+
+    QPushButton* downloadSelectedBtn = new QPushButton("Download Selected", this);
+    layout->addWidget(downloadSelectedBtn);
+
+    connect(m_onlineSearchButton, &QPushButton::clicked, this, &ModelExplorer::onOnlineSearchClicked);
+    connect(m_onlineSearchField, &QLineEdit::returnPressed, this, &ModelExplorer::onOnlineSearchClicked);
+    connect(downloadSelectedBtn, &QPushButton::clicked, this, &ModelExplorer::onDownloadFromSearchClicked);
+    connect(m_loadMoreButton, &QPushButton::clicked, this, &ModelExplorer::onLoadMoreClicked);
+
+    m_tabWidget->addTab(tab, "Online Search");
 }
 
 void ModelExplorer::setupDownloadingTab() {
@@ -108,6 +179,160 @@ void ModelExplorer::loadFavorites() {
 void ModelExplorer::saveFavorites() {
     QSettings settings;
     settings.setValue("favoriteModels", m_favorites);
+}
+
+void ModelExplorer::onSearchOllamaClicked() {
+    m_tabWidget->setCurrentIndex(3);
+    if (m_searchSourceCombo->findText("Ollama") != -1) {
+        m_searchSourceCombo->setCurrentText("Ollama");
+    }
+    m_onlineSearchField->setText(m_downloadNameField->text());
+    onOnlineSearchClicked();
+}
+
+void ModelExplorer::onSearchHfClicked() {
+    m_tabWidget->setCurrentIndex(3);
+    if (m_searchSourceCombo->findText("Hugging Face") != -1) {
+        m_searchSourceCombo->setCurrentText("Hugging Face");
+    }
+    m_onlineSearchField->setText(m_downloadNameField->text());
+    onOnlineSearchClicked();
+}
+
+void ModelExplorer::onLoadMoreClicked() {
+    QString query = m_onlineSearchField->text().trimmed();
+    if (query.isEmpty() || m_searchSourceCombo->currentText() != "Hugging Face") return;
+
+    m_loadMoreButton->setEnabled(false);
+    m_loadMoreButton->setText("Loading...");
+
+    QUrl url("https://huggingface.co/api/models");
+    QUrlQuery urlQuery;
+    urlQuery.addQueryItem("search", query);
+    urlQuery.addQueryItem("limit", "20");
+    m_hfSkipCount += 20;
+    urlQuery.addQueryItem("skip", QString::number(m_hfSkipCount));
+    url.setQuery(urlQuery);
+
+    QNetworkRequest request(url);
+    QNetworkReply* reply = m_networkManager->get(request);
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        if (reply->error() == QNetworkReply::NoError) {
+            QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
+            if (doc.isArray()) {
+                QJsonArray arr = doc.array();
+                if (arr.isEmpty()) {
+                    m_loadMoreButton->hide(); // No more results
+                } else {
+                    for (const QJsonValue& val : arr) {
+                        QJsonObject obj = val.toObject();
+                        QString name = obj["id"].toString();
+                        QString desc = "Downloads: " + QString::number(obj["downloads"].toInt()) + ", Pipeline: " + obj["pipeline_tag"].toString();
+                        int row = m_searchResultsTable->rowCount();
+                        m_searchResultsTable->insertRow(row);
+                        m_searchResultsTable->setItem(row, 0, new QTableWidgetItem(name));
+                        m_searchResultsTable->setItem(row, 1, new QTableWidgetItem(desc));
+                    }
+                }
+            }
+        }
+        reply->deleteLater();
+        m_loadMoreButton->setEnabled(true);
+        m_loadMoreButton->setText("Load More");
+    });
+}
+
+void ModelExplorer::onOnlineSearchClicked() {
+    QString query = m_onlineSearchField->text().trimmed();
+    if (query.isEmpty()) return;
+
+    m_searchResultsTable->setRowCount(0);
+    m_hfSkipCount = 0;
+    m_loadMoreButton->hide();
+
+    m_onlineSearchButton->setEnabled(false);
+    m_onlineSearchButton->setText("Searching...");
+
+    QString source = m_searchSourceCombo->currentText();
+    if (source == "Ollama") {
+        QUrl url("https://ollama.com/library");
+        QUrlQuery urlQuery;
+        urlQuery.addQueryItem("q", query);
+        url.setQuery(urlQuery);
+
+        QNetworkRequest request(url);
+        QNetworkReply* reply = m_networkManager->get(request);
+        connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+            if (reply->error() == QNetworkReply::NoError) {
+                QString html = QString::fromUtf8(reply->readAll());
+                QRegularExpression nameRe("<span class=\"group-hover:underline truncate\">(.*?)</span>");
+                QRegularExpression descRe("<p class=\"max-w-lg break-words text-neutral-800 text-md\">(.*?)</p>");
+
+                QRegularExpressionMatchIterator nameIt = nameRe.globalMatch(html);
+                QRegularExpressionMatchIterator descIt = descRe.globalMatch(html);
+
+                while (nameIt.hasNext() && descIt.hasNext()) {
+                    QString name = nameIt.next().captured(1);
+                    QString desc = descIt.next().captured(1).trimmed();
+                    int row = m_searchResultsTable->rowCount();
+                    m_searchResultsTable->insertRow(row);
+                    m_searchResultsTable->setItem(row, 0, new QTableWidgetItem(name));
+                    m_searchResultsTable->setItem(row, 1, new QTableWidgetItem(desc));
+                }
+            }
+            reply->deleteLater();
+            m_onlineSearchButton->setEnabled(true);
+            m_onlineSearchButton->setText("Search");
+        });
+    } else if (source == "Hugging Face") {
+        QUrl url("https://huggingface.co/api/models");
+        QUrlQuery urlQuery;
+        urlQuery.addQueryItem("search", query);
+        urlQuery.addQueryItem("limit", "20");
+        url.setQuery(urlQuery);
+
+        QNetworkRequest request(url);
+        QNetworkReply* reply = m_networkManager->get(request);
+        connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+            if (reply->error() == QNetworkReply::NoError) {
+                QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
+                if (doc.isArray()) {
+                    QJsonArray arr = doc.array();
+                    for (const QJsonValue& val : arr) {
+                        QJsonObject obj = val.toObject();
+                        QString name = obj["id"].toString();
+                        QString desc = "Downloads: " + QString::number(obj["downloads"].toInt()) + ", Pipeline: " + obj["pipeline_tag"].toString();
+                        int row = m_searchResultsTable->rowCount();
+                        m_searchResultsTable->insertRow(row);
+                        m_searchResultsTable->setItem(row, 0, new QTableWidgetItem(name));
+                        m_searchResultsTable->setItem(row, 1, new QTableWidgetItem(desc));
+                    }
+                    if (arr.size() == 20) {
+                        m_loadMoreButton->show();
+                    }
+                }
+            }
+            reply->deleteLater();
+            m_onlineSearchButton->setEnabled(true);
+            m_onlineSearchButton->setText("Search");
+        });
+    }
+}
+
+void ModelExplorer::onDownloadFromSearchClicked() {
+    QList<QTableWidgetItem*> selection = m_searchResultsTable->selectedItems();
+    if (selection.isEmpty()) return;
+
+    int row = selection.first()->row();
+    QString name = m_searchResultsTable->item(row, 0)->text();
+
+    if (m_searchSourceCombo->currentText() == "Hugging Face") {
+        name = "hf.co/" + name;
+    }
+
+    m_downloadNameField->setText(name);
+    m_tabWidget->setCurrentIndex(1); // Switch back to Download Models tab
+    onDownloadModelClicked();
 }
 
 void ModelExplorer::onSearchInstalledClicked() {

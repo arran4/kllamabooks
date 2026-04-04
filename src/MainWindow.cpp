@@ -600,18 +600,18 @@ void MainWindow::setupUi() {
     splitter->setStretchFactor(1, 1);
 
     QAction* zoomInAction = new QAction(QIcon::fromTheme("zoom-in"), tr("Zoom In"), this);
-    zoomInAction->setShortcut(QKeySequence::ZoomIn);
     actionCollection()->addAction(QStringLiteral("zoom_in"), zoomInAction);
+    actionCollection()->setDefaultShortcut(zoomInAction, QKeySequence::ZoomIn);
     connect(zoomInAction, &QAction::triggered, this, &MainWindow::zoomIn);
 
     QAction* zoomOutAction = new QAction(QIcon::fromTheme("zoom-out"), tr("Zoom Out"), this);
-    zoomOutAction->setShortcut(QKeySequence::ZoomOut);
     actionCollection()->addAction(QStringLiteral("zoom_out"), zoomOutAction);
+    actionCollection()->setDefaultShortcut(zoomOutAction, QKeySequence::ZoomOut);
     connect(zoomOutAction, &QAction::triggered, this, &MainWindow::zoomOut);
 
     QAction* resetZoomAction = new QAction(QIcon::fromTheme("zoom-original"), tr("Reset Zoom"), this);
-    resetZoomAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_0));
     actionCollection()->addAction(QStringLiteral("reset_zoom"), resetZoomAction);
+    actionCollection()->setDefaultShortcut(resetZoomAction, QKeySequence(Qt::CTRL | Qt::Key_0));
     connect(resetZoomAction, &QAction::triggered, this, &MainWindow::resetZoom);
 
     QAction* newBookAction = new QAction(QIcon::fromTheme("document-new"), tr("New Book"), this);
@@ -766,10 +766,15 @@ void MainWindow::setupUi() {
                 m_availableModels.append("llama2");  // fallback
             }
         }
-        if (m_selectedModels.isEmpty() && !m_availableModels.isEmpty()) {
-            m_selectedModels.append(m_availableModels.first());
-            modelSelectButton->setText(m_selectedModels.first());
-            modelLabel->setText(tr("Model: %1 (Default)").arg(m_selectedModels.first()));
+        if (m_selectedModel.isEmpty() && !m_availableModels.isEmpty()) {
+            QString systemModel = settings.value("systemModel", "").toString();
+            if (!systemModel.isEmpty() && m_availableModels.contains(systemModel)) {
+                m_selectedModel = systemModel;
+            } else {
+                m_selectedModel = m_availableModels.first();
+            }
+            modelSelectButton->setText(m_selectedModel);
+            modelLabel->setText(tr("Model: %1 (System Selected)").arg(m_selectedModel));
         }
     });
 
@@ -793,14 +798,18 @@ void MainWindow::setupUi() {
                             m_newChatModel = selectedList.first();
                         }
                     }
-                    updateInputBehavior();
-                } else {
+                    modelLabel->setText(tr("Model: %1 (User Switch)").arg(selectedList.first()));
+                } else if (selectedList.size() > 1) {
                     QString displayStr = tr("Multiple");
                     modelSelectButton->setText(displayStr);
                     modelSelectButton->setToolTip(m_selectedModels.join(", "));
                     modelLabel->setToolTip(m_selectedModels.join(", "));
                     modelLabel->setText(tr("Model: %1 (User Switch)").arg(displayStr));
+                } else {
+                    QSettings settings;
+                    settings.setValue("systemModel", selectedList.first());
                 }
+                updateInputBehavior();
             }
         }
     });
@@ -876,9 +885,6 @@ void MainWindow::setupUi() {
     // Initially hide toggleInputModeBtn since emptyView is default
     toggleInputModeBtn->hide();
 
-    modelLabel = new QLabel(tr("Model: Not Selected"), this);
-    statusBar->addPermanentWidget(modelLabel);
-
     queueStatusBtn = new QToolButton(this);
     queueStatusBtn->setText("Q: 0");
     queueStatusBtn->setToolTip(tr("LLM Request Queue"));
@@ -898,6 +904,10 @@ void MainWindow::setupUi() {
     settingsStatusBarBtn->setToolTip(tr("Settings"));
     connect(settingsStatusBarBtn, &QToolButton::clicked, this, &MainWindow::showSettingsDialog);
     statusBar->addPermanentWidget(settingsStatusBarBtn);
+
+    modelLabel = new QLabel(tr("Model: Not Selected"), this);
+    modelLabel->setMaximumWidth(150);
+    statusBar->addPermanentWidget(modelLabel);
 
     updateEndpointsList();
     loadBooks();
@@ -1380,9 +1390,15 @@ void MainWindow::updateInputBehavior() {
                 m_selectedModels = QStringList() << dbModel;
                 if (modelLabel) modelLabel->setText(tr("Model: %1 (Book Default)").arg(m_selectedModels.first()));
                 if (modelSelectButton) modelSelectButton->setText(m_selectedModels.first());
-            } else if (!m_availableModels.isEmpty()) {
-                m_selectedModels = QStringList() << m_availableModels.first();
-                if (modelLabel) modelLabel->setText(tr("Model: %1 (Global Fallback)").arg(m_selectedModels.first()));
+            } else {
+                QSettings settings;
+                QString systemModel = settings.value("systemModel", "").toString();
+                if (!systemModel.isEmpty() && m_availableModels.contains(systemModel)) {
+                    m_selectedModel = systemModel;
+                } else if (!m_availableModels.isEmpty()) {
+                    m_selectedModels = QStringList() << m_availableModels.first();
+                }
+                if (modelLabel) modelLabel->setText(tr("Model: %1 (System Selected)").arg(m_selectedModels.first()));
                 if (modelSelectButton) modelSelectButton->setText(m_selectedModels.first());
             }
         }
@@ -1530,7 +1546,11 @@ void MainWindow::loadBooks() {
  * is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal
  * application models. */
 void MainWindow::showModelExplorer() {
-    ModelExplorer* explorer = new ModelExplorer(&ollamaClient, this);
+    QString endpointName = endpointComboBox ? endpointComboBox->currentText() : "Default";
+    QString endpointUrl = ollamaClient.getBaseUrl();
+    bool isOllama = endpointName.contains("ollama", Qt::CaseInsensitive) || endpointUrl.contains("11434");
+
+    ModelExplorer* explorer = new ModelExplorer(&ollamaClient, isOllama, this);
     explorer->setAttribute(Qt::WA_DeleteOnClose);
     explorer->show();
 }
@@ -1629,9 +1649,15 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
                     if (!dbModel.isEmpty()) {
                         m_selectedModels = QStringList() << dbModel;
                         modelLabel->setText(tr("Model: %1 (Book Default)").arg(m_selectedModels.first()));
-                    } else if (!m_availableModels.isEmpty()) {
-                        m_selectedModels = QStringList() << m_availableModels.first();
-                        modelLabel->setText(tr("Model: %1 (Global Fallback)").arg(m_selectedModels.first()));
+                    } else {
+                        QSettings settings;
+                        QString systemModel = settings.value("systemModel", "").toString();
+                        if (!systemModel.isEmpty() && m_availableModels.contains(systemModel)) {
+                            m_selectedModel = systemModel;
+                        } else if (!m_availableModels.isEmpty()) {
+                            m_selectedModels = QStringList() << m_availableModels.first();
+                        }
+                        modelLabel->setText(tr("Model: %1 (System Selected)").arg(m_selectedModels.first()));
                     }
                     if (currentLastNodeId != 0 && mainContentStack->currentWidget() == chatWindowView) {
                         updateLinearChatView(currentLastNodeId, currentDb->getMessages());
@@ -3721,6 +3747,7 @@ void MainWindow::onOpenBooksSelectionChanged(const QItemSelection& selected, con
             if (currentDb) {
                 updateLinearChatView(currentLastNodeId, currentDb->getMessages());
                 mainContentStack->setCurrentWidget(chatWindowView);
+                updateInputBehavior();
             }
         }
     }
@@ -4950,6 +4977,17 @@ void MainWindow::onEditDocument() {
         loadDocumentsAndNotes();  // Refresh tree
     });
 
+    connect(editWin, &DocumentEditWindow::jumpToDocumentRequested, this, [this, type](int docId) {
+        QStandardItem* item = findItemInTree(docId, type);
+        if (item) {
+            openBooksTree->selectionModel()->select(item->index(),
+                                                    QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Current);
+            openBooksTree->scrollTo(item->index());
+        }
+        this->raise();
+        this->activateWindow();
+    });
+
     connect(editWin, &QObject::destroyed, this, [this, editorKey]() { m_openDocEditors.remove(editorKey); });
     editWin->show();
 }
@@ -5087,6 +5125,7 @@ void MainWindow::onChatTextAreaContextMenu(const QPoint& pos) {
             loadDocumentsAndNotes();
             updateLinearChatView(currentLastNodeId, currentDb->getMessages());
             mainContentStack->setCurrentWidget(chatWindowView);
+            updateInputBehavior();
         }
         if (!toggleInputModeBtn->isChecked()) {
             inputField->setFocus();
@@ -5193,6 +5232,7 @@ void MainWindow::onChatForkExplorerDoubleClicked(const QModelIndex& index) {
         if (currentDb) {
             updateLinearChatView(currentLastNodeId, currentDb->getMessages());
             chatTextArea->setFocus();
+            updateInputBehavior();
         }
     }
 }
@@ -5243,7 +5283,10 @@ void MainWindow::onChatForkExplorerContextMenu(const QPoint& pos) {
             int nodeId = item->data(Qt::UserRole).toInt();
 
             currentLastNodeId = nodeId;
-            if (currentDb) updateLinearChatView(currentLastNodeId, currentDb->getMessages());
+            if (currentDb) {
+                updateLinearChatView(currentLastNodeId, currentDb->getMessages());
+                updateInputBehavior();
+            }
         }
     }
 }

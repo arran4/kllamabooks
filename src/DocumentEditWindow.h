@@ -21,12 +21,14 @@ class DocumentEditWindow : public KXmlGuiWindow {
    signals:
     void documentModified(int documentId);
     void newDocumentCreated(int newDocumentId);
+    void jumpToDocumentRequested(int documentId);
 
    protected:
     void closeEvent(QCloseEvent* event) override;
 
    private slots:
     void onSaveClicked();
+    void onJumpClicked();
     void onSaveAsClicked();
     void onSaveAsDraftClicked();
     void onRenameClicked();
