@@ -22,7 +22,7 @@ ModelExplorer::ModelExplorer(OllamaClient* client, QWidget* parent) : QDialog(pa
 
     mainLayout->addWidget(m_tabWidget);
 
-    connect(m_client, &OllamaClient::modelListUpdated, this, &ModelExplorer::updateModelList);
+    connect(m_client, &OllamaClient::modelInfoUpdated, this, &ModelExplorer::updateModelList);
     connect(m_client, &OllamaClient::pullProgressUpdated, this, &ModelExplorer::onPullProgressUpdated);
     connect(m_client, &OllamaClient::pullFinished, this, &ModelExplorer::onPullFinished);
 
@@ -43,10 +43,16 @@ void ModelExplorer::setupInstalledTab() {
     searchLayout->addWidget(searchButton);
     layout->addLayout(searchLayout);
 
-    m_installedList = new QListWidget(this);
-    m_installedList->setContextMenuPolicy(Qt::CustomContextMenu);
-    connect(m_installedList, &QWidget::customContextMenuRequested, this, &ModelExplorer::showInstalledContextMenu);
-    layout->addWidget(m_installedList);
+    m_installedTable = new QTableWidget(0, 5, this);
+    m_installedTable->setHorizontalHeaderLabels({"Name", "Size", "Family", "Parameters", "Quantization"});
+    m_installedTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_installedTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_installedTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_installedTable->horizontalHeader()->setStretchLastSection(true);
+    m_installedTable->verticalHeader()->setVisible(false);
+    m_installedTable->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_installedTable, &QWidget::customContextMenuRequested, this, &ModelExplorer::showInstalledContextMenu);
+    layout->addWidget(m_installedTable);
 
     connect(searchButton, &QPushButton::clicked, this, &ModelExplorer::onSearchInstalledClicked);
     connect(m_installedSearchField, &QLineEdit::returnPressed, this, &ModelExplorer::onSearchInstalledClicked);
@@ -102,12 +108,12 @@ void ModelExplorer::saveFavorites() {
 
 void ModelExplorer::onSearchInstalledClicked() {
     QString query = m_installedSearchField->text().toLower();
-    for (int i = 0; i < m_installedList->count(); ++i) {
-        QListWidgetItem* item = m_installedList->item(i);
-        QString text = item->text();
-        // Remove favorite star when checking
-        if (text.startsWith("⭐ ")) text = text.mid(2);
-        item->setHidden(!text.toLower().contains(query));
+    for (int i = 0; i < m_installedTable->rowCount(); ++i) {
+        QTableWidgetItem* item = m_installedTable->item(i, 0);
+        if (item) {
+            QString itemName = item->data(Qt::UserRole).toString();
+            m_installedTable->setRowHidden(i, !itemName.toLower().contains(query));
+        }
     }
 }
 
@@ -142,26 +148,40 @@ void ModelExplorer::onDownloadModelClicked() {
     m_tabWidget->setCurrentIndex(2);  // Switch to downloading tab
 }
 
-void ModelExplorer::updateModelList(const QStringList& models) {
-    m_installedList->clear();
+void ModelExplorer::updateModelList(const QList<OllamaModelInfo>& models) {
+    m_installedTable->setRowCount(0);
 
     // Add favorites first
-    for (const QString& model : models) {
-        if (m_favorites.contains(model)) {
-            QListWidgetItem* item = new QListWidgetItem("⭐ " + model);
-            item->setData(Qt::UserRole, model);
-            m_installedList->addItem(item);
+    int row = 0;
+    for (const OllamaModelInfo& info : models) {
+        if (m_favorites.contains(info.name)) {
+            m_installedTable->insertRow(row);
+            QTableWidgetItem* nameItem = new QTableWidgetItem("⭐ " + info.name);
+            nameItem->setData(Qt::UserRole, info.name);
+            m_installedTable->setItem(row, 0, nameItem);
+            m_installedTable->setItem(row, 1, new QTableWidgetItem(info.size));
+            m_installedTable->setItem(row, 2, new QTableWidgetItem(info.family));
+            m_installedTable->setItem(row, 3, new QTableWidgetItem(info.parameterSize));
+            m_installedTable->setItem(row, 4, new QTableWidgetItem(info.quantizationLevel));
+            row++;
         }
     }
 
     // Add the rest
-    for (const QString& model : models) {
-        if (!m_favorites.contains(model)) {
-            QListWidgetItem* item = new QListWidgetItem(model);
-            item->setData(Qt::UserRole, model);
-            m_installedList->addItem(item);
+    for (const OllamaModelInfo& info : models) {
+        if (!m_favorites.contains(info.name)) {
+            m_installedTable->insertRow(row);
+            QTableWidgetItem* nameItem = new QTableWidgetItem(info.name);
+            nameItem->setData(Qt::UserRole, info.name);
+            m_installedTable->setItem(row, 0, nameItem);
+            m_installedTable->setItem(row, 1, new QTableWidgetItem(info.size));
+            m_installedTable->setItem(row, 2, new QTableWidgetItem(info.family));
+            m_installedTable->setItem(row, 3, new QTableWidgetItem(info.parameterSize));
+            m_installedTable->setItem(row, 4, new QTableWidgetItem(info.quantizationLevel));
+            row++;
         }
     }
+    m_installedTable->resizeColumnsToContents();
 }
 
 void ModelExplorer::onPullProgressUpdated(const QString& modelName, int percent, const QString& status) {
@@ -188,16 +208,20 @@ void ModelExplorer::onPullFinished(const QString& modelName) {
 }
 
 void ModelExplorer::showInstalledContextMenu(const QPoint& pos) {
-    QListWidgetItem* item = m_installedList->itemAt(pos);
+    QTableWidgetItem* item = m_installedTable->itemAt(pos);
     if (!item) return;
 
-    QString modelName = item->data(Qt::UserRole).toString();
+    int row = item->row();
+    QTableWidgetItem* nameItem = m_installedTable->item(row, 0);
+    if (!nameItem) return;
+
+    QString modelName = nameItem->data(Qt::UserRole).toString();
     bool isFavorite = m_favorites.contains(modelName);
 
     QMenu menu(this);
     QAction* favoriteAction = menu.addAction(isFavorite ? "Unfavorite" : "Favorite");
 
-    QAction* selectedAction = menu.exec(m_installedList->viewport()->mapToGlobal(pos));
+    QAction* selectedAction = menu.exec(m_installedTable->viewport()->mapToGlobal(pos));
     if (selectedAction == favoriteAction) {
         if (isFavorite) {
             m_favorites.removeAll(modelName);
