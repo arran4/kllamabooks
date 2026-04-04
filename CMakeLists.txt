@@ -19,6 +19,7 @@ add_executable(kllamabooks
     src/main.cpp
     src/OllamaClient.cpp
     src/OllamaClient.h
+    src/OllamaModelInfo.h
     src/ModelExplorer.cpp
     src/ModelExplorer.h
     src/ModelSelectionDialog.cpp
