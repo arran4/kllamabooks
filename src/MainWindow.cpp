@@ -2885,6 +2885,12 @@ void MainWindow::onSendMessage() {
             }
 
             loadDocumentsAndNotes();  // Refresh tree
+            QStandardItem* item = findItemInTree(currentLastNodeId, "chat_node");
+            if (item) {
+                openBooksTree->selectionModel()->select(item->index(), QItemSelectionModel::ClearAndSelect);
+                openBooksTree->setCurrentIndex(item->index());
+                openBooksTree->scrollTo(item->index());
+            }
             updateLinearChatView(currentLastNodeId, currentDb->getMessages());
             statusBar->showMessage(tr("Fork task queued."), 3000);
             return;
@@ -3032,6 +3038,12 @@ void MainWindow::onSendMessage() {
     // Refresh tree if needed
     if (forkCreated || models.size() > 1 || wasCreatingNewChat) {
         loadDocumentsAndNotes();  // Ensure tree refreshes correctly to natively reflect any new forks
+        QStandardItem* item = findItemInTree(currentLastNodeId, "chat_node");
+        if (item) {
+            openBooksTree->selectionModel()->select(item->index(), QItemSelectionModel::ClearAndSelect);
+            openBooksTree->setCurrentIndex(item->index());
+            openBooksTree->scrollTo(item->index());
+        }
     } else {
         QStandardItem* item = findItemInTree(parentId, "chat_node");
         if (item) {
@@ -3040,9 +3052,17 @@ void MainWindow::onSendMessage() {
                 branchItem->setData(currentLastNodeId, Qt::UserRole);
                 branchItem->setData("chat_node", Qt::UserRole + 1);
                 item->appendRow(branchItem);
+
+                openBooksTree->selectionModel()->select(branchItem->index(), QItemSelectionModel::ClearAndSelect);
+                openBooksTree->setCurrentIndex(branchItem->index());
+                openBooksTree->scrollTo(branchItem->index());
             } else {
                 item->setData(currentLastNodeId, Qt::UserRole);
                 item->setText(text.left(30));
+
+                openBooksTree->selectionModel()->select(item->index(), QItemSelectionModel::ClearAndSelect);
+                openBooksTree->setCurrentIndex(item->index());
+                openBooksTree->scrollTo(item->index());
             }
         }
     }
