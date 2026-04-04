@@ -4851,6 +4851,17 @@ void MainWindow::onEditDocument() {
         loadDocumentsAndNotes();  // Refresh tree
     });
 
+    connect(editWin, &DocumentEditWindow::jumpToDocumentRequested, this, [this, type](int docId) {
+        QStandardItem* item = findItemInTree(docId, type);
+        if (item) {
+            openBooksTree->selectionModel()->select(item->index(),
+                                                    QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Current);
+            openBooksTree->scrollTo(item->index());
+        }
+        this->raise();
+        this->activateWindow();
+    });
+
     connect(editWin, &QObject::destroyed, this, [this, editorKey]() { m_openDocEditors.remove(editorKey); });
     editWin->show();
 }
