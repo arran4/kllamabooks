@@ -4308,11 +4308,15 @@ void MainWindow::handleNewDocumentCreation(int defaultFolderId) {
         int folderId = dialog.getSelectedFolderId();
         if (title.isEmpty()) title = "New Document";
 
+        int newDocId = -1;
+        bool shouldNavigate = false;
+
         if (dialog.getDocumentType() == NewDocumentDialog::Empty) {
-            currentDb->addDocument(folderId, title, "");
+            newDocId = currentDb->addDocument(folderId, title, "");
+            shouldNavigate = true;
             loadDocumentsAndNotes();
         } else if (dialog.getDocumentType() == NewDocumentDialog::FromPrompt) {
-            int newDocId = currentDb->addDocument(folderId, title, "*Generating...*");
+            newDocId = currentDb->addDocument(folderId, title, "*Generating...*");
             QString prompt = dialog.getPrompt();
             QString model = m_selectedModel;
             if (model.isEmpty() && !m_availableModels.isEmpty()) {
@@ -4332,7 +4336,8 @@ void MainWindow::handleNewDocumentCreation(int defaultFolderId) {
                     }
                 }
             }
-            currentDb->addDocument(folderId, title, content);
+            newDocId = currentDb->addDocument(folderId, title, content);
+            shouldNavigate = true;
             loadDocumentsAndNotes();
         } else if (dialog.getDocumentType() == NewDocumentDialog::ResumeDraft) {
             int draftId = dialog.getSelectedDraftId();
@@ -4348,8 +4353,29 @@ void MainWindow::handleNewDocumentCreation(int defaultFolderId) {
                 // Optional: Delete the draft after resuming it
                 // currentDb->deleteDraft(draftId);
             }
-            currentDb->addDocument(folderId, title, content);
+            newDocId = currentDb->addDocument(folderId, title, content);
+            shouldNavigate = true;
             loadDocumentsAndNotes();
+        }
+
+        if (shouldNavigate && newDocId != -1) {
+            QStandardItem* item = findItemInTree(newDocId, "document");
+            if (item) {
+                openBooksTree->selectionModel()->blockSignals(true);
+                openBooksTree->setCurrentIndex(item->index());
+                openBooksTree->selectionModel()->select(
+                    item->index(), QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Current);
+                openBooksTree->selectionModel()->blockSignals(false);
+
+                // Force UI to show the document
+                currentDocumentId = newDocId;
+                QString outTitle, outContent;
+                getDocumentContent(newDocId, "document", outTitle, outContent);
+                documentEditorView->blockSignals(true);
+                documentEditorView->setPlainText(outContent);
+                documentEditorView->blockSignals(false);
+                mainContentStack->setCurrentWidget(docContainer);
+            }
         }
     }
 }
