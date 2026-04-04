@@ -33,6 +33,8 @@ class OllamaClient : public QObject {
                       std::function<void(const QString&)> onComplete,
                       std::function<void(QNetworkReply::NetworkError, const QString&)> onError);
 
+    void abortGenerations();
+
    signals:
     void connectionStatusChanged(bool isOk);
     void modelListUpdated(const QStringList& models);
@@ -53,6 +55,7 @@ class OllamaClient : public QObject {
     QString m_systemPrompt;
     QMap<QNetworkReply*, QString> m_activePulls;
     QMap<QNetworkReply*, QByteArray> m_pullBuffers;
+    QList<QNetworkReply*> m_activeGenerations;
 };
 
 #endif  // OLLAMACLIENT_H
