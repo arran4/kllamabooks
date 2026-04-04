@@ -774,7 +774,7 @@ void MainWindow::setupUi() {
                 m_selectedModel = m_availableModels.first();
             }
             modelSelectButton->setText(m_selectedModel);
-            modelLabel->setText(tr("Model: %1 (System Default)").arg(m_selectedModel));
+            modelLabel->setText(tr("Model: %1 (System Selected)").arg(m_selectedModel));
         }
     });
 
@@ -878,9 +878,6 @@ void MainWindow::setupUi() {
     // Initially hide toggleInputModeBtn since emptyView is default
     toggleInputModeBtn->hide();
 
-    modelLabel = new QLabel(tr("Model: Not Selected"), this);
-    statusBar->addPermanentWidget(modelLabel);
-
     queueStatusBtn = new QToolButton(this);
     queueStatusBtn->setText("Q: 0");
     queueStatusBtn->setToolTip(tr("LLM Request Queue"));
@@ -900,6 +897,10 @@ void MainWindow::setupUi() {
     settingsStatusBarBtn->setToolTip(tr("Settings"));
     connect(settingsStatusBarBtn, &QToolButton::clicked, this, &MainWindow::showSettingsDialog);
     statusBar->addPermanentWidget(settingsStatusBarBtn);
+
+    modelLabel = new QLabel(tr("Model: Not Selected"), this);
+    modelLabel->setMaximumWidth(150);
+    statusBar->addPermanentWidget(modelLabel);
 
     updateEndpointsList();
     loadBooks();
@@ -1390,7 +1391,7 @@ void MainWindow::updateInputBehavior() {
                 } else if (!m_availableModels.isEmpty()) {
                     m_selectedModel = m_availableModels.first();
                 }
-                if (modelLabel) modelLabel->setText(tr("Model: %1 (System Default)").arg(m_selectedModel));
+                if (modelLabel) modelLabel->setText(tr("Model: %1 (System Selected)").arg(m_selectedModel));
                 if (modelSelectButton) modelSelectButton->setText(m_selectedModel);
             }
         }
@@ -1645,7 +1646,7 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
                         } else if (!m_availableModels.isEmpty()) {
                             m_selectedModel = m_availableModels.first();
                         }
-                        modelLabel->setText(tr("Model: %1 (System Default)").arg(m_selectedModel));
+                        modelLabel->setText(tr("Model: %1 (System Selected)").arg(m_selectedModel));
                     }
                     if (currentLastNodeId != 0 && mainContentStack->currentWidget() == chatWindowView) {
                         updateLinearChatView(currentLastNodeId, currentDb->getMessages());
