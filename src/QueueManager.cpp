@@ -375,11 +375,11 @@ void QueueManager::onComplete(const QString& response) {
         if (m_currentItem.targetType == "document") {
             // Document results are queued for review, NOT applied immediately.
             m_currentDb->updateQueueItemState(m_currentItem.id, "completed", response);
-            m_currentDb->addNotification(m_currentItem.id, "review_needed");
+            m_currentDb->addNotification(m_currentItem.messageId, m_currentItem.targetType, "review_needed");
         } else {
             m_currentDb->updateMessage(m_currentItem.messageId, response);
             m_currentDb->deleteQueueItem(m_currentItem.id);
-            m_currentDb->addNotification(m_currentItem.messageId, "responded_to");
+            m_currentDb->addNotification(m_currentItem.messageId, m_currentItem.targetType, "responded_to");
         }
 
         m_currentItem.processingId = 0;
@@ -422,7 +422,7 @@ void QueueManager::onError(QNetworkReply::NetworkError errorCode, const QString&
             m_currentDb->updateQueueError(m_currentItem.id, ""); // also resets processing_id to 0
         } else {
             m_currentDb->updateQueueError(m_currentItem.id, error);
-            m_currentDb->addNotification(m_currentItem.messageId, "error");
+            m_currentDb->addNotification(m_currentItem.messageId, m_currentItem.targetType, "error");
         }
     }
     m_isProcessing = false;

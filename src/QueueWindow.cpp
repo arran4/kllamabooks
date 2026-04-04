@@ -328,7 +328,8 @@ void QueueWindow::onJumpItem() {
                     if (mainWin) {
                         QMetaObject::invokeMethod(mainWin, "onQueueItemClicked",
                                                   Q_ARG(std::shared_ptr<BookDatabase>, db),
-                                                  Q_ARG(int, mi.item.messageId));
+                                                  Q_ARG(int, mi.item.messageId),
+                                                  Q_ARG(QString, mi.item.targetType));
                     }
                     break;
                 }

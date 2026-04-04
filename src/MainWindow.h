@@ -119,7 +119,7 @@ class MainWindow : public KXmlGuiWindow {
     void showNotificationMenu();
     void showQueueWindow();
     void showSpyWindow();
-    void onQueueItemClicked(std::shared_ptr<BookDatabase> db, int messageId);
+    void onQueueItemClicked(std::shared_ptr<BookDatabase> db, int targetId, const QString& targetType);
     void updateTreeMarkersRecursive(QStandardItem* parent, const QMap<QPair<QString, int>, int>& activeNotifications);
     void updateVfsMarkers(const QMap<QPair<QString, int>, int>& activeNotifications);
     bool moveItemToFolder(QStandardItem* draggedItem, QStandardItem* targetItem, bool isCopy = false);
