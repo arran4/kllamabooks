@@ -3810,8 +3810,8 @@ void MainWindow::updateNotificationStatus() {
                     layout->addWidget(promptEdit);
 
                     QComboBox* modelCombo = new QComboBox(&dialog);
-                    for (const auto& m : ollamaClient.availableModels()) {
-                        modelCombo->addItem(m.name, m.name);
+                    for (const auto& m : m_availableModels) {
+                        modelCombo->addItem(m, m);
                     }
                     int idx = modelCombo->findData(model);
                     if (idx >= 0) modelCombo->setCurrentIndex(idx);
