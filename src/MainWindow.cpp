@@ -767,9 +767,14 @@ void MainWindow::setupUi() {
             }
         }
         if (m_selectedModel.isEmpty() && !m_availableModels.isEmpty()) {
-            m_selectedModel = m_availableModels.first();
+            QString systemModel = settings.value("systemModel", "").toString();
+            if (!systemModel.isEmpty() && m_availableModels.contains(systemModel)) {
+                m_selectedModel = systemModel;
+            } else {
+                m_selectedModel = m_availableModels.first();
+            }
             modelSelectButton->setText(m_selectedModel);
-            modelLabel->setText(tr("Model: %1 (Default)").arg(m_selectedModel));
+            modelLabel->setText(tr("Model: %1 (System Default)").arg(m_selectedModel));
         }
     });
 
@@ -790,6 +795,9 @@ void MainWindow::setupUi() {
                     } else {
                         m_newChatModel = selected;
                     }
+                } else {
+                    QSettings settings;
+                    settings.setValue("systemModel", selected);
                 }
                 m_selectedModel = selected;
                 modelSelectButton->setText(m_selectedModel);
@@ -1374,9 +1382,15 @@ void MainWindow::updateInputBehavior() {
                 m_selectedModel = dbModel;
                 if (modelLabel) modelLabel->setText(tr("Model: %1 (Book Default)").arg(m_selectedModel));
                 if (modelSelectButton) modelSelectButton->setText(m_selectedModel);
-            } else if (!m_availableModels.isEmpty()) {
-                m_selectedModel = m_availableModels.first();
-                if (modelLabel) modelLabel->setText(tr("Model: %1 (Global Fallback)").arg(m_selectedModel));
+            } else {
+                QSettings settings;
+                QString systemModel = settings.value("systemModel", "").toString();
+                if (!systemModel.isEmpty() && m_availableModels.contains(systemModel)) {
+                    m_selectedModel = systemModel;
+                } else if (!m_availableModels.isEmpty()) {
+                    m_selectedModel = m_availableModels.first();
+                }
+                if (modelLabel) modelLabel->setText(tr("Model: %1 (System Default)").arg(m_selectedModel));
                 if (modelSelectButton) modelSelectButton->setText(m_selectedModel);
             }
         }
@@ -1623,9 +1637,15 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
                     if (!dbModel.isEmpty()) {
                         m_selectedModel = dbModel;
                         modelLabel->setText(tr("Model: %1 (Book Default)").arg(m_selectedModel));
-                    } else if (!m_availableModels.isEmpty()) {
-                        m_selectedModel = m_availableModels.first();
-                        modelLabel->setText(tr("Model: %1 (Global Fallback)").arg(m_selectedModel));
+                    } else {
+                        QSettings settings;
+                        QString systemModel = settings.value("systemModel", "").toString();
+                        if (!systemModel.isEmpty() && m_availableModels.contains(systemModel)) {
+                            m_selectedModel = systemModel;
+                        } else if (!m_availableModels.isEmpty()) {
+                            m_selectedModel = m_availableModels.first();
+                        }
+                        modelLabel->setText(tr("Model: %1 (System Default)").arg(m_selectedModel));
                     }
                     if (currentLastNodeId != 0 && mainContentStack->currentWidget() == chatWindowView) {
                         updateLinearChatView(currentLastNodeId, currentDb->getMessages());
@@ -3663,6 +3683,7 @@ void MainWindow::onOpenBooksSelectionChanged(const QItemSelection& selected, con
             if (currentDb) {
                 updateLinearChatView(currentLastNodeId, currentDb->getMessages());
                 mainContentStack->setCurrentWidget(chatWindowView);
+                updateInputBehavior();
             }
         }
     }
@@ -4988,6 +5009,7 @@ void MainWindow::onChatTextAreaContextMenu(const QPoint& pos) {
             loadDocumentsAndNotes();
             updateLinearChatView(currentLastNodeId, currentDb->getMessages());
             mainContentStack->setCurrentWidget(chatWindowView);
+            updateInputBehavior();
         }
         if (!toggleInputModeBtn->isChecked()) {
             inputField->setFocus();
@@ -5094,6 +5116,7 @@ void MainWindow::onChatForkExplorerDoubleClicked(const QModelIndex& index) {
         if (currentDb) {
             updateLinearChatView(currentLastNodeId, currentDb->getMessages());
             chatTextArea->setFocus();
+            updateInputBehavior();
         }
     }
 }
@@ -5144,7 +5167,10 @@ void MainWindow::onChatForkExplorerContextMenu(const QPoint& pos) {
             int nodeId = item->data(Qt::UserRole).toInt();
 
             currentLastNodeId = nodeId;
-            if (currentDb) updateLinearChatView(currentLastNodeId, currentDb->getMessages());
+            if (currentDb) {
+                updateLinearChatView(currentLastNodeId, currentDb->getMessages());
+                updateInputBehavior();
+            }
         }
     }
 }
