@@ -600,18 +600,18 @@ void MainWindow::setupUi() {
     splitter->setStretchFactor(1, 1);
 
     QAction* zoomInAction = new QAction(QIcon::fromTheme("zoom-in"), tr("Zoom In"), this);
-    zoomInAction->setShortcut(QKeySequence::ZoomIn);
     actionCollection()->addAction(QStringLiteral("zoom_in"), zoomInAction);
+    actionCollection()->setDefaultShortcut(zoomInAction, QKeySequence::ZoomIn);
     connect(zoomInAction, &QAction::triggered, this, &MainWindow::zoomIn);
 
     QAction* zoomOutAction = new QAction(QIcon::fromTheme("zoom-out"), tr("Zoom Out"), this);
-    zoomOutAction->setShortcut(QKeySequence::ZoomOut);
     actionCollection()->addAction(QStringLiteral("zoom_out"), zoomOutAction);
+    actionCollection()->setDefaultShortcut(zoomOutAction, QKeySequence::ZoomOut);
     connect(zoomOutAction, &QAction::triggered, this, &MainWindow::zoomOut);
 
     QAction* resetZoomAction = new QAction(QIcon::fromTheme("zoom-original"), tr("Reset Zoom"), this);
-    resetZoomAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_0));
     actionCollection()->addAction(QStringLiteral("reset_zoom"), resetZoomAction);
+    actionCollection()->setDefaultShortcut(resetZoomAction, QKeySequence(Qt::CTRL | Qt::Key_0));
     connect(resetZoomAction, &QAction::triggered, this, &MainWindow::resetZoom);
 
     QAction* newBookAction = new QAction(QIcon::fromTheme("document-new"), tr("New Book"), this);
