@@ -793,8 +793,15 @@ void MainWindow::setupUi() {
                 m_selectedModels = selectedList;
                 QString displayStr = m_selectedModels.size() == 1
                                          ? m_selectedModels.first()
-                                         : tr("%1 Models Selected").arg(m_selectedModels.size());
+                                         : tr("Multiple");
                 modelSelectButton->setText(displayStr);
+                if (m_selectedModels.size() > 1) {
+                    modelSelectButton->setToolTip(m_selectedModels.join(", "));
+                    modelLabel->setToolTip(m_selectedModels.join(", "));
+                } else {
+                    modelSelectButton->setToolTip("");
+                    modelLabel->setToolTip("");
+                }
                 modelLabel->setText(tr("Model: %1 (User Switch)").arg(displayStr));
                 updateInputBehavior();
             }
@@ -2873,6 +2880,13 @@ void MainWindow::onSendMessage() {
                 QueueManager::instance().enqueuePrompt(aiId, model, text);
             }
 
+            if (m_selectedModels.size() > 1) {
+                m_selectedModels.clear();
+                if (!m_availableModels.isEmpty()) {
+                    m_selectedModels.append(m_availableModels.first());
+                }
+            }
+
             loadDocumentsAndNotes();  // Refresh tree
             updateLinearChatView(currentLastNodeId, currentDb->getMessages());
             statusBar->showMessage(tr("Fork task queued."), 3000);
@@ -3016,40 +3030,33 @@ void MainWindow::onSendMessage() {
 
         QueueManager::instance().enqueuePrompt(aiId, model, text);
 
-        // Refresh tree if needed (especially for new chats)
-        if (forkCreated) {
-            // Wait to load documents outside the loop
-        } else if (wasCreatingNewChat) {
-            QModelIndex idx = openBooksTree->currentIndex();
-            QStandardItem* item = openBooksModel->itemFromIndex(idx);
-            if (item && item->data(Qt::UserRole + 1).toString() == "chat_session") {
-                item->setData(aiId, Qt::UserRole);
-                item->setData("chat_node", Qt::UserRole + 1);
+    }
+
+    // Refresh tree if needed
+    if (forkCreated || models.size() > 1 || wasCreatingNewChat) {
+        loadDocumentsAndNotes();  // Ensure tree refreshes correctly to natively reflect any new forks
+    } else {
+        QStandardItem* item = findItemInTree(parentId, "chat_node");
+        if (item) {
+            if (item->rowCount() > 0) {
+                QStandardItem* branchItem = new QStandardItem(QIcon::fromTheme("text-x-generic"), text.left(30));
+                branchItem->setData(currentLastNodeId, Qt::UserRole);
+                branchItem->setData("chat_node", Qt::UserRole + 1);
+                item->appendRow(branchItem);
+            } else {
+                item->setData(currentLastNodeId, Qt::UserRole);
                 item->setText(text.left(30));
-                QFont f = item->font();
-                f.setItalic(false);
-                item->setFont(f);
-                // For multi-model on a brand new chat, subsequent forks might replace this item data.
-                // Tree structure ideally should just reload, but we'll let it be for now and reload later if >1 models.
-            }
-        } else {
-            QStandardItem* item = findItemInTree(parentId, "chat_node");
-            if (item) {
-                if (item->rowCount() > 0) {
-                    QStandardItem* branchItem = new QStandardItem(QIcon::fromTheme("text-x-generic"), text.left(30));
-                    branchItem->setData(aiId, Qt::UserRole);
-                    branchItem->setData("chat_node", Qt::UserRole + 1);
-                    item->appendRow(branchItem);
-                } else {
-                    item->setData(aiId, Qt::UserRole);
-                    item->setText(text.left(30));
-                }
             }
         }
     }
 
-    if (forkCreated || models.size() > 1) {
-        loadDocumentsAndNotes();  // Ensure tree refreshes correctly to natively reflect any new forks
+    // Restore selection state to a single default to prevent endless multi-generation loop.
+    if (m_selectedModels.size() > 1) {
+        m_selectedModels.clear();
+        if (!m_availableModels.isEmpty()) {
+            m_selectedModels.append(m_availableModels.first());
+        }
+        updateInputBehavior();
     }
 
     // 5. Update view
