@@ -42,9 +42,9 @@ class QueueManager : public QObject {
     void resumeQueue();
     bool isPaused() const { return m_isPaused; }
 
-    bool isProcessing() const { return m_isProcessing; }
-    QueueItem currentProcessingItem() const { return m_currentItem; }
-    std::shared_ptr<BookDatabase> currentProcessingDb() const { return m_currentDb; }
+    bool isProcessing() const { return !m_activeItems.isEmpty(); }
+    void setMaxConcurrent(int max);
+    int maxConcurrent() const { return m_maxConcurrent; }
 
    public slots:
     void checkQueue();
@@ -57,11 +57,6 @@ class QueueManager : public QObject {
     void processingFinished(std::shared_ptr<BookDatabase> db, int messageId, bool success,
                             const QString& targetType = "message");
 
-   private slots:
-    void onChunk(const QString& chunk);
-    void onComplete(const QString& response);
-    void onError(const QString& error);
-
    private:
     explicit QueueManager(QObject* parent = nullptr);
     ~QueueManager() = default;
@@ -71,12 +66,12 @@ class QueueManager : public QObject {
     OllamaClient* m_client = nullptr;
     QTimer* m_timer;
 
-    bool m_isProcessing = false;
-    std::shared_ptr<BookDatabase> m_currentDb = nullptr;
-    QueueItem m_currentItem;
-    int m_currentIndex = 0;
+    QMap<int, MergedQueueItem> m_activeItems; // Map processingId to QueueItem
+    int m_maxConcurrent = 1;
     bool m_isPaused = false;
     QString m_lastProcessedModel;
+
+    int m_nextProcessingId = 1; // Counter to track unique processing IDs
 
     void processNext();
 };

@@ -819,11 +819,13 @@ void MainWindow::updateEndpointsList() {
         // Fallback for old setting
         endpointComboBox->addItem("Default Ollama", settings.value("ollamaUrl", "http://localhost:11434").toString());
         endpointComboBox->setItemData(0, "", Qt::UserRole + 1);  // Auth Key
+        endpointComboBox->setItemData(0, 1, Qt::UserRole + 2);   // Max Concurrent
     } else {
         for (int i = 0; i < connections.size(); ++i) {
             QVariantMap map = connections[i].toMap();
             endpointComboBox->addItem(map["name"].toString(), map["url"].toString());
             endpointComboBox->setItemData(i, map["authKey"].toString(), Qt::UserRole + 1);
+            endpointComboBox->setItemData(i, map.value("maxConcurrent", 1).toInt(), Qt::UserRole + 2);
         }
     }
 
@@ -846,10 +848,14 @@ void MainWindow::onActiveEndpointChanged(int index) {
 
     QString url = endpointComboBox->itemData(index, Qt::UserRole).toString();
     QString authKey = endpointComboBox->itemData(index, Qt::UserRole + 1).toString();
+    int maxConcurrent = endpointComboBox->itemData(index, Qt::UserRole + 2).toInt();
+    if (maxConcurrent < 1) maxConcurrent = 1;
 
     ollamaClient.setBaseUrl(url);
     ollamaClient.setAuthKey(authKey);
     ollamaClient.fetchModels();  // Test connection and fetch
+
+    QueueManager::instance().setMaxConcurrent(maxConcurrent);
 
     QSettings settings;
     settings.setValue("lastEndpointIndex", index);
