@@ -14,7 +14,7 @@
 #endif
 
 namespace {
-constexpr int CURRENT_SCHEMA_VERSION = 11;
+constexpr int CURRENT_SCHEMA_VERSION = 18;
 }
 
 BookDatabase::BookDatabase(const QString& filepath) : m_filepath(filepath), m_db(nullptr), m_isOpen(false) {}
@@ -458,6 +458,13 @@ bool BookDatabase::initSchema() {
                      nullptr);
         sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 14;", nullptr, nullptr, nullptr);
         userVersion = 14;
+    }
+
+    if (userVersion < 18) {
+        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (18);", nullptr, nullptr,
+                     nullptr);
+        sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 18;", nullptr, nullptr, nullptr);
+        userVersion = 18;
     }
 
     return true;
