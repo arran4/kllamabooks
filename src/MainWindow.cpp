@@ -4334,6 +4334,22 @@ void MainWindow::handleNewDocumentCreation(int defaultFolderId) {
             }
             currentDb->addDocument(folderId, title, content);
             loadDocumentsAndNotes();
+        } else if (dialog.getDocumentType() == NewDocumentDialog::ResumeDraft) {
+            int draftId = dialog.getSelectedDraftId();
+            QString content = "";
+            if (draftId != -1) {
+                QList<DocumentNode> drafts = currentDb->getDrafts(-1);
+                for (const auto& d : drafts) {
+                    if (d.id == draftId) {
+                        content = d.content;
+                        break;
+                    }
+                }
+                // Optional: Delete the draft after resuming it
+                // currentDb->deleteDraft(draftId);
+            }
+            currentDb->addDocument(folderId, title, content);
+            loadDocumentsAndNotes();
         }
     }
 }

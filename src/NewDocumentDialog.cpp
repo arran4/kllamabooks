@@ -24,6 +24,7 @@ NewDocumentDialog::NewDocumentDialog(std::shared_ptr<BookDatabase> db, int defau
     m_typeCombo->addItem(tr("Empty Document"), Empty);
     m_typeCombo->addItem(tr("From AI Prompt"), FromPrompt);
     m_typeCombo->addItem(tr("From Template"), FromTemplate);
+    m_typeCombo->addItem(tr("Resume a Draft"), ResumeDraft);
     mainLayout->addWidget(m_typeCombo);
 
     // Title
@@ -51,6 +52,16 @@ NewDocumentDialog::NewDocumentDialog(std::shared_ptr<BookDatabase> db, int defau
     mainLayout->addWidget(m_templateWidget);
     m_templateWidget->hide();
 
+    // Draft Widget (Hidden by default)
+    m_draftWidget = new QWidget(this);
+    QVBoxLayout* draftLayout = new QVBoxLayout(m_draftWidget);
+    draftLayout->setContentsMargins(0, 0, 0, 0);
+    draftLayout->addWidget(new QLabel(tr("Select Draft:"), m_draftWidget));
+    m_draftCombo = new QComboBox(m_draftWidget);
+    draftLayout->addWidget(m_draftCombo);
+    mainLayout->addWidget(m_draftWidget);
+    m_draftWidget->hide();
+
     // Folder Selection
     mainLayout->addWidget(new QLabel(tr("Location:"), this));
     m_folderTree = new QTreeWidget(this);
@@ -67,6 +78,7 @@ NewDocumentDialog::NewDocumentDialog(std::shared_ptr<BookDatabase> db, int defau
     if (m_db) {
         populateFolders(rootItem, 0);
         populateTemplates();
+        populateDrafts();
     }
 
     m_folderTree->expandAll();
@@ -109,23 +121,44 @@ void NewDocumentDialog::populateTemplates() {
     }
 }
 
+void NewDocumentDialog::populateDrafts() {
+    if (!m_db) return;
+    QList<DocumentNode> drafts = m_db->getDrafts(-1);  // Get all drafts
+    for (const auto& draft : drafts) {
+        m_draftCombo->addItem(draft.title, draft.id);
+    }
+    if (m_draftCombo->count() == 0) {
+        m_draftCombo->addItem(tr("No drafts available"), -1);
+        m_draftCombo->setEnabled(false);
+    }
+}
+
 void NewDocumentDialog::onTypeChanged(int index) {
     DocumentType type = static_cast<DocumentType>(m_typeCombo->itemData(index).toInt());
 
     m_promptWidget->setVisible(type == FromPrompt);
     m_templateWidget->setVisible(type == FromTemplate);
+    m_draftWidget->setVisible(type == ResumeDraft);
 
     if (type == FromPrompt) {
-        if (m_titleEdit->text() == tr("New Document") || m_titleEdit->text() == tr("Document from Template")) {
+        if (m_titleEdit->text() == tr("New Document") || m_titleEdit->text() == tr("Document from Template") ||
+            m_titleEdit->text() == tr("Document from Draft")) {
             m_titleEdit->setText(tr("AI Generated Document"));
         }
     } else if (type == Empty) {
-        if (m_titleEdit->text() == tr("AI Generated Document") || m_titleEdit->text() == tr("Document from Template")) {
+        if (m_titleEdit->text() == tr("AI Generated Document") || m_titleEdit->text() == tr("Document from Template") ||
+            m_titleEdit->text() == tr("Document from Draft")) {
             m_titleEdit->setText(tr("New Document"));
         }
     } else if (type == FromTemplate) {
-        if (m_titleEdit->text() == tr("New Document") || m_titleEdit->text() == tr("AI Generated Document")) {
+        if (m_titleEdit->text() == tr("New Document") || m_titleEdit->text() == tr("AI Generated Document") ||
+            m_titleEdit->text() == tr("Document from Draft")) {
             m_titleEdit->setText(tr("Document from Template"));
+        }
+    } else if (type == ResumeDraft) {
+        if (m_titleEdit->text() == tr("New Document") || m_titleEdit->text() == tr("AI Generated Document") ||
+            m_titleEdit->text() == tr("Document from Template")) {
+            m_titleEdit->setText(tr("Document from Draft"));
         }
     }
 }
@@ -147,3 +180,5 @@ int NewDocumentDialog::getSelectedFolderId() const {
 QString NewDocumentDialog::getPrompt() const { return m_promptEdit->toPlainText(); }
 
 int NewDocumentDialog::getSelectedTemplateId() const { return m_templateCombo->currentData().toInt(); }
+
+int NewDocumentDialog::getSelectedDraftId() const { return m_draftCombo->currentData().toInt(); }

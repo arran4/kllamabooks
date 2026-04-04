@@ -15,7 +15,7 @@ class BookDatabase;
 class NewDocumentDialog : public QDialog {
     Q_OBJECT
    public:
-    enum DocumentType { Empty, FromPrompt, FromTemplate };
+    enum DocumentType { Empty, FromPrompt, FromTemplate, ResumeDraft };
 
     explicit NewDocumentDialog(std::shared_ptr<BookDatabase> db, int defaultFolderId, QWidget* parent = nullptr);
 
@@ -24,6 +24,7 @@ class NewDocumentDialog : public QDialog {
     int getSelectedFolderId() const;
     QString getPrompt() const;
     int getSelectedTemplateId() const;
+    int getSelectedDraftId() const;
 
    private slots:
     void onTypeChanged(int index);
@@ -31,6 +32,7 @@ class NewDocumentDialog : public QDialog {
    private:
     void populateFolders(QTreeWidgetItem* parentItem, int parentId);
     void populateTemplates();
+    void populateDrafts();
 
     std::shared_ptr<BookDatabase> m_db;
     int m_defaultFolderId;
@@ -44,6 +46,9 @@ class NewDocumentDialog : public QDialog {
 
     QWidget* m_templateWidget;
     QComboBox* m_templateCombo;
+
+    QWidget* m_draftWidget;
+    QComboBox* m_draftCombo;
 
     QTreeWidget* m_folderTree;
 };
