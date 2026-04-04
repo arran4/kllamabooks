@@ -54,6 +54,7 @@
 #include "DocumentHistoryDialog.h"
 #include "DocumentReviewDialog.h"
 #include "ModelSelectionDialog.h"
+#include "NewDocumentDialog.h"
 #include "NotificationDelegate.h"
 #include "QueueManager.h"
 #include "QueueWindow.h"
@@ -634,7 +635,7 @@ void MainWindow::setupUi() {
 
     QAction* newDocMenuAction = new QAction(QIcon::fromTheme("document-new"), tr("New Document"), this);
     actionCollection()->addAction(QStringLiteral("new_document"), newDocMenuAction);
-    connect(newDocMenuAction, &QAction::triggered, this, [this]() { addPhantomItem(nullptr, "docs_folder"); });
+    connect(newDocMenuAction, &QAction::triggered, this, [this]() { handleNewDocumentCreation(0); });
 
     QAction* newNoteMenuAction = new QAction(QIcon::fromTheme("document-new"), tr("New Note"), this);
     actionCollection()->addAction(QStringLiteral("new_note"), newNoteMenuAction);
@@ -1648,18 +1649,7 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
         else if (type == "drafts_folder")
             actionName = "New Draft";
 
-        QAction* newAction = nullptr;
-        QAction* newFromTemplateAction = nullptr;
-        QAction* newFromPromptAction = nullptr;
-
-        if (type == "docs_folder") {
-            QMenu* newDocMenu = menu.addMenu(QIcon::fromTheme("document-new"), "New Document");
-            newAction = newDocMenu->addAction("Blank Document");
-            newFromTemplateAction = newDocMenu->addAction("From Template");
-            newFromPromptAction = newDocMenu->addAction("From AI Prompt");
-        } else {
-            newAction = menu.addAction(actionName);
-        }
+        QAction* newAction = menu.addAction(actionName);
 
         QAction* createFolderAction = nullptr;
         QAction* importFileAction = nullptr;
@@ -1710,31 +1700,10 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
         } else if (importAction && selectedAction == importAction) {
             importChatSession();
         } else if (newAction && selectedAction == newAction) {
-            QString name =
-                QInputDialog::getText(this, "New Document", "Enter document name:", QLineEdit::Normal, "New Document");
-            if (!name.isEmpty() && currentDb) {
-                int folderId = item->data(Qt::UserRole).toInt();
-                currentDb->addDocument(folderId, name, "");
-                loadDocumentsAndNotes();
-            }
-        } else if (newFromTemplateAction && selectedAction == newFromTemplateAction) {
-            // Placeholder: Not fully implemented yet
-        } else if (newFromPromptAction && selectedAction == newFromPromptAction) {
-            // Trigger AIOperationsDialog with preselected Fork mode
-            AIOperationsDialog aiDlg(currentDb.get(), "", this);
-            aiDlg.setForkOnlyMode(true);
-            if (aiDlg.exec() == QDialog::Accepted) {
-                QString prompt = aiDlg.getPrompt();
-                if (!prompt.isEmpty() && currentDb) {
-                    QString name = QString("Prompt: %1").arg(prompt.left(20));
-                    int folderId = item->data(Qt::UserRole).toInt();
-                    int newDocId = currentDb->addDocument(folderId, name, "");
-                    // Enqueue the newly created prompt as a document generation request
-                    // Using default values for model and parentId, and setting targetType="document" and
-                    // targetAction="fork"
-                    currentDb->enqueuePrompt(newDocId, "", prompt, 0, "document", 0, "fork");
-                    loadDocumentsAndNotes();
-                }
+            if (type == "docs_folder") {
+                handleNewDocumentCreation(item->data(Qt::UserRole).toInt());
+            } else {
+                addPhantomItem(item, type);
             }
         } else if (importFileAction && selectedAction == importFileAction) {
             QString fileName = QFileDialog::getOpenFileName(this, tr("Import File"), QDir::homePath(),
@@ -4739,6 +4708,109 @@ void MainWindow::onVfsExplorerDoubleClicked(const QModelIndex& index) {
  * If the document was being auto-saved as a transient draft, the temporary draft entry is purged
  * upon successful explicit save.
  */
+void MainWindow::handleNewDocumentCreation(int defaultFolderId) {
+    if (!currentDb) {
+        QMessageBox::warning(this, tr("No Book Open"), tr("Please open a book first to create a document."));
+        return;
+    }
+    NewDocumentDialog dialog(currentDb, defaultFolderId, this);
+    if (dialog.exec() == QDialog::Accepted) {
+        QString title = dialog.getTitle();
+        int folderId = dialog.getSelectedFolderId();
+        if (title.isEmpty()) title = "New Document";
+
+        int newDocId = -1;
+        bool shouldNavigate = false;
+
+        if (dialog.getDocumentType() == NewDocumentDialog::Empty) {
+            newDocId = currentDb->addDocument(folderId, title, "");
+            shouldNavigate = true;
+            loadDocumentsAndNotes();
+        } else if (dialog.getDocumentType() == NewDocumentDialog::FromPrompt) {
+            newDocId = currentDb->addDocument(folderId, title, "*Generating...*");
+            QString prompt = dialog.getPrompt();
+            QString model = m_selectedModel;
+            if (model.isEmpty() && !m_availableModels.isEmpty()) {
+                model = m_availableModels.first();
+            }
+            currentDb->enqueuePrompt(newDocId, model, prompt, 0, "document", 0, "replace");
+            loadDocumentsAndNotes();
+        } else if (dialog.getDocumentType() == NewDocumentDialog::FromTemplate) {
+            int tplId = dialog.getSelectedTemplateId();
+            QString content = "";
+            if (tplId != -1) {
+                QList<DocumentNode> templates = currentDb->getTemplates(-1);
+                for (const auto& t : templates) {
+                    if (t.id == tplId) {
+                        content = t.content;
+                        break;
+                    }
+                }
+            }
+            newDocId = currentDb->addDocument(folderId, title, content);
+            shouldNavigate = true;
+            loadDocumentsAndNotes();
+        } else if (dialog.getDocumentType() == NewDocumentDialog::ResumeDraft) {
+            int draftId = dialog.getSelectedDraftId();
+            QString content = "";
+            if (draftId != -1) {
+                QList<DocumentNode> drafts = currentDb->getDrafts(-1);
+                for (const auto& d : drafts) {
+                    if (d.id == draftId) {
+                        content = d.content;
+                        break;
+                    }
+                }
+                currentDb->deleteDraft(draftId);
+            }
+            if (dialog.isOverwriteDocument()) {
+                int overwriteId = dialog.getOverwriteDocumentId();
+                if (overwriteId != -1) {
+                    // Let's get the old title
+                    QString oldTitle;
+                    for (const auto& d : currentDb->getDocuments(-1)) {
+                        if (d.id == overwriteId) {
+                            oldTitle = d.title;
+                            break;
+                        }
+                    }
+                    currentDb->updateDocument(overwriteId, oldTitle, content);
+                    newDocId = overwriteId;
+                    shouldNavigate = true;
+                }
+            } else {
+                newDocId = currentDb->addDocument(folderId, title, content);
+                shouldNavigate = true;
+            }
+            loadDocumentsAndNotes();
+        }
+
+        if (shouldNavigate && newDocId != -1) {
+            QStandardItem* item = findItemInTree(newDocId, "document");
+            if (item) {
+                openBooksTree->selectionModel()->blockSignals(true);
+                openBooksTree->setCurrentIndex(item->index());
+                openBooksTree->selectionModel()->select(
+                    item->index(), QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Current);
+                openBooksTree->selectionModel()->blockSignals(false);
+
+                // Force UI to show the document
+                currentDocumentId = newDocId;
+                QString outTitle, outContent;
+                getDocumentContent(newDocId, "document", outTitle, outContent);
+                documentEditorView->blockSignals(true);
+                documentEditorView->setPlainText(outContent);
+                documentEditorView->blockSignals(false);
+                mainContentStack->setCurrentWidget(docContainer);
+
+                if (dialog.getDocumentType() == NewDocumentDialog::ResumeDraft) {
+                    onEditDocument();
+                }
+            }
+        }
+    }
+}
+
 void MainWindow::onEditDocument() {
     if (!currentDb || currentDocumentId == 0) return;
 

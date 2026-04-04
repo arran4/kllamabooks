@@ -67,13 +67,13 @@ void BookDatabase::cleanupDeadProcessingItems() {
     if (sqlite3_prepare_v2((sqlite3*)m_db,
                            "SELECT id, processing_id, last_error FROM queue WHERE processing_id > 0 OR state = "
                            "'processing' OR (last_error IS NOT NULL AND last_error != '' AND state != 'error');",
-                           -1, &stmt, nullptr) == SQLITE_OK) {
+                           -1,
+                           &stmt, nullptr) == SQLITE_OK) {
         struct ItemToReset {
             int id;
             QString error;
         };
         QList<ItemToReset> itemsToReset;
-
         while (sqlite3_step(stmt) == SQLITE_ROW) {
             int id = sqlite3_column_int(stmt, 0);
             int pid = sqlite3_column_int(stmt, 1);
