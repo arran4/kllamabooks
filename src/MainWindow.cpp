@@ -1843,6 +1843,7 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
         QAction* exportAction = nullptr;
         QAction* replaceAction = nullptr;
         QAction* loadTemplateAction = nullptr;
+        QAction* resumeDraftAction = nullptr;
 
         if (type == "template") {
             loadTemplateAction = menu.addAction(QIcon::fromTheme("document-import"), "Load Template");

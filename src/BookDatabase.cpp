@@ -977,17 +977,6 @@ QList<DocumentNode> BookDatabase::getTemplates(int folderId) const {
     return nodes;
 }
 
-bool BookDatabase::deleteTemplate(int id) {
-    if (!m_isOpen) return false;
-    const char* sql = "DELETE FROM templates WHERE id = ?;";
-    sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
-    sqlite3_bind_int(stmt, 1, id);
-    int rc = sqlite3_step(stmt);
-    sqlite3_finalize(stmt);
-    return rc == SQLITE_DONE;
-}
-
 int BookDatabase::addDraft(int folderId, const QString& title, const QString& content) {
     if (!m_isOpen) return -1;
 
