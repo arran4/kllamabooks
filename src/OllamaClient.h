@@ -24,10 +24,12 @@ class OllamaClient : public QObject {
     void setSystemPrompt(const QString& prompt);
 
     void generate(const QString& model, const QString& prompt, std::function<void(const QString&)> onChunk,
-                  std::function<void(const QString&)> onComplete, std::function<void(const QString&)> onError);
+                  std::function<void(const QString&)> onComplete,
+                  std::function<void(QNetworkReply::NetworkError, const QString&)> onError);
 
     void generateChat(const QString& model, const QJsonArray& messages, std::function<void(const QString&)> onChunk,
-                      std::function<void(const QString&)> onComplete, std::function<void(const QString&)> onError);
+                      std::function<void(const QString&)> onComplete,
+                      std::function<void(QNetworkReply::NetworkError, const QString&)> onError);
 
    signals:
     void connectionStatusChanged(bool isOk);
