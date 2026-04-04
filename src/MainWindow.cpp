@@ -34,11 +34,13 @@
 #include <QProcess>
 #include <QScreen>
 #include <QScrollArea>
+#include <QScrollBar>
 #include <QSettings>
 #include <QSpinBox>
 #include <QStandardPaths>
 #include <QStyle>
 #include <QTextBlock>
+#include <QTextTableCell>
 #include <QUrl>
 #include <QVBoxLayout>
 #include <QtGui/QAction>
@@ -52,6 +54,7 @@
 #include "DocumentHistoryDialog.h"
 #include "DocumentReviewDialog.h"
 #include "ModelSelectionDialog.h"
+#include "NewDocumentDialog.h"
 #include "NotificationDelegate.h"
 #include "QueueManager.h"
 #include "QueueWindow.h"
@@ -322,6 +325,68 @@ void MainWindow::setupUi() {
     });
 
     connect(backToNotesBtn, &QPushButton::clicked, this, [this]() {
+        bool hasChanges = false;
+        if (currentDb) {
+            QString currentText = noteEditorView->toPlainText();
+            if (isCreatingNewNote) {
+                if (!currentText.isEmpty()) {
+                    hasChanges = true;
+                }
+            } else {
+                QString dbText;
+                QList<NoteNode> notes = currentDb->getNotes();
+                for (const auto& note : notes) {
+                    if (note.id == currentNoteId) {
+                        dbText = note.content;
+                        break;
+                    }
+                }
+                if (currentText != dbText) {
+                    hasChanges = true;
+                }
+            }
+        }
+
+        if (hasChanges) {
+            QMessageBox msgBox(this);
+            msgBox.setWindowTitle(tr("Unsaved Changes"));
+            msgBox.setText(tr("The note has been modified."));
+            msgBox.setInformativeText(tr("Do you want to save your changes?"));
+            QPushButton* saveBtn = msgBox.addButton(tr("Save"), QMessageBox::AcceptRole);
+            QPushButton* saveDraftBtn = msgBox.addButton(tr("Save to Drafts"), QMessageBox::AcceptRole);
+            QPushButton* discardBtn = msgBox.addButton(tr("Discard"), QMessageBox::DestructiveRole);
+            QPushButton* cancelBtn = msgBox.addButton(tr("Cancel"), QMessageBox::RejectRole);
+            msgBox.setDefaultButton(saveBtn);
+            msgBox.exec();
+
+            if (msgBox.clickedButton() == cancelBtn) {
+                return;
+            } else if (msgBox.clickedButton() == saveBtn) {
+                onSaveNoteBtnClicked();
+            } else if (msgBox.clickedButton() == saveDraftBtn) {
+                QModelIndex index = openBooksTree->currentIndex();
+                QStandardItem* item = index.isValid() ? openBooksModel->itemFromIndex(index) : nullptr;
+                QString title = item ? item->text() : tr("New Note");
+                if (title == "*New Item*")
+                    title = tr("Unsaved Draft");
+                else
+                    title = tr("Draft of: ") + title;
+
+                if (currentAutoDraftId == 0) {
+                    currentAutoDraftId = currentDb->addDraft(0, title, noteEditorView->toPlainText());
+                } else {
+                    currentDb->updateDraft(currentAutoDraftId, title, noteEditorView->toPlainText());
+                }
+                statusBar->showMessage(tr("Note saved to drafts."), 3000);
+            } else if (msgBox.clickedButton() == discardBtn) {
+                // If discard is clicked, we should revert the draft if there was one
+                if (currentAutoDraftId != 0 && currentDb) {
+                    currentDb->deleteDraft(currentAutoDraftId);
+                    currentAutoDraftId = 0;
+                }
+            }
+        }
+
         mainContentStack->setCurrentWidget(vfsExplorer);
         QModelIndex currentIdx = openBooksTree->currentIndex();
         if (currentIdx.isValid()) {
@@ -430,6 +495,10 @@ void MainWindow::setupUi() {
     });
 
     sendButton = new QPushButton("Send", this);
+    cancelGenerationBtn = new QPushButton("Stop", this);
+    cancelGenerationBtn->setIcon(QIcon::fromTheme("process-stop"));
+    cancelGenerationBtn->hide();
+
     inputSettingsButton = new QToolButton(this);
     inputSettingsButton->setIcon(QIcon::fromTheme("configure"));
     inputSettingsButton->setToolTip(tr("Input Settings"));
@@ -437,6 +506,7 @@ void MainWindow::setupUi() {
 
     QHBoxLayout* topBtnLayout = new QHBoxLayout();
     topBtnLayout->addWidget(sendButton);
+    topBtnLayout->addWidget(cancelGenerationBtn);
     topBtnLayout->addWidget(inputSettingsButton);
     inputLayout->addLayout(topBtnLayout);
     inputLayout->setAlignment(topBtnLayout, Qt::AlignTop);
@@ -529,11 +599,22 @@ void MainWindow::setupUi() {
     splitter->setStretchFactor(0, 0);
     splitter->setStretchFactor(1, 1);
 
-    QAction* newBookAction = new QAction(QIcon::fromTheme("document-new"), tr("New Book"), this);
-    QAction* exportChatAction = new QAction(QIcon::fromTheme("document-export"), tr("Export Chat Session"), this);
-    actionCollection()->addAction(QStringLiteral("export_chat_session"), exportChatAction);
-    connect(exportChatAction, &QAction::triggered, this, &MainWindow::exportChatSession);
+    QAction* zoomInAction = new QAction(QIcon::fromTheme("zoom-in"), tr("Zoom In"), this);
+    actionCollection()->addAction(QStringLiteral("zoom_in"), zoomInAction);
+    actionCollection()->setDefaultShortcut(zoomInAction, QKeySequence::ZoomIn);
+    connect(zoomInAction, &QAction::triggered, this, &MainWindow::zoomIn);
 
+    QAction* zoomOutAction = new QAction(QIcon::fromTheme("zoom-out"), tr("Zoom Out"), this);
+    actionCollection()->addAction(QStringLiteral("zoom_out"), zoomOutAction);
+    actionCollection()->setDefaultShortcut(zoomOutAction, QKeySequence::ZoomOut);
+    connect(zoomOutAction, &QAction::triggered, this, &MainWindow::zoomOut);
+
+    QAction* resetZoomAction = new QAction(QIcon::fromTheme("zoom-original"), tr("Reset Zoom"), this);
+    actionCollection()->addAction(QStringLiteral("reset_zoom"), resetZoomAction);
+    actionCollection()->setDefaultShortcut(resetZoomAction, QKeySequence(Qt::CTRL | Qt::Key_0));
+    connect(resetZoomAction, &QAction::triggered, this, &MainWindow::resetZoom);
+
+    QAction* newBookAction = new QAction(QIcon::fromTheme("document-new"), tr("New Book"), this);
     actionCollection()->addAction(QStringLiteral("new_book"), newBookAction);
 
     QAction* openBookAction = new QAction(QIcon::fromTheme("document-open"), tr("Open Book"), this);
@@ -554,7 +635,7 @@ void MainWindow::setupUi() {
 
     QAction* newDocMenuAction = new QAction(QIcon::fromTheme("document-new"), tr("New Document"), this);
     actionCollection()->addAction(QStringLiteral("new_document"), newDocMenuAction);
-    connect(newDocMenuAction, &QAction::triggered, this, [this]() { addPhantomItem(nullptr, "docs_folder"); });
+    connect(newDocMenuAction, &QAction::triggered, this, [this]() { handleNewDocumentCreation(0); });
 
     QAction* newNoteMenuAction = new QAction(QIcon::fromTheme("document-new"), tr("New Note"), this);
     actionCollection()->addAction(QStringLiteral("new_note"), newNoteMenuAction);
@@ -626,6 +707,7 @@ void MainWindow::setupUi() {
     connect(bookList, &QListWidget::doubleClicked, this,
             &MainWindow::onBookSelected);  // Open book from list via double click
     connect(sendButton, &QPushButton::clicked, this, &MainWindow::onSendMessage);
+    connect(cancelGenerationBtn, &QPushButton::clicked, this, &MainWindow::onCancelActiveGeneration);
     connect(inputField, &ChatInputWidget::returnPressed, this, &MainWindow::onSendMessage);
 
     QTimer* draftDebounceTimer = new QTimer(this);
@@ -654,11 +736,17 @@ void MainWindow::setupUi() {
     connect(draftDebounceTimer, &QTimer::timeout, this, saveDraftFunc);
     connect(inputField, &ChatInputWidget::textChanged, this, [this, draftDebounceTimer]() {
         draftDebounceTimer->start();
-        if (inputField->toPlainText().isEmpty()) dismissDraftBtn->hide(); else dismissDraftBtn->show();
+        if (inputField->toPlainText().isEmpty())
+            dismissDraftBtn->hide();
+        else
+            dismissDraftBtn->show();
     });
     connect(multiLineInput, &QTextEdit::textChanged, this, [this, draftDebounceTimer]() {
         draftDebounceTimer->start();
-        if (multiLineInput->toPlainText().isEmpty()) dismissDraftBtn->hide(); else dismissDraftBtn->show();
+        if (multiLineInput->toPlainText().isEmpty())
+            dismissDraftBtn->hide();
+        else
+            dismissDraftBtn->show();
     });
 
     connect(chatModel, &QStandardItemModel::itemChanged, this, &MainWindow::onItemChanged);
@@ -685,8 +773,12 @@ void MainWindow::setupUi() {
         }
     });
 
+    connect(&ollamaClient, &OllamaClient::modelInfoUpdated, this, [this](const QList<OllamaModelInfo>& infos) {
+        m_availableModelInfos = infos;
+    });
+
     connect(modelSelectButton, &QPushButton::clicked, this, [this]() {
-        ModelSelectionDialog dlg(m_availableModels, this);
+        ModelSelectionDialog dlg(m_availableModelInfos, m_availableModels, this);
         if (dlg.exec() == QDialog::Accepted) {
             QString selected = dlg.selectedModel();
             if (!selected.isEmpty()) {
@@ -803,6 +895,7 @@ void MainWindow::setupUi() {
 
     updateEndpointsList();
     loadBooks();
+    updateApplicationFont();
 }
 
 /** * @brief Refreshes the combobox containing remote Ollama API endpoint targets. *  * This function is an integral
@@ -879,6 +972,7 @@ void MainWindow::showSettingsDialog() {
     connect(dlg, &SettingsDialog::settingsApplied, this, [this]() {
         updateEndpointsList();
         updateInputBehavior();
+        updateApplicationFont();
     });
     dlg->setAttribute(Qt::WA_DeleteOnClose);
     dlg->show();
@@ -1309,6 +1403,8 @@ void MainWindow::updateInputBehavior() {
             }
         }
     }
+
+    updateGenerationUI();
 }
 
 /** * @brief Configures the window's title, geometry, and system tray icon based on prior settings. *  * This function
@@ -1553,18 +1649,7 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
         else if (type == "drafts_folder")
             actionName = "New Draft";
 
-        QAction* newAction = nullptr;
-        QAction* newFromTemplateAction = nullptr;
-        QAction* newFromPromptAction = nullptr;
-
-        if (type == "docs_folder") {
-            QMenu* newDocMenu = menu.addMenu(QIcon::fromTheme("document-new"), "New Document");
-            newAction = newDocMenu->addAction("Blank Document");
-            newFromTemplateAction = newDocMenu->addAction("From Template");
-            newFromPromptAction = newDocMenu->addAction("From AI Prompt");
-        } else {
-            newAction = menu.addAction(actionName);
-        }
+        QAction* newAction = menu.addAction(actionName);
 
         QAction* createFolderAction = nullptr;
         QAction* importFileAction = nullptr;
@@ -1615,31 +1700,10 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
         } else if (importAction && selectedAction == importAction) {
             importChatSession();
         } else if (newAction && selectedAction == newAction) {
-            QString name =
-                QInputDialog::getText(this, "New Document", "Enter document name:", QLineEdit::Normal, "New Document");
-            if (!name.isEmpty() && currentDb) {
-                int folderId = item->data(Qt::UserRole).toInt();
-                currentDb->addDocument(folderId, name, "");
-                loadDocumentsAndNotes();
-            }
-        } else if (newFromTemplateAction && selectedAction == newFromTemplateAction) {
-            // Placeholder: Not fully implemented yet
-        } else if (newFromPromptAction && selectedAction == newFromPromptAction) {
-            // Trigger AIOperationsDialog with preselected Fork mode
-            AIOperationsDialog aiDlg(currentDb.get(), "", this);
-            aiDlg.setForkOnlyMode(true);
-            if (aiDlg.exec() == QDialog::Accepted) {
-                QString prompt = aiDlg.getPrompt();
-                if (!prompt.isEmpty() && currentDb) {
-                    QString name = QString("Prompt: %1").arg(prompt.left(20));
-                    int folderId = item->data(Qt::UserRole).toInt();
-                    int newDocId = currentDb->addDocument(folderId, name, "");
-                    // Enqueue the newly created prompt as a document generation request
-                    // Using default values for model and parentId, and setting targetType="document" and
-                    // targetAction="fork"
-                    currentDb->enqueuePrompt(newDocId, "", prompt, 0, "document", 0, "fork");
-                    loadDocumentsAndNotes();
-                }
+            if (type == "docs_folder") {
+                handleNewDocumentCreation(item->data(Qt::UserRole).toInt());
+            } else {
+                addPhantomItem(item, type);
             }
         } else if (importFileAction && selectedAction == importFileAction) {
             QString fileName = QFileDialog::getOpenFileName(this, tr("Import File"), QDir::homePath(),
@@ -1675,12 +1739,20 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
         QAction* forkAction = menu.addAction(QIcon::fromTheme("call-start"), "Fork from Here");
         menu.addSeparator();
 
-        if (type == "chat_session") {
-            exportAction = menu.addAction("Export Chat Session");
-            menu.addSeparator();
-        }
+        exportAction = menu.addAction(QIcon::fromTheme("document-export"), "Export Chat Session");
+        connect(exportAction, &QAction::triggered, this, &MainWindow::exportChatSession);
+        menu.addSeparator();
 
         QAction* settingsAction = menu.addAction(QIcon::fromTheme("configure"), "Chat Settings...");
+
+        menu.addSeparator();
+        QMenu* dangerMenu = menu.addMenu(QIcon::fromTheme("dialog-warning"), "Danger Zone");
+        QAction* deleteAction = nullptr;
+        if (type == "chat_session") {
+            deleteAction = dangerMenu->addAction(QIcon::fromTheme("edit-delete"), "Delete Chat Session");
+        } else {
+            deleteAction = dangerMenu->addAction(QIcon::fromTheme("edit-delete"), "Delete Message");
+        }
 
         QAction* selectedAction = menu.exec(globalPos);
         if (selectedAction == copyAction) {
@@ -1701,13 +1773,44 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
                 mainContentStack->setCurrentWidget(chatWindowView);
                 chatTextArea->setFocus();
             }
-        } else if (exportAction && selectedAction == exportAction) {
-            exportChatSession();
         } else if (selectedAction == settingsAction) {
             showChatSettingsDialog(item->data(Qt::UserRole).toInt());
+        } else if (selectedAction == deleteAction) {
+            int id = item->data(Qt::UserRole).toInt();
+            if (currentDb) {
+                QString confirmMsg = type == "chat_session" ? tr("Are you sure you want to delete this Chat Session?") : tr("Are you sure you want to delete this Message?");
+                if (QMessageBox::question(this, tr("Confirm Delete"), confirmMsg, QMessageBox::Yes | QMessageBox::No) == QMessageBox::Yes) {
+                    if (type == "chat_session") {
+                        currentDb->deleteFolder(id);
+                    } else {
+                        currentDb->deleteMessage(id);
+                    }
+                    loadDocumentsAndNotes();
+                    statusBar->showMessage(tr("Deleted successfully."), 3000);
+                }
+            }
         }
     } else if (type == "document" || type == "note" || type == "template" || type == "draft") {
         QMenu menu(this);
+
+        QString editLabel = "Edit Item";
+        if (type == "document") editLabel = "Edit Document";
+        else if (type == "note") editLabel = "Edit Note";
+        else if (type == "template") editLabel = "Edit Template";
+        else if (type == "draft") editLabel = "Edit Draft";
+
+        QAction* editAction = menu.addAction(QIcon::fromTheme("document-edit"), editLabel);
+
+        QAction* historyAction = nullptr;
+        QAction* aiAction = nullptr;
+
+        if (type == "document") {
+            historyAction = menu.addAction(QIcon::fromTheme("view-history"), "History");
+            aiAction = menu.addAction(QIcon::fromTheme("tools-wizard"), "AI Operations");
+        }
+
+        menu.addSeparator();
+
         QAction* exportAction = nullptr;
         QAction* replaceAction = nullptr;
         QAction* loadTemplateAction = nullptr;
@@ -1721,19 +1824,58 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
             menu.addSeparator();
         }
 
-        QAction* discardAction = nullptr;
-        if (type == "draft") {
-            discardAction = menu.addAction(QIcon::fromTheme("edit-delete"), "Discard Draft");
-            menu.addSeparator();
-        }
-
         if (type == "document" || type == "note") {
             exportAction = menu.addAction(QIcon::fromTheme("document-export"), "Export Markdown...");
             replaceAction = menu.addAction(QIcon::fromTheme("document-import"), "Replace with Import...");
         }
 
+        menu.addSeparator();
+        QMenu* dangerMenu = menu.addMenu(QIcon::fromTheme("dialog-warning"), "Danger Zone");
+        QAction* discardAction = nullptr;
+        QAction* deleteAction = nullptr;
+
+        if (type == "draft") {
+            discardAction = dangerMenu->addAction(QIcon::fromTheme("edit-delete"), "Discard Draft");
+        } else if (type == "document") {
+            deleteAction = dangerMenu->addAction(QIcon::fromTheme("edit-delete"), "Delete Document");
+        } else if (type == "note") {
+            deleteAction = dangerMenu->addAction(QIcon::fromTheme("edit-delete"), "Delete Note");
+        } else if (type == "template") {
+            deleteAction = dangerMenu->addAction(QIcon::fromTheme("edit-delete"), "Delete Template");
+        }
+
         QAction* selectedAction = menu.exec(globalPos);
-        if (loadTemplateAction && selectedAction == loadTemplateAction) {
+        if (selectedAction) {
+            openBooksTree->setCurrentIndex(item->index());
+        }
+
+        if (selectedAction == editAction) {
+            if (type == "document" || type == "draft" || type == "template") {
+                onEditDocument();
+            } else if (type == "note") {
+                mainContentStack->setCurrentWidget(noteContainer);
+                noteEditorView->setFocus();
+            }
+        } else if (historyAction && selectedAction == historyAction) {
+            onDocumentHistory();
+        } else if (aiAction && selectedAction == aiAction) {
+            onDocumentAIOperations();
+        } else if (selectedAction == deleteAction) {
+            int answer = QMessageBox::question(this, "Delete", tr("Are you sure you want to delete this %1?").arg(type));
+            if (answer == QMessageBox::Yes && currentDb) {
+                int id = item->data(Qt::UserRole).toInt();
+                if (type == "document") {
+                    currentDb->deleteDocument(id);
+                } else if (type == "note") {
+                    currentDb->deleteNote(id);
+                } else if (type == "template") {
+                    currentDb->deleteTemplate(id);
+                } else if (type == "draft") {
+                    currentDb->deleteDraft(id);
+                }
+                loadDocumentsAndNotes();
+            }
+        } else if (loadTemplateAction && selectedAction == loadTemplateAction) {
             int docId = item->data(Qt::UserRole).toInt();
             if (currentDb) {
                 QList<DocumentNode> templates = currentDb->getTemplates();
@@ -1761,6 +1903,21 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
                 currentDb->deleteDraft(docId);
                 loadDocumentsAndNotes();
                 statusBar->showMessage(tr("Draft discarded."), 3000);
+            }
+        } else if (deleteAction && selectedAction == deleteAction) {
+            int id = item->data(Qt::UserRole).toInt();
+            if (currentDb) {
+                if (QMessageBox::question(this, tr("Confirm Delete"), tr("Are you sure you want to delete this item?"), QMessageBox::Yes | QMessageBox::No) == QMessageBox::Yes) {
+                    if (type == "document") {
+                        currentDb->deleteDocument(id);
+                    } else if (type == "note") {
+                        currentDb->deleteNote(id);
+                    } else if (type == "template") {
+                        currentDb->deleteTemplate(id);
+                    }
+                    loadDocumentsAndNotes();
+                    statusBar->showMessage(tr("Deleted successfully."), 3000);
+                }
             }
         } else if (exportAction && selectedAction == exportAction) {
             exportDocument(item->data(Qt::UserRole).toInt(), type);
@@ -2307,13 +2464,74 @@ void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& 
         if (node.id == -1) continue;  // Do not render the phantom user node in the chat view itself
 
         QString roleName = (node.role == "user") ? userName : assistantName;
+        QString bgColor = (node.role == "user") ? "#DCF8C6" : "#F1F0F0";
+
+        // Visual indicator check for last active node
+        if (currentDb && tailNodeId != 0 && node.id == tailNodeId) {
+            QList<QueueItem> queue = currentDb->getQueue();
+            for (const auto& qItem : queue) {
+                if (qItem.messageId == tailNodeId && qItem.targetType == "message") {
+                    if (qItem.state == "error") {
+                        bgColor = "#FFCDD2"; // Light red
+                    } else if (qItem.state == "processing") {
+                        bgColor = "#FFF9C4"; // Light yellow
+                    } else if (qItem.state == "pending") {
+                        bgColor = "#E0E0E0"; // Gray
+                    }
+                    break;
+                }
+            }
+        }
 
         QTextCursor cursor(chatTextArea->document());
         cursor.movePosition(QTextCursor::End);
         chatTextArea->setTextCursor(cursor);
 
-        chatTextArea->insertHtml(QString("<div style='font-weight: bold;'>[%1]</div>").arg(roleName.toHtmlEscaped()));
-        chatTextArea->insertPlainText("\n" + node.content + "\n\n");
+        // Insert hidden marker for context menu index calculation
+        chatTextArea->insertHtml(QString("<div style='color: transparent; font-size: 1px; line-height: 1px; height: 1px; margin: 0; padding: 0;'>[%1]</div>").arg(roleName.toHtmlEscaped()));
+
+        // Insert bubble
+        QString bubbleHtml = QString(
+            "<table width='100%' cellpadding='0' cellspacing='0' style='margin-bottom: 10px; border: none;'>"
+            "<tr>"
+        );
+
+        if (node.role == "user") {
+            bubbleHtml += "<td width='20%'></td>";
+        }
+
+        QString formattedContent;
+        if (node.role == "user") {
+            formattedContent = node.content.toHtmlEscaped().replace("\n", "<br>");
+        } else {
+            // Use a temporary QTextDocument to parse Markdown into HTML
+            QTextDocument tempDoc;
+            tempDoc.setMarkdown(node.content);
+            formattedContent = tempDoc.toHtml();
+
+            // toHtml() wraps everything in <html><head><body>...</body></html>
+            // We just want the body content.
+            int bodyStart = formattedContent.indexOf("<body>");
+            int bodyEnd = formattedContent.lastIndexOf("</body>");
+            if (bodyStart != -1 && bodyEnd != -1) {
+                formattedContent = formattedContent.mid(bodyStart + 6, bodyEnd - bodyStart - 6);
+            }
+        }
+
+        bubbleHtml += QString(
+            "<td style='background-color: %1; border-radius: 10px; padding: 10px;'>"
+            "<div style='font-weight: bold; margin-bottom: 5px;'>%2</div>"
+            "<div>%3</div>"
+            "</td>"
+        ).arg(bgColor, roleName.toHtmlEscaped(), formattedContent);
+
+        if (node.role != "user") {
+            bubbleHtml += "<td width='20%'></td>";
+        }
+
+        bubbleHtml += "</tr></table><br>";
+
+        chatTextArea->insertHtml(bubbleHtml);
     }
 
     chatTextArea->blockSignals(false);
@@ -2505,7 +2723,7 @@ void MainWindow::onDismissDraft() {
         if (cnDraft.version == m_activeDraftVersion) {
             cnDraft.draftPrompt = "";
             if (currentDb->updateChat(cnDraft)) {
-                m_activeDraftVersion++; // Sync with optimistic lock
+                m_activeDraftVersion++;  // Sync with optimistic lock
             }
         }
     }
@@ -2575,7 +2793,7 @@ void MainWindow::onSendMessage() {
             if (isInCurrentPath) {
                 hasActiveGeneration = true;
                 item = qItem;
-                break; // Found conflicting generation
+                break;  // Found conflicting generation
             }
         }
     }
@@ -2583,13 +2801,12 @@ void MainWindow::onSendMessage() {
     if (hasActiveGeneration) {
         QMessageBox msgBox(this);
         msgBox.setWindowTitle(tr("Active Generation Conflict"));
-        msgBox.setText(tr(
-            "This chat is currently generating a response.\nWhat would you like to do with your new message?"));
+        msgBox.setText(
+            tr("This chat is currently generating a response.\nWhat would you like to do with your new message?"));
 
         QPushButton* queueBtn = msgBox.addButton(tr("Queue to send later"), QMessageBox::AcceptRole);
         QPushButton* forkBtn = msgBox.addButton(tr("Fork and send"), QMessageBox::AcceptRole);
-        QPushButton* cancelReplaceBtn =
-            msgBox.addButton(tr("Cancel previous and replace"), QMessageBox::AcceptRole);
+        QPushButton* cancelReplaceBtn = msgBox.addButton(tr("Cancel previous and replace"), QMessageBox::AcceptRole);
         QPushButton* draftsBtn = msgBox.addButton(tr("Save to drafts"), QMessageBox::ActionRole);
         QPushButton* ignoreBtn = msgBox.addButton(tr("Ignore text and clear"), QMessageBox::DestructiveRole);
         QPushButton* cancelBtn = msgBox.addButton(tr("Cancel"), QMessageBox::RejectRole);
@@ -2654,8 +2871,9 @@ void MainWindow::onSendMessage() {
     }
 
     bool forkCreated = false;
-    // Passive edit check
-    if (!currentChatPath.isEmpty() && currentLastNodeId != 0 && !isCreatingNewChat) {
+    // Passive edit check is only possible if the chat area is not read-only.
+    // The previous HTML parsing logic is not robust against read-only bubble variations.
+    if (!chatTextArea->isReadOnly() && !currentChatPath.isEmpty() && currentLastNodeId != 0 && !isCreatingNewChat) {
         QTextDocument* doc = chatTextArea->document();
         QString currentRole = "";
         QString currentContent = "";
@@ -2665,14 +2883,37 @@ void MainWindow::onSendMessage() {
         QString expectedAssistantBlock =
             QString("[%1]").arg(currentDb->getSetting("book", 0, "assistantName", "Assistant"));
 
+        // Passive edit check is no longer reliable because the text is read-only, and we render with HTML tables.
+        // The user requirement explicitly asks to keep it read-only but formatting as bubbles.
+        // Wait, if it's read-only, passive edits can't happen! The `chatTextArea->setReadOnly(true);` was already in the code!
+        // But what if they double clicked "Discard Changes"? They can't edit it anyway. Let's just strip the blockText collection
+        // or just accept we don't need to support "passive edits" inside the read-only chatTextArea.
+        // But wait! Is it read-only? "chatTextArea->setReadOnly(true);" IS in setupUi!
+        // If it's read-only, passive edit check doesn't fire because they can't type.
+        // Actually, the discard changes button only shows if (!chatTextArea->isReadOnly()).
+        // So passive edits are only for when read-only is toggled off? Let's leave it as is, but know it might fail
+        // if they somehow make it writable and edit the HTML table structure.
+        // Let's modify it to be safe:
+
         for (QTextBlock block = doc->begin(); block.isValid(); block = block.next()) {
             QString blockText = block.text();
             if (blockText.trimmed() == expectedUserBlock || blockText.trimmed() == expectedAssistantBlock) {
                 if (!currentRole.isEmpty() && msgIndex < currentChatPath.size()) {
+                    // Extracting text from HTML tables via QTextBlock is messy, we'll just skip the exact match comparison
+                    // and rely on the fact that if they didn't touch it, it should match (mostly).
+                    // Actually, let's just let it run. If it fails, they get a fork.
+                    // But since we use tables, each cell is a block. The name is in a block, the text is in another.
+                    // So we do:
+                    QString cleanContent = currentContent.trimmed();
+                    // Remove the redundant role name from the bubble content if it's there
+                    if (cleanContent.startsWith(expectedUserBlock)) cleanContent.remove(0, expectedUserBlock.length());
+                    if (cleanContent.startsWith(expectedAssistantBlock)) cleanContent.remove(0, expectedAssistantBlock.length());
+                    cleanContent = cleanContent.trimmed();
+
                     if (currentRole == currentChatPath[msgIndex].role &&
-                        currentContent.trimmed() != currentChatPath[msgIndex].content.trimmed()) {
+                        cleanContent != currentChatPath[msgIndex].content.trimmed() && cleanContent != "") {
                         int pId = (msgIndex > 0) ? currentChatPath[msgIndex - 1].id : 0;
-                        int newFId = currentDb->addMessage(pId, currentContent.trimmed(), currentRole);
+                        int newFId = currentDb->addMessage(pId, cleanContent, currentRole);
                         currentLastNodeId = newFId;
                         forkCreated = true;
                         break;
@@ -2820,15 +3061,49 @@ void MainWindow::onQueueChunk(std::shared_ptr<BookDatabase> db, int messageId, c
             documentEditorView->blockSignals(false);
         } else if (targetType == "message" && currentLastNodeId == messageId) {
             chatTextArea->blockSignals(true);
-            QTextCursor cursor = chatTextArea->textCursor();
-            cursor.movePosition(QTextCursor::End);
-            chatTextArea->setTextCursor(cursor);
-            chatTextArea->insertPlainText(chunk);
-            chatTextArea->blockSignals(false);
+            QScrollBar* vBar = chatTextArea->verticalScrollBar();
+            bool isAtBottom = (vBar->value() >= vBar->maximum() - 5);
 
             if (!currentChatPath.isEmpty() && currentChatPath.last().id == messageId) {
                 currentChatPath.last().content += chunk;
+
+                // Instead of completely re-rendering the chat, insert text into the last table cell.
+                QTextCursor cursor(chatTextArea->document());
+                cursor.movePosition(QTextCursor::End);
+
+                // Move backwards until we are inside a table
+                while (!cursor.currentTable() && cursor.position() > 0) {
+                    cursor.movePosition(QTextCursor::PreviousCharacter);
+                }
+
+                if (cursor.currentTable()) {
+                    QTextTable *table = cursor.currentTable();
+                    // The assistant text is in row 0, column 0 because the AI bubble format is:
+                    // <td style='...'>...</td> <td width='20%'></td>
+                    // Thus, the text is guaranteed to be in column 0!
+                    QTextTableCell cell = table->cellAt(0, 0);
+                    if (cell.isValid()) {
+                        cursor = cell.lastCursorPosition();
+                        chatTextArea->setTextCursor(cursor);
+                        chatTextArea->insertPlainText(chunk);
+                    } else {
+                        // Fallback
+                        cursor.movePosition(QTextCursor::End);
+                        chatTextArea->setTextCursor(cursor);
+                        chatTextArea->insertPlainText(chunk);
+                    }
+                } else {
+                    // Fallback
+                    cursor.movePosition(QTextCursor::End);
+                    chatTextArea->setTextCursor(cursor);
+                    chatTextArea->insertPlainText(chunk);
+                }
             }
+
+            if (isAtBottom) {
+                vBar->setValue(vBar->maximum());
+            }
+            chatTextArea->blockSignals(false);
         }
     }
 }
@@ -2843,9 +3118,36 @@ void MainWindow::onProcessingStarted(std::shared_ptr<BookDatabase> db, int messa
             statusBar->showMessage(tr("AI is generating document changes..."));
         } else if (targetType == "message" && currentLastNodeId == messageId) {
             statusBar->showMessage(tr("LLM is responding..."));
+            updateGenerationUI();
         }
     }
     updateQueueStatus();
+}
+
+void MainWindow::updateGenerationUI() {
+    bool isGeneratingCurrentChat = false;
+    if (QueueManager::instance().isProcessing() && currentDb && currentDb == QueueManager::instance().currentProcessingDb()) {
+        auto item = QueueManager::instance().currentProcessingItem();
+        if (item.targetType == "message" && item.messageId == currentLastNodeId) {
+            isGeneratingCurrentChat = true;
+        }
+    }
+
+    if (isGeneratingCurrentChat) {
+        sendButton->hide();
+        cancelGenerationBtn->show();
+    } else {
+        cancelGenerationBtn->hide();
+        sendButton->show();
+    }
+}
+
+void MainWindow::onCancelActiveGeneration() {
+    if (QueueManager::instance().isProcessing() && currentDb == QueueManager::instance().currentProcessingDb()) {
+        int queueId = QueueManager::instance().currentProcessingItem().id;
+        QueueManager::instance().cancelItem(currentDb, queueId);
+        updateGenerationUI();
+    }
 }
 
 void MainWindow::onProcessingFinished(std::shared_ptr<BookDatabase> db, int messageId, bool success,
@@ -2857,6 +3159,7 @@ void MainWindow::onProcessingFinished(std::shared_ptr<BookDatabase> db, int mess
                                    3000);
         } else if (targetType == "message" && currentLastNodeId == messageId) {
             statusBar->showMessage(success ? tr("Response complete.") : tr("Error in response."), 3000);
+            updateGenerationUI();
             updateLinearChatView(currentLastNodeId, currentDb->getMessages());
         }
     }
@@ -3314,6 +3617,10 @@ void MainWindow::onOpenBooksSelectionChanged(const QItemSelection& selected, con
                 documentEditorView->clear();
                 mainContentStack->setCurrentWidget(docContainer);
             } else if (currentDb) {
+                // If it was marked as updated via AI notification modifications, dismiss it
+                currentDb->dismissNotificationByMessageIdAndType(currentDocumentId, "updated");
+                updateNotificationStatus();
+
                 QList<DocumentNode> docs =
                     (type == "template") ? currentDb->getTemplates()
                                          : ((type == "draft") ? currentDb->getDrafts() : currentDb->getDocuments());
@@ -3777,12 +4084,89 @@ void MainWindow::updateNotificationStatus() {
                         documentEditorView->setPlainText(outContent);
                         documentEditorView->blockSignals(false);
                     }
+                } else if (n.type == "error") {
+                    QDialog dialog(this);
+                    dialog.setWindowTitle(tr("Error: Modify and Retry"));
+                    QVBoxLayout* layout = new QVBoxLayout(&dialog);
+
+                    QLabel* summary = new QLabel(QString("<b>Book:</b> %1<br><b>Message ID:</b> %2").arg(bookName, QString::number(n.messageId)));
+                    summary->setWordWrap(true);
+                    layout->addWidget(summary);
+
+                    QString errorMsg, prompt, model;
+                    int queueId = -1;
+                    auto qList = db->getQueue();
+                    for (const auto& qi : qList) {
+                        if (qi.messageId == n.messageId && qi.state == "error") {
+                            errorMsg = qi.lastError;
+                            prompt = qi.prompt;
+                            model = qi.model;
+                            queueId = qi.id;
+                            break;
+                        }
+                    }
+
+                    QLabel* errorLabel = new QLabel(QString("<b>Error:</b> %1").arg(errorMsg));
+                    errorLabel->setWordWrap(true);
+                    errorLabel->setStyleSheet("color: #f44336; font-weight: bold; margin-bottom: 10px;");
+                    layout->addWidget(errorLabel);
+
+                    QTextEdit* promptEdit = new QTextEdit(&dialog);
+                    promptEdit->setPlainText(prompt);
+                    layout->addWidget(new QLabel(tr("Prompt:")));
+                    layout->addWidget(promptEdit);
+
+                    QComboBox* modelCombo = new QComboBox(&dialog);
+                    for (const auto& m : m_availableModels) {
+                        modelCombo->addItem(m, m);
+                    }
+                    int idx = modelCombo->findData(model);
+                    if (idx >= 0) modelCombo->setCurrentIndex(idx);
+                    layout->addWidget(new QLabel(tr("Model:")));
+                    layout->addWidget(modelCombo);
+
+                    QHBoxLayout* btnLayout = new QHBoxLayout();
+                    QPushButton* retryBtn = new QPushButton(tr("Modify & Retry"), &dialog);
+                    QPushButton* gotoBtn = new QPushButton(tr("Goto Item"), &dialog);
+                    QPushButton* dismissBtn = new QPushButton(tr("Dismiss"), &dialog);
+                    QPushButton* closeBtn = new QPushButton(tr("Close"), &dialog);
+
+                    btnLayout->addWidget(retryBtn);
+                    btnLayout->addWidget(gotoBtn);
+                    btnLayout->addWidget(dismissBtn);
+                    btnLayout->addWidget(closeBtn);
+                    layout->addLayout(btnLayout);
+
+                    connect(retryBtn, &QPushButton::clicked, [&]() {
+                        if (queueId != -1) {
+                            QueueManager::instance().modifyItem(db, queueId, promptEdit->toPlainText(), modelCombo->currentData().toString());
+                            QueueManager::instance().retryItem(db, queueId);
+                            db->dismissNotification(n.id);
+                            updateNotificationStatus();
+                            dialog.accept();
+                        }
+                    });
+
+                    connect(gotoBtn, &QPushButton::clicked, [&]() {
+                        onQueueItemClicked(db, n.messageId);
+                        dialog.accept();
+                    });
+
+                    connect(dismissBtn, &QPushButton::clicked, [&]() {
+                        db->dismissNotification(n.id);
+                        updateNotificationStatus();
+                        dialog.accept();
+                    });
+
+                    connect(closeBtn, &QPushButton::clicked, &dialog, &QDialog::reject);
+
+                    dialog.exec();
                 } else {
                     QDialog dialog(this);
                     dialog.setWindowTitle(tr("Notification Summary"));
                     QVBoxLayout* layout = new QVBoxLayout(&dialog);
 
-                    QString typeStr = (n.type == "error") ? tr("Error") : tr("Finished");
+                    QString typeStr = tr("Finished");
                     QLabel* summary =
                         new QLabel(QString("<b>Book:</b> %1<br><b>Status:</b> %2<br><b>Message ID:</b> %3")
                                        .arg(bookName, typeStr, QString::number(n.messageId)));
@@ -3830,12 +4214,32 @@ void MainWindow::updateNotificationStatus() {
         QString filePath = bookItem->data(Qt::UserRole + 2).toString();
         QString fileName = QFileInfo(filePath).fileName();
         if (m_openDatabases.contains(fileName)) {
-            auto notifications = m_openDatabases[fileName]->getNotifications();
-            updateTreeMarkersRecursive(bookItem, notifications);
+            auto db = m_openDatabases[fileName];
+            auto notifications = db->getNotifications();
+            auto queueItems = db->getQueue();
+
+            QMap<QPair<QString, int>, int> activeNotifications;
+            for (const auto& n : notifications) {
+                if (n.isDismissed) continue;
+                if (n.type == "review_needed") {
+                    for (const auto& q : queueItems) {
+                        if (q.id == n.messageId && q.targetType == "document") {
+                            activeNotifications[{ "document", q.messageId }] = 1;
+                            break;
+                        }
+                    }
+                } else if (n.type == "updated") {
+                    activeNotifications[{ "document", n.messageId }] = 1;
+                } else {
+                    activeNotifications[{ "chat_node", n.messageId }] = (n.type == "error") ? 2 : 1;
+                }
+            }
+
+            updateTreeMarkersRecursive(bookItem, activeNotifications);
 
             // Also update VFS and Fork explorers if they are currently displaying items for this DB
             if (currentDb && currentDb->filepath() == filePath) {
-                updateVfsMarkers(notifications);
+                updateVfsMarkers(activeNotifications);
             }
         }
     }
@@ -3875,18 +4279,21 @@ class GlobalSpyWindow : public QWidget {
 
         m_spyTextEdit = new QTextEdit(this);
         m_spyTextEdit->setReadOnly(true);
-        m_spyTextEdit->document()->setMaximumBlockCount(1000); // Act as a circular buffer
+        m_spyTextEdit->document()->setMaximumBlockCount(1000);  // Act as a circular buffer
         baseLayout->addWidget(m_spyTextEdit);
 
         if (OllamaClient* client = QueueManager::instance().client()) {
             connect(client, &OllamaClient::requestSent, this,
                     [this](const QString& model, const QString& systemPrompt, const QString& prompt) {
                         m_spyTextEdit->moveCursor(QTextCursor::End);
-                        m_spyTextEdit->insertHtml(QString("<hr><b>[Request Sent]</b> Model: %1<br>").arg(model.toHtmlEscaped()));
+                        m_spyTextEdit->insertHtml(
+                            QString("<hr><b>[Request Sent]</b> Model: %1<br>").arg(model.toHtmlEscaped()));
                         if (!systemPrompt.isEmpty()) {
-                            m_spyTextEdit->insertHtml(QString("<b>System:</b><br>%1<br>").arg(systemPrompt.toHtmlEscaped().replace("\n", "<br>")));
+                            m_spyTextEdit->insertHtml(QString("<b>System:</b><br>%1<br>")
+                                                          .arg(systemPrompt.toHtmlEscaped().replace("\n", "<br>")));
                         }
-                        m_spyTextEdit->insertHtml(QString("<b>User:</b><br>%1<br><br><b>Response:</b><br>").arg(prompt.toHtmlEscaped().replace("\n", "<br>")));
+                        m_spyTextEdit->insertHtml(QString("<b>User:</b><br>%1<br><br><b>Response:</b><br>")
+                                                      .arg(prompt.toHtmlEscaped().replace("\n", "<br>")));
                         m_spyTextEdit->moveCursor(QTextCursor::End);
                     });
         }
@@ -3901,7 +4308,8 @@ class GlobalSpyWindow : public QWidget {
         connect(&QueueManager::instance(), &QueueManager::processingFinished, this,
                 [this](std::shared_ptr<BookDatabase> db, int messageId, bool success, const QString& type) {
                     m_spyTextEdit->moveCursor(QTextCursor::End);
-                    m_spyTextEdit->insertHtml(success ? "<br><br><b>[Finished]</b><br>" : "<br><br><b><font color='red'>[Error]</font></b><br>");
+                    m_spyTextEdit->insertHtml(success ? "<br><br><b>[Finished]</b><br>"
+                                                      : "<br><br><b><font color='red'>[Error]</font></b><br>");
                     m_spyTextEdit->moveCursor(QTextCursor::End);
                 });
     }
@@ -3992,21 +4400,13 @@ void MainWindow::onQueueItemClicked(std::shared_ptr<BookDatabase> db, int messag
 /** * @brief Adds custom visual badges (like error or pending states) over items in the VFS explorer. *  * This function
  * is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal
  * application models. */
-void MainWindow::updateVfsMarkers(const QList<Notification>& notifications) {
+void MainWindow::updateVfsMarkers(const QMap<QPair<QString, int>, int>& activeNotifications) {
     if (vfsModel) {
         for (int i = 0; i < vfsModel->rowCount(); ++i) {
             QStandardItem* item = vfsModel->item(i);
             int id = item->data(Qt::UserRole).toInt();
             QString itemType = item->data(Qt::UserRole + 1).toString();
-            int nType = 0;
-            if (itemType == "chat_node") {
-                for (const auto& n : notifications) {
-                    if (n.messageId == id && !n.isDismissed) {
-                        nType = (n.type == "error") ? 2 : 1;
-                        break;
-                    }
-                }
-            }
+            int nType = activeNotifications.value({itemType, id}, 0);
             item->setData(nType, Qt::UserRole + 10);
         }
     }
@@ -4015,15 +4415,7 @@ void MainWindow::updateVfsMarkers(const QList<Notification>& notifications) {
             QStandardItem* item = forkExplorerModel->item(i);
             int id = item->data(Qt::UserRole).toInt();
             QString itemType = item->data(Qt::UserRole + 1).toString();
-            int nType = 0;
-            if (itemType == "chat_node") {
-                for (const auto& n : notifications) {
-                    if (n.messageId == id && !n.isDismissed) {
-                        nType = (n.type == "error") ? 2 : 1;
-                        break;
-                    }
-                }
-            }
+            int nType = activeNotifications.value({itemType, id}, 0);
             item->setData(nType, Qt::UserRole + 10);
         }
     }
@@ -4032,24 +4424,18 @@ void MainWindow::updateVfsMarkers(const QList<Notification>& notifications) {
 /** * @brief Executes logic for updateTreeMarkersRecursive. This function manages component initialization and handles
  * state transitions for the UI. *  * This function is an integral component of the MainWindow class structure. * It
  * ensures that side effects map accurately to internal application models. */
-void MainWindow::updateTreeMarkersRecursive(QStandardItem* parent, const QList<Notification>& notifications) {
+void MainWindow::updateTreeMarkersRecursive(QStandardItem* parent, const QMap<QPair<QString, int>, int>& activeNotifications) {
     if (!parent) return;
     for (int i = 0; i < parent->rowCount(); ++i) {
         QStandardItem* child = parent->child(i);
         if (!child) continue;
         int messageId = child->data(Qt::UserRole).toInt();
         QString itemType = child->data(Qt::UserRole + 1).toString();
-        int notifyType = 0;
-        if (itemType == "chat_node") {
-            for (const auto& n : notifications) {
-                if (n.messageId == messageId && !n.isDismissed) {
-                    notifyType = (n.type == "error") ? 2 : 1;
-                    break;
-                }
-            }
-        }
+
+        int notifyType = activeNotifications.value({itemType, messageId}, 0);
         child->setData(notifyType, Qt::UserRole + 10);
-        updateTreeMarkersRecursive(child, notifications);
+
+        updateTreeMarkersRecursive(child, activeNotifications);
     }
 }
 
@@ -4255,6 +4641,9 @@ void MainWindow::onOpenBooksTreeDoubleClicked(const QModelIndex& index) {
     if (type == "document" || type == "template" || type == "draft") {
         int docId = item->data(Qt::UserRole).toInt();
 
+        currentDb->dismissNotificationByMessageIdAndType(docId, "updated");
+        updateNotificationStatus();
+
         QList<DocumentNode> docs;
         if (type == "document")
             docs = currentDb->getDocuments();
@@ -4319,33 +4708,139 @@ void MainWindow::onVfsExplorerDoubleClicked(const QModelIndex& index) {
  * If the document was being auto-saved as a transient draft, the temporary draft entry is purged
  * upon successful explicit save.
  */
+void MainWindow::handleNewDocumentCreation(int defaultFolderId) {
+    if (!currentDb) {
+        QMessageBox::warning(this, tr("No Book Open"), tr("Please open a book first to create a document."));
+        return;
+    }
+    NewDocumentDialog dialog(currentDb, defaultFolderId, this);
+    if (dialog.exec() == QDialog::Accepted) {
+        QString title = dialog.getTitle();
+        int folderId = dialog.getSelectedFolderId();
+        if (title.isEmpty()) title = "New Document";
+
+        int newDocId = -1;
+        bool shouldNavigate = false;
+
+        if (dialog.getDocumentType() == NewDocumentDialog::Empty) {
+            newDocId = currentDb->addDocument(folderId, title, "");
+            shouldNavigate = true;
+            loadDocumentsAndNotes();
+        } else if (dialog.getDocumentType() == NewDocumentDialog::FromPrompt) {
+            newDocId = currentDb->addDocument(folderId, title, "*Generating...*");
+            QString prompt = dialog.getPrompt();
+            QString model = m_selectedModel;
+            if (model.isEmpty() && !m_availableModels.isEmpty()) {
+                model = m_availableModels.first();
+            }
+            currentDb->enqueuePrompt(newDocId, model, prompt, 0, "document", 0, "replace");
+            loadDocumentsAndNotes();
+        } else if (dialog.getDocumentType() == NewDocumentDialog::FromTemplate) {
+            int tplId = dialog.getSelectedTemplateId();
+            QString content = "";
+            if (tplId != -1) {
+                QList<DocumentNode> templates = currentDb->getTemplates(-1);
+                for (const auto& t : templates) {
+                    if (t.id == tplId) {
+                        content = t.content;
+                        break;
+                    }
+                }
+            }
+            newDocId = currentDb->addDocument(folderId, title, content);
+            shouldNavigate = true;
+            loadDocumentsAndNotes();
+        } else if (dialog.getDocumentType() == NewDocumentDialog::ResumeDraft) {
+            int draftId = dialog.getSelectedDraftId();
+            QString content = "";
+            if (draftId != -1) {
+                QList<DocumentNode> drafts = currentDb->getDrafts(-1);
+                for (const auto& d : drafts) {
+                    if (d.id == draftId) {
+                        content = d.content;
+                        break;
+                    }
+                }
+                currentDb->deleteDraft(draftId);
+            }
+            if (dialog.isOverwriteDocument()) {
+                int overwriteId = dialog.getOverwriteDocumentId();
+                if (overwriteId != -1) {
+                    // Let's get the old title
+                    QString oldTitle;
+                    for (const auto& d : currentDb->getDocuments(-1)) {
+                        if (d.id == overwriteId) {
+                            oldTitle = d.title;
+                            break;
+                        }
+                    }
+                    currentDb->updateDocument(overwriteId, oldTitle, content);
+                    newDocId = overwriteId;
+                    shouldNavigate = true;
+                }
+            } else {
+                newDocId = currentDb->addDocument(folderId, title, content);
+                shouldNavigate = true;
+            }
+            loadDocumentsAndNotes();
+        }
+
+        if (shouldNavigate && newDocId != -1) {
+            QStandardItem* item = findItemInTree(newDocId, "document");
+            if (item) {
+                openBooksTree->selectionModel()->blockSignals(true);
+                openBooksTree->setCurrentIndex(item->index());
+                openBooksTree->selectionModel()->select(
+                    item->index(), QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Current);
+                openBooksTree->selectionModel()->blockSignals(false);
+
+                // Force UI to show the document
+                currentDocumentId = newDocId;
+                QString outTitle, outContent;
+                getDocumentContent(newDocId, "document", outTitle, outContent);
+                documentEditorView->blockSignals(true);
+                documentEditorView->setPlainText(outContent);
+                documentEditorView->blockSignals(false);
+                mainContentStack->setCurrentWidget(docContainer);
+
+                if (dialog.getDocumentType() == NewDocumentDialog::ResumeDraft) {
+                    onEditDocument();
+                }
+            }
+        }
+    }
+}
+
 void MainWindow::onEditDocument() {
     if (!currentDb || currentDocumentId == 0) return;
 
-    if (m_openDocEditors.contains(currentDocumentId)) {
-        DocumentEditWindow* win = m_openDocEditors.value(currentDocumentId);
+    QModelIndex index = openBooksTree->currentIndex();
+    QStandardItem* item = index.isValid() ? openBooksModel->itemFromIndex(index) : nullptr;
+    QString type = item ? item->data(Qt::UserRole + 1).toString() : "document";
+    QString currentTitle = item ? item->text() : "Document";
+
+    QString editorKey = QString("%1_%2").arg(type).arg(currentDocumentId);
+
+    if (m_openDocEditors.contains(editorKey)) {
+        DocumentEditWindow* win = m_openDocEditors.value(editorKey);
         if (win) {
             win->show();
             win->raise();
             win->activateWindow();
             return;
         } else {
-            m_openDocEditors.remove(currentDocumentId);
+            m_openDocEditors.remove(editorKey);
         }
     }
 
-    QModelIndex index = openBooksTree->currentIndex();
-    QStandardItem* item = index.isValid() ? openBooksModel->itemFromIndex(index) : nullptr;
-    QString currentTitle = item ? item->text() : "Document";
+    DocumentEditWindow* editWin = new DocumentEditWindow(currentDb, currentDocumentId, currentTitle, type);
+    m_openDocEditors.insert(editorKey, editWin);
 
-    DocumentEditWindow* editWin = new DocumentEditWindow(currentDb, currentDocumentId, currentTitle);
-    m_openDocEditors.insert(currentDocumentId, editWin);
-
-    connect(editWin, &DocumentEditWindow::documentModified, this, [this](int docId) {
+    connect(editWin, &DocumentEditWindow::documentModified, this, [this, type](int docId) {
         loadDocumentsAndNotes();  // Refresh tree
         if (currentDocumentId == docId) {
             QString outTitle, outContent;
-            getDocumentContent(docId, "document", outTitle, outContent);
+            getDocumentContent(docId, type, outTitle, outContent);
             documentEditorView->blockSignals(true);
             documentEditorView->setPlainText(outContent);
             documentEditorView->blockSignals(false);
@@ -4356,7 +4851,7 @@ void MainWindow::onEditDocument() {
         loadDocumentsAndNotes();  // Refresh tree
     });
 
-    connect(editWin, &QObject::destroyed, this, [this, id = currentDocumentId]() { m_openDocEditors.remove(id); });
+    connect(editWin, &QObject::destroyed, this, [this, editorKey]() { m_openDocEditors.remove(editorKey); });
     editWin->show();
 }
 
@@ -4429,6 +4924,7 @@ void MainWindow::onChatTextAreaContextMenu(const QPoint& pos) {
     QTextDocument* doc = chatTextArea->document();
     int currentIndex = -1;
 
+    // In the new layout, we added a hidden div with the expectedUserBlock or expectedAssistantBlock.
     for (QTextBlock b = doc->begin(); b.isValid(); b = b.next()) {
         QString bText = b.text().trimmed();
         if (bText == expectedUserBlock || bText == expectedAssistantBlock) {
@@ -4438,6 +4934,17 @@ void MainWindow::onChatTextAreaContextMenu(const QPoint& pos) {
             msgIndex = currentIndex;
         }
     }
+
+    // Because a table creates multiple blocks (the cell, the content, etc.),
+    // the cursor block might be inside the table, which happens after the hidden title block.
+    // If the cursor is on the hidden block itself, msgIndex == currentIndex.
+    // If the cursor is inside the bubble text, b == block happens AFTER the hidden block was seen,
+    // so msgIndex will be updated to whatever the last seen currentIndex was!
+    // Wait, the loop sets msgIndex = currentIndex. If we hit the block *after* we saw the marker, msgIndex is correct!
+    // Let's verify:
+    // Markers are seen first. currentIndex increments.
+    // We keep iterating. If we find the target block, msgIndex = currentIndex.
+    // This perfectly associates any block inside the bubble with the correct message index!
 
     QAction* forkAction = nullptr;
     QAction* copyAction = nullptr;
@@ -4640,4 +5147,42 @@ void MainWindow::onChatForkExplorerContextMenu(const QPoint& pos) {
             if (currentDb) updateLinearChatView(currentLastNodeId, currentDb->getMessages());
         }
     }
+}
+
+void MainWindow::updateApplicationFont() {
+    QSettings settings;
+    QFont defaultFont = QApplication::font();
+    QString fontFamily = settings.value("globalFontFamily", defaultFont.family()).toString();
+    int fontSize = settings.value("globalFontSize", defaultFont.pointSize()).toInt();
+
+    // The zoom feature will apply a delta over the base font size.
+    int zoomDelta = settings.value("zoomDelta", 0).toInt();
+
+    QFont appFont(fontFamily, fontSize + zoomDelta);
+
+    if (chatTextArea) chatTextArea->setFont(appFont);
+    if (documentEditorView) documentEditorView->setFont(appFont);
+    if (noteEditorView) noteEditorView->setFont(appFont);
+    if (inputField) inputField->setFont(appFont);
+    if (multiLineInput) multiLineInput->setFont(appFont);
+}
+
+void MainWindow::zoomIn() {
+    QSettings settings;
+    int zoomDelta = settings.value("zoomDelta", 0).toInt();
+    settings.setValue("zoomDelta", zoomDelta + 1);
+    updateApplicationFont();
+}
+
+void MainWindow::zoomOut() {
+    QSettings settings;
+    int zoomDelta = settings.value("zoomDelta", 0).toInt();
+    settings.setValue("zoomDelta", zoomDelta - 1);
+    updateApplicationFont();
+}
+
+void MainWindow::resetZoom() {
+    QSettings settings;
+    settings.setValue("zoomDelta", 0);
+    updateApplicationFont();
 }

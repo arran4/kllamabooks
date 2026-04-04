@@ -4,8 +4,8 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPushButton>
-#include <QVBoxLayout>
 #include <QTabWidget>
+#include <QVBoxLayout>
 
 DatabaseSettingsDialog::DatabaseSettingsDialog(BookDatabase* db, const QStringList& availableModels, QWidget* parent)
     : QDialog(parent), m_db(db) {
@@ -55,10 +55,7 @@ DatabaseSettingsDialog::DatabaseSettingsDialog(BookDatabase* db, const QStringLi
     QList<AIOperation> inheritedOps = AIOperationsManager::getBuiltInOperations();
     inheritedOps.append(AIOperationsManager::getGlobalOperations());
 
-    m_aiOperationsEditor->setOperations(
-        AIOperationsManager::getDatabaseOperations(m_db),
-        inheritedOps
-    );
+    m_aiOperationsEditor->setOperations(AIOperationsManager::getDatabaseOperations(m_db), inheritedOps);
     tabWidget->addTab(m_aiOperationsEditor, tr("AI Operations"));
 
     mainLayout->addWidget(tabWidget);

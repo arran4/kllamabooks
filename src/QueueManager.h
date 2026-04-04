@@ -35,12 +35,14 @@ class QueueManager : public QObject {
 
     void cancelItem(std::shared_ptr<BookDatabase> db, int queueId);
     void retryItem(std::shared_ptr<BookDatabase> db, int queueId);
-    void modifyItem(std::shared_ptr<BookDatabase> db, int queueId, const QString& newPrompt);
+    void modifyItem(std::shared_ptr<BookDatabase> db, int queueId, const QString& newPrompt, const QString& newModel = QString());
 
     void clearCompleted();
     void pauseQueue();
     void resumeQueue();
     bool isPaused() const { return m_isPaused; }
+
+    bool isEndpointUp() const { return m_isEndpointUp; }
 
     bool isProcessing() const { return m_isProcessing; }
     QueueItem currentProcessingItem() const { return m_currentItem; }
@@ -60,7 +62,7 @@ class QueueManager : public QObject {
    private slots:
     void onChunk(const QString& chunk);
     void onComplete(const QString& response);
-    void onError(const QString& error);
+    void onError(QNetworkReply::NetworkError errorCode, const QString& error);
 
    private:
     explicit QueueManager(QObject* parent = nullptr);
@@ -77,6 +79,8 @@ class QueueManager : public QObject {
     int m_currentIndex = 0;
     bool m_isPaused = false;
     QString m_lastProcessedModel;
+    bool m_isEndpointUp = true;
+    QTimer* m_probeTimer;
 
     void processNext();
 };
