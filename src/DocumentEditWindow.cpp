@@ -21,8 +21,8 @@
 #include <QVBoxLayout>
 
 DocumentEditWindow::DocumentEditWindow(std::shared_ptr<BookDatabase> db, int documentId, const QString& title,
-                                       const QString& itemType, QWidget* parent)
-    : KXmlGuiWindow(parent, Qt::Window), m_db(db), m_documentId(documentId), m_title(title), m_itemType(itemType) {
+                                       const QString& targetType, QWidget* parent)
+    : KXmlGuiWindow(parent, Qt::Window), m_db(db), m_documentId(documentId), m_title(title), m_targetType(targetType) {
     setWindowTitle(tr("Editing: %1").arg(title));
     resize(800, 600);
     setAttribute(Qt::WA_DeleteOnClose);
@@ -98,6 +98,10 @@ void DocumentEditWindow::onContentChanged() {
     m_wordCountLabel->setText(tr("Words: %1").arg(words));
 }
 
+void DocumentEditWindow::setInitialContent(const QString& content) {
+    m_editor->setPlainText(content);
+}
+
 void DocumentEditWindow::updateStatusBar() {
     QDateTime currentDbTimestamp = getLatestDbTimestamp();
     if (currentDbTimestamp > m_openTimestamp) {
@@ -113,9 +117,9 @@ void DocumentEditWindow::loadDocument() {
     if (!m_db || !m_db->isOpen()) return;
 
     QList<DocumentNode> docs;
-    if (m_itemType == "document") docs = m_db->getDocuments();
-    else if (m_itemType == "draft") docs = m_db->getDrafts();
-    else if (m_itemType == "template") docs = m_db->getTemplates();
+    if (m_targetType == "document") docs = m_db->getDocuments();
+    else if (m_targetType == "draft") docs = m_db->getDrafts();
+    else if (m_targetType == "template") docs = m_db->getTemplates();
 
     for (const auto& d : docs) {
         if (d.id == m_documentId) {
@@ -133,18 +137,29 @@ QDateTime DocumentEditWindow::getLatestDbTimestamp() const {
 
     QDateTime latest;
     QList<DocumentNode> docs;
-    if (m_itemType == "document") docs = m_db->getDocuments();
-    else if (m_itemType == "draft") docs = m_db->getDrafts();
-    else if (m_itemType == "template") docs = m_db->getTemplates();
-
-    for (const auto& d : docs) {
-        if (d.id == m_documentId) {
-            latest = d.timestamp;
-            break;
+    if (m_targetType == "document") docs = m_db->getDocuments();
+    else if (m_targetType == "draft") docs = m_db->getDrafts();
+    else if (m_targetType == "template") docs = m_db->getTemplates();
+    else if (m_targetType == "note") {
+        auto notes = m_db->getNotes();
+        for (const auto& n : notes) {
+            if (n.id == m_documentId) {
+                latest = n.timestamp;
+                break;
+            }
         }
     }
 
-    if (m_itemType == "document") {
+    if (m_targetType != "note") {
+        for (const auto& d : docs) {
+            if (d.id == m_documentId) {
+                latest = d.timestamp;
+                break;
+            }
+        }
+    }
+
+    if (m_targetType == "document") {
         auto history = m_db->getDocumentHistory(m_documentId);
         if (!history.isEmpty()) {
             QDateTime histTs = QDateTime::fromString(history.first().timestamp, Qt::ISODate);
@@ -226,9 +241,20 @@ int DocumentEditWindow::forkDocument(const QString& newTitle) {
     if (!m_db || !m_db->isOpen()) return 0;
 
     QList<DocumentNode> docs;
-    if (m_itemType == "document") docs = m_db->getDocuments();
-    else if (m_itemType == "draft") docs = m_db->getDrafts();
-    else if (m_itemType == "template") docs = m_db->getTemplates();
+    if (m_targetType == "document") docs = m_db->getDocuments();
+    else if (m_targetType == "draft") docs = m_db->getDrafts();
+    else if (m_targetType == "template") docs = m_db->getTemplates();
+    else if (m_targetType == "note") {
+        auto notes = m_db->getNotes();
+        int folderId = 0;
+        for (const auto& n : notes) {
+            if (n.id == m_documentId) {
+                folderId = n.folderId;
+                break;
+            }
+        }
+        return m_db->addNote(folderId, newTitle, m_editor->toPlainText());
+    }
 
     int folderId = 0;
     for (const auto& d : docs) {
@@ -238,11 +264,11 @@ int DocumentEditWindow::forkDocument(const QString& newTitle) {
         }
     }
 
-    if (m_itemType == "document") {
+    if (m_targetType == "document") {
         return m_db->addDocument(folderId, newTitle, m_editor->toPlainText(), m_documentId);
-    } else if (m_itemType == "draft") {
+    } else if (m_targetType == "draft") {
         return m_db->addDraft(folderId, newTitle, m_editor->toPlainText());
-    } else if (m_itemType == "template") {
+    } else if (m_targetType == "template") {
         return m_db->addTemplate(folderId, newTitle, m_editor->toPlainText());
     }
     return 0;
@@ -252,9 +278,20 @@ int DocumentEditWindow::saveToDraft(const QString& newTitle) {
     if (!m_db || !m_db->isOpen()) return 0;
 
     QList<DocumentNode> docs;
-    if (m_itemType == "document") docs = m_db->getDocuments();
-    else if (m_itemType == "draft") docs = m_db->getDrafts();
-    else if (m_itemType == "template") docs = m_db->getTemplates();
+    if (m_targetType == "document") docs = m_db->getDocuments();
+    else if (m_targetType == "draft") docs = m_db->getDrafts();
+    else if (m_targetType == "template") docs = m_db->getTemplates();
+    else if (m_targetType == "note") {
+        auto notes = m_db->getNotes();
+        int folderId = 0;
+        for (const auto& n : notes) {
+            if (n.id == m_documentId) {
+                folderId = n.folderId;
+                break;
+            }
+        }
+        return m_db->addDraft(folderId, newTitle, m_editor->toPlainText(), m_documentId, m_targetType);
+    }
 
     int folderId = 0;
     for (const auto& d : docs) {
@@ -264,7 +301,7 @@ int DocumentEditWindow::saveToDraft(const QString& newTitle) {
         }
     }
 
-    return m_db->addDraft(folderId, newTitle, m_editor->toPlainText());
+    return m_db->addDraft(folderId, newTitle, m_editor->toPlainText(), m_documentId, m_targetType);
 }
 
 bool DocumentEditWindow::saveToDb() {
@@ -307,13 +344,15 @@ bool DocumentEditWindow::saveToDb() {
         }
     } else {
         // No conflict, save normally
-        if (m_itemType == "document") {
+        if (m_targetType == "document") {
             m_db->addDocumentHistory(m_documentId, "manual_edit_pre", m_initialContent);
             m_db->updateDocument(m_documentId, m_title, m_editor->toPlainText());
-        } else if (m_itemType == "draft") {
+        } else if (m_targetType == "draft") {
             m_db->updateDraft(m_documentId, m_title, m_editor->toPlainText());
-        } else if (m_itemType == "template") {
+        } else if (m_targetType == "template") {
             m_db->updateTemplate(m_documentId, m_title, m_editor->toPlainText());
+        } else if (m_targetType == "note") {
+            m_db->updateNote(m_documentId, m_title, m_editor->toPlainText());
         }
         return true;
     }
