@@ -460,6 +460,17 @@ bool BookDatabase::initSchema() {
         userVersion = 14;
     }
 
+    if (userVersion < 16) {
+        sqlite3_exec((sqlite3*)m_db, "ALTER TABLE documents ADD COLUMN content_type TEXT DEFAULT 'markdown';", nullptr, nullptr, nullptr);
+        sqlite3_exec((sqlite3*)m_db, "ALTER TABLE notes ADD COLUMN content_type TEXT DEFAULT 'markdown';", nullptr, nullptr, nullptr);
+        sqlite3_exec((sqlite3*)m_db, "ALTER TABLE templates ADD COLUMN content_type TEXT DEFAULT 'markdown';", nullptr, nullptr, nullptr);
+        sqlite3_exec((sqlite3*)m_db, "ALTER TABLE drafts ADD COLUMN content_type TEXT DEFAULT 'markdown';", nullptr, nullptr, nullptr);
+
+        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (16);", nullptr, nullptr, nullptr);
+        sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 16;", nullptr, nullptr, nullptr);
+        userVersion = 16;
+    }
+
     return true;
 }
 
