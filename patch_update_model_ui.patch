@@ -1,0 +1,110 @@
+--- src/MainWindow.cpp
++++ src/MainWindow.cpp
+@@ -690,6 +690,26 @@
+     return node;
+ }
+
++void MainWindow::updateModelUI(const QString& context) {
++    if (!modelLabel || !modelSelectButton) return;
++
++    QString labelText;
++    QString tooltipText;
++
++    if (m_selectedModels.size() > 1) {
++        labelText = tr("Model: %1 Models (%2)").arg(m_selectedModels.size()).arg(context);
++        tooltipText = m_selectedModels.join("\n");
++        modelSelectButton->setText(tr("%1 Models Selected").arg(m_selectedModels.size()));
++    } else {
++        QString model = m_selectedModel;
++        tooltipText = model;
++        if (model.length() > 20) {
++            model = model.left(17) + "...";
++        }
++        labelText = tr("Model: %1 (%2)").arg(model).arg(context);
++        modelSelectButton->setText(model);
++    }
++
++    modelLabel->setText(labelText);
++    modelLabel->setToolTip(tooltipText);
++    modelSelectButton->setToolTip(tooltipText);
++}
++
+ void MainWindow::setupUi() {
+     setupActions();
+     setupCentralWidget();
+@@ -681,10 +701,8 @@
+         if (m_selectedModel.isEmpty() && !m_availableModels.isEmpty()) {
+             m_selectedModel = m_availableModels.first();
+-            modelSelectButton->setText(m_selectedModel);
+-            modelLabel->setText(tr("Model: %1 (Default)").arg(m_selectedModel));
++            updateModelUI("Default");
+         }
+     });
+
+     connect(modelSelectButton, &QPushButton::clicked, this, [this]() {
+         ModelSelectionDialog dlg(m_availableModels, m_selectedModels, this);
+         if (dlg.exec() == QDialog::Accepted) {
+             QStringList selected = dlg.selectedModels();
+             if (!selected.isEmpty()) {
+                 if (currentDb && currentDb->isOpen()) {
+                     if (currentLastNodeId != 0) {
+                         ChatNode cnMod = currentDb->getChat(currentLastNodeId);
+                         cnMod.model = selected.first();
+                         currentDb->updateChat(cnMod);
+                     } else {
+                         m_newChatModel = selected.first();
+                     }
+                 }
+                 m_selectedModels = selected;
+                 m_selectedModel = selected.first();
+-                if (selected.size() > 1) {
+-                    modelSelectButton->setText(tr("%1 Models Selected").arg(selected.size()));
+-                    modelLabel->setText(tr("Model: %1 Models (User Switch)").arg(selected.size()));
+-                } else {
+-                    modelSelectButton->setText(m_selectedModel);
+-                    modelLabel->setText(tr("Model: %1 (User Switch)").arg(m_selectedModel));
+-                }
++                updateModelUI("User Switch");
+                 updateInputBehavior();
+             }
+         }
+     });
+@@ -1286,21 +1304,18 @@
+         if (!inheritedModel.isEmpty() && inheritedModel != "default") {
+             m_selectedModel = inheritedModel;
+-            if (modelLabel) modelLabel->setText(tr("Model: %1 (Chat)").arg(m_selectedModel));
+-            if (modelSelectButton) modelSelectButton->setText(m_selectedModel);
++            m_selectedModels.clear();
++            updateModelUI("Chat");
+         } else {
+             QSettings settings;
+             QString dbModel = currentDb->getSetting("default_model");
+             if (!dbModel.isEmpty()) {
+                 m_selectedModel = dbModel;
+-                if (modelLabel) modelLabel->setText(tr("Model: %1 (Book Default)").arg(m_selectedModel));
+-                if (modelSelectButton) modelSelectButton->setText(m_selectedModel);
++                m_selectedModels.clear();
++                updateModelUI("Book Default");
+             } else if (!m_availableModels.isEmpty()) {
+                 m_selectedModel = m_availableModels.first();
+-                if (modelLabel) modelLabel->setText(tr("Model: %1 (Global Fallback)").arg(m_selectedModel));
+-                if (modelSelectButton) modelSelectButton->setText(m_selectedModel);
++                m_selectedModels.clear();
++                updateModelUI("Global Fallback");
+             }
+         }
+     } else {
+@@ -1540,13 +1555,13 @@
+                     if (!dbModel.isEmpty()) {
+                         m_selectedModel = dbModel;
+-                        modelLabel->setText(tr("Model: %1 (Book Default)").arg(m_selectedModel));
++                        m_selectedModels.clear();
++                        updateModelUI("Book Default");
+                     } else if (!m_availableModels.isEmpty()) {
+                         m_selectedModel = m_availableModels.first();
+-                        modelLabel->setText(tr("Model: %1 (Global Fallback)").arg(m_selectedModel));
++                        m_selectedModels.clear();
++                        updateModelUI("Global Fallback");
+                     }
+                     if (currentLastNodeId != 0 && mainContentStack->currentWidget() == chatWindowView) {
+                         // ...

@@ -104,6 +104,7 @@ class MainWindow : public KXmlGuiWindow {
     void showInputSettingsMenu();
     void showChatSettingsDialog(int messageId);
     void updateInputBehavior();
+    void updateModelUI(const QString& context);
     void exportChatSession();
     void importChatSession();
     void exportDocument(int id, const QString& type);
