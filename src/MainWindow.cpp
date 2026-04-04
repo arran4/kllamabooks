@@ -529,6 +529,21 @@ void MainWindow::setupUi() {
     splitter->setStretchFactor(0, 0);
     splitter->setStretchFactor(1, 1);
 
+    QAction* zoomInAction = new QAction(QIcon::fromTheme("zoom-in"), tr("Zoom In"), this);
+    zoomInAction->setShortcut(QKeySequence::ZoomIn);
+    actionCollection()->addAction(QStringLiteral("zoom_in"), zoomInAction);
+    connect(zoomInAction, &QAction::triggered, this, &MainWindow::zoomIn);
+
+    QAction* zoomOutAction = new QAction(QIcon::fromTheme("zoom-out"), tr("Zoom Out"), this);
+    zoomOutAction->setShortcut(QKeySequence::ZoomOut);
+    actionCollection()->addAction(QStringLiteral("zoom_out"), zoomOutAction);
+    connect(zoomOutAction, &QAction::triggered, this, &MainWindow::zoomOut);
+
+    QAction* resetZoomAction = new QAction(QIcon::fromTheme("zoom-original"), tr("Reset Zoom"), this);
+    resetZoomAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_0));
+    actionCollection()->addAction(QStringLiteral("reset_zoom"), resetZoomAction);
+    connect(resetZoomAction, &QAction::triggered, this, &MainWindow::resetZoom);
+
     QAction* newBookAction = new QAction(QIcon::fromTheme("document-new"), tr("New Book"), this);
     actionCollection()->addAction(QStringLiteral("new_book"), newBookAction);
 
@@ -805,6 +820,7 @@ void MainWindow::setupUi() {
 
     updateEndpointsList();
     loadBooks();
+    updateApplicationFont();
 }
 
 /** * @brief Refreshes the combobox containing remote Ollama API endpoint targets. *  * This function is an integral
@@ -881,6 +897,7 @@ void MainWindow::showSettingsDialog() {
     connect(dlg, &SettingsDialog::settingsApplied, this, [this]() {
         updateEndpointsList();
         updateInputBehavior();
+        updateApplicationFont();
     });
     dlg->setAttribute(Qt::WA_DeleteOnClose);
     dlg->show();
@@ -4689,4 +4706,42 @@ void MainWindow::onChatForkExplorerContextMenu(const QPoint& pos) {
             if (currentDb) updateLinearChatView(currentLastNodeId, currentDb->getMessages());
         }
     }
+}
+
+void MainWindow::updateApplicationFont() {
+    QSettings settings;
+    QFont defaultFont = QApplication::font();
+    QString fontFamily = settings.value("globalFontFamily", defaultFont.family()).toString();
+    int fontSize = settings.value("globalFontSize", defaultFont.pointSize()).toInt();
+
+    // The zoom feature will apply a delta over the base font size.
+    int zoomDelta = settings.value("zoomDelta", 0).toInt();
+
+    QFont appFont(fontFamily, fontSize + zoomDelta);
+
+    if (chatTextArea) chatTextArea->setFont(appFont);
+    if (documentEditorView) documentEditorView->setFont(appFont);
+    if (noteEditorView) noteEditorView->setFont(appFont);
+    if (inputField) inputField->setFont(appFont);
+    if (multiLineInput) multiLineInput->setFont(appFont);
+}
+
+void MainWindow::zoomIn() {
+    QSettings settings;
+    int zoomDelta = settings.value("zoomDelta", 0).toInt();
+    settings.setValue("zoomDelta", zoomDelta + 1);
+    updateApplicationFont();
+}
+
+void MainWindow::zoomOut() {
+    QSettings settings;
+    int zoomDelta = settings.value("zoomDelta", 0).toInt();
+    settings.setValue("zoomDelta", zoomDelta - 1);
+    updateApplicationFont();
+}
+
+void MainWindow::resetZoom() {
+    QSettings settings;
+    settings.setValue("zoomDelta", 0);
+    updateApplicationFont();
 }

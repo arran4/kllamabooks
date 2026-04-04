@@ -104,6 +104,10 @@ class MainWindow : public KXmlGuiWindow {
     void showInputSettingsMenu();
     void showChatSettingsDialog(int messageId);
     void updateInputBehavior();
+    void updateApplicationFont();
+    void zoomIn();
+    void zoomOut();
+    void resetZoom();
     void exportChatSession();
     void importChatSession();
     void exportDocument(int id, const QString& type);
