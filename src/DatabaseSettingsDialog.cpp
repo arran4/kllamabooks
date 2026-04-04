@@ -5,13 +5,19 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QVBoxLayout>
+#include <QTabWidget>
 
 DatabaseSettingsDialog::DatabaseSettingsDialog(BookDatabase* db, const QStringList& availableModels, QWidget* parent)
     : QDialog(parent), m_db(db) {
     setWindowTitle(tr("Database Settings"));
-    setMinimumWidth(400);
+    resize(500, 400);
 
     QVBoxLayout* mainLayout = new QVBoxLayout(this);
+    QTabWidget* tabWidget = new QTabWidget(this);
+
+    // General Tab
+    QWidget* generalTab = new QWidget(this);
+    QVBoxLayout* generalLayout = new QVBoxLayout(generalTab);
     QFormLayout* formLayout = new QFormLayout();
 
     m_defaultModelCombo = new QComboBox(this);
@@ -39,7 +45,23 @@ DatabaseSettingsDialog::DatabaseSettingsDialog(BookDatabase* db, const QStringLi
     m_systemPromptEdit->setPlainText(m_db->getSetting("book", 0, "systemPrompt", ""));
     formLayout->addRow(tr("System Prompt:"), m_systemPromptEdit);
 
-    mainLayout->addLayout(formLayout);
+    generalLayout->addLayout(formLayout);
+    generalLayout->addStretch();
+
+    tabWidget->addTab(generalTab, tr("General Settings"));
+
+    // AI Operations Tab
+    m_aiOperationsEditor = new AIOperationsEditorWidget("database", this);
+    QList<AIOperation> inheritedOps = AIOperationsManager::getBuiltInOperations();
+    inheritedOps.append(AIOperationsManager::getGlobalOperations());
+
+    m_aiOperationsEditor->setOperations(
+        AIOperationsManager::getDatabaseOperations(m_db),
+        inheritedOps
+    );
+    tabWidget->addTab(m_aiOperationsEditor, tr("AI Operations"));
+
+    mainLayout->addWidget(tabWidget);
 
     QHBoxLayout* btnLayout = new QHBoxLayout();
     QPushButton* cancelBtn = new QPushButton(tr("Cancel"), this);
@@ -66,6 +88,8 @@ void DatabaseSettingsDialog::saveSettings() {
     m_db->setSetting("book", 0, "userName", m_userNameEdit->text().trimmed());
     m_db->setSetting("book", 0, "assistantName", m_assistantNameEdit->text().trimmed());
     m_db->setSetting("book", 0, "systemPrompt", m_systemPromptEdit->toPlainText().trimmed());
+
+    AIOperationsManager::setDatabaseOperations(m_db, m_aiOperationsEditor->getOperations());
 
     accept();
 }

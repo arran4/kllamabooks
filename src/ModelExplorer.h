@@ -13,6 +13,7 @@
 #include <QVBoxLayout>
 
 #include "OllamaClient.h"
+#include "OllamaModelInfo.h"
 
 class ModelExplorer : public QDialog {
     Q_OBJECT
@@ -23,10 +24,11 @@ class ModelExplorer : public QDialog {
    private slots:
     void onSearchInstalledClicked();
     void onDownloadModelClicked();
-    void updateModelList(const QStringList& models);
+    void updateModelList(const QList<OllamaModelInfo>& models);
     void onPullProgressUpdated(const QString& modelName, int percent, const QString& status);
-    void onPullFinished(const QString& modelName);
+    void onPullFinished(const QString& modelName, bool success, const QString& errorString);
     void showInstalledContextMenu(const QPoint& pos);
+    void onClearFinishedDownloadsClicked();
 
    private:
     OllamaClient* m_client;
@@ -35,7 +37,7 @@ class ModelExplorer : public QDialog {
 
     // Installed Tab
     QLineEdit* m_installedSearchField;
-    QListWidget* m_installedList;
+    QTableWidget* m_installedTable;
 
     // Download Tab
     QLineEdit* m_downloadNameField;

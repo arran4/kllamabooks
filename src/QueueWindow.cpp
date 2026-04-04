@@ -126,11 +126,19 @@ void QueueWindow::refresh() {
                 statusStr = "ERROR";
         }
 
+        if (statusStr == "PENDING" && !QueueManager::instance().isEndpointUp()) {
+            statusStr = "ENDPOINT DOWN";
+        }
+
         QString text = QString("[%1] %2: %3 (%4)")
                            .arg(statusStr)
                            .arg(QFileInfo(mi.db->filepath()).fileName())
                            .arg(mi.item.prompt.left(100).replace("\n", " ").trimmed() + "...")
                            .arg(mi.item.model);
+
+        if (statusStr == "ERROR" && !mi.item.lastError.isEmpty()) {
+            text += QString(" - Error: %1").arg(mi.item.lastError);
+        }
 
         QListWidgetItem* listItem = new QListWidgetItem(text, m_queueList);
         listItem->setData(Qt::UserRole, QVariant::fromValue(mi.item.id));
@@ -142,6 +150,8 @@ void QueueWindow::refresh() {
             listItem->setBackground(Qt::red);
         } else if (statusStr == "COMPLETED") {
             listItem->setBackground(Qt::green);
+        } else if (statusStr == "ENDPOINT DOWN") {
+            listItem->setBackground(Qt::yellow);
         }
     }
     updateButtons();

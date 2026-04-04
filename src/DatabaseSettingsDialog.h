@@ -7,6 +7,7 @@
 #include <QTextEdit>
 
 #include "BookDatabase.h"
+#include "AIOperationsEditorWidget.h"
 
 class DatabaseSettingsDialog : public QDialog {
     Q_OBJECT
@@ -24,6 +25,8 @@ class DatabaseSettingsDialog : public QDialog {
     QLineEdit* m_userNameEdit;
     QLineEdit* m_assistantNameEdit;
     QTextEdit* m_systemPromptEdit;
+
+    AIOperationsEditorWidget* m_aiOperationsEditor;
 };
 
 #endif  // DATABASESETTINGSDIALOG_H
