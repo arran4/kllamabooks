@@ -578,9 +578,6 @@ bool BookDatabase::addDocumentHistory(int documentId, const QString& actionType,
     sqlite3_bind_int(stmt, 1, documentId);
     sqlite3_bind_text(stmt, 2, actionType.toUtf8().constData(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 3, content.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int(stmt, 4, parentId);
-    sqlite3_bind_text(stmt, 5, targetType.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
     return rc == SQLITE_DONE;
@@ -755,8 +752,6 @@ int BookDatabase::addDocument(int folderId, const QString& title, const QString&
     sqlite3_bind_text(stmt, 2, title.toUtf8().constData(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 3, content.toUtf8().constData(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_int(stmt, 4, parentId);
-    sqlite3_bind_text(stmt, 5, targetType.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int(stmt, 4, parentId);
 
     rc = sqlite3_step(stmt);
     if (rc != SQLITE_DONE) {
@@ -809,8 +804,6 @@ QList<DocumentNode> BookDatabase::getDocuments(int folderId) const {
         QString ts = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 4));
         node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
         node.parentId = sqlite3_column_int(stmt, 5);
-        node.parentId = sqlite3_column_int(stmt, 5);
-        node.targetType = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 6));
         node.isFolder = false;
         nodes.append(node);
     }
@@ -840,8 +833,6 @@ int BookDatabase::addNote(int folderId, const QString& title, const QString& con
     sqlite3_bind_int(stmt, 1, folderId);
     sqlite3_bind_text(stmt, 2, title.toUtf8().constData(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 3, content.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int(stmt, 4, parentId);
-    sqlite3_bind_text(stmt, 5, targetType.toUtf8().constData(), -1, SQLITE_TRANSIENT);
 
     rc = sqlite3_step(stmt);
     if (rc != SQLITE_DONE) {
@@ -921,8 +912,6 @@ int BookDatabase::addTemplate(int folderId, const QString& title, const QString&
     sqlite3_bind_int(stmt, 1, folderId);
     sqlite3_bind_text(stmt, 2, title.toUtf8().constData(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 3, content.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int(stmt, 4, parentId);
-    sqlite3_bind_text(stmt, 5, targetType.toUtf8().constData(), -1, SQLITE_TRANSIENT);
 
     rc = sqlite3_step(stmt);
     if (rc != SQLITE_DONE) {
@@ -974,8 +963,6 @@ QList<DocumentNode> BookDatabase::getTemplates(int folderId) const {
         node.content = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 3));
         QString ts = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 4));
         node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
-        node.parentId = sqlite3_column_int(stmt, 5);
-        node.targetType = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 6));
         node.isFolder = false;
         nodes.append(node);
     }
@@ -1047,8 +1034,6 @@ QList<DocumentNode> BookDatabase::getDrafts(int folderId) const {
         node.content = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 3));
         QString ts = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 4));
         node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
-        node.parentId = sqlite3_column_int(stmt, 5);
-        node.targetType = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 6));
         node.isFolder = false;
         nodes.append(node);
     }
@@ -1385,8 +1370,6 @@ int BookDatabase::addComment(const QString& entityType, int entityId, const QStr
     sqlite3_bind_text(stmt, 1, entityType.toUtf8().constData(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_int(stmt, 2, entityId);
     sqlite3_bind_text(stmt, 3, content.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int(stmt, 4, parentId);
-    sqlite3_bind_text(stmt, 5, targetType.toUtf8().constData(), -1, SQLITE_TRANSIENT);
 
     rc = sqlite3_step(stmt);
     if (rc != SQLITE_DONE) {
