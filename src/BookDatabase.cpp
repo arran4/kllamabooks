@@ -474,6 +474,20 @@ bool BookDatabase::initSchema() {
         userVersion = 14;
     }
 
+    if (userVersion < 15) {
+        sqlite3_exec((sqlite3*)m_db, "ALTER TABLE drafts ADD COLUMN target_type TEXT DEFAULT '';", nullptr, nullptr,
+                     nullptr);
+        sqlite3_exec((sqlite3*)m_db, "ALTER TABLE drafts ADD COLUMN target_id INTEGER DEFAULT 0;", nullptr, nullptr,
+                     nullptr);
+        sqlite3_exec((sqlite3*)m_db, "ALTER TABLE drafts ADD COLUMN forked_content TEXT DEFAULT '';", nullptr, nullptr,
+                     nullptr);
+
+        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (15);", nullptr, nullptr,
+                     nullptr);
+        sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 15;", nullptr, nullptr, nullptr);
+        userVersion = 15;
+    }
+
     return true;
 }
 
@@ -818,6 +832,31 @@ QList<DocumentNode> BookDatabase::getDocuments(int folderId) const {
     return nodes;
 }
 
+DocumentNode BookDatabase::getDocumentById(int id) const {
+    DocumentNode node;
+    node.id = InvalidId;
+    if (!m_isOpen) return node;
+
+    const char* sql = "SELECT id, folder_id, title, content, timestamp, parent_id FROM documents WHERE id = ?;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return node;
+
+    sqlite3_bind_int(stmt, 1, id);
+
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        node.id = sqlite3_column_int(stmt, 0);
+        node.folderId = sqlite3_column_int(stmt, 1);
+        node.title = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 2));
+        node.content = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 3));
+        QString ts = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 4));
+        node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
+        node.parentId = sqlite3_column_int(stmt, 5);
+        node.isFolder = false;
+    }
+    sqlite3_finalize(stmt);
+    return node;
+}
+
 bool BookDatabase::deleteDocument(int id) {
     if (!m_isOpen) return false;
     const char* sql = "DELETE FROM documents WHERE id = ?;";
@@ -977,10 +1016,10 @@ QList<DocumentNode> BookDatabase::getTemplates(int folderId) const {
     return nodes;
 }
 
-int BookDatabase::addDraft(int folderId, const QString& title, const QString& content) {
+int BookDatabase::addDraft(int folderId, const QString& title, const QString& content, const QString& targetType, int targetId, const QString& forkedContent) {
     if (!m_isOpen) return -1;
 
-    const char* sql = "INSERT INTO drafts (folder_id, title, content) VALUES (?, ?, ?);";
+    const char* sql = "INSERT INTO drafts (folder_id, title, content, target_type, target_id, forked_content) VALUES (?, ?, ?, ?, ?, ?);";
     sqlite3_stmt* stmt;
     int rc = sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return -1;
@@ -988,6 +1027,9 @@ int BookDatabase::addDraft(int folderId, const QString& title, const QString& co
     sqlite3_bind_int(stmt, 1, folderId);
     sqlite3_bind_text(stmt, 2, title.toUtf8().constData(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 3, content.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 4, targetType.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 5, targetId);
+    sqlite3_bind_text(stmt, 6, forkedContent.toUtf8().constData(), -1, SQLITE_TRANSIENT);
 
     rc = sqlite3_step(stmt);
     if (rc != SQLITE_DONE) {
@@ -1021,7 +1063,7 @@ QList<DocumentNode> BookDatabase::getDrafts(int folderId) const {
     QList<DocumentNode> nodes;
     if (!m_isOpen) return nodes;
 
-    QString sqlStr = "SELECT id, folder_id, title, content, timestamp FROM drafts";
+    QString sqlStr = "SELECT id, folder_id, title, content, timestamp, target_type, target_id, forked_content FROM drafts";
     if (folderId != -1) sqlStr += " WHERE folder_id = ?";
     sqlStr += " ORDER BY timestamp ASC;";
 
@@ -1039,11 +1081,82 @@ QList<DocumentNode> BookDatabase::getDrafts(int folderId) const {
         node.content = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 3));
         QString ts = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 4));
         node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
+        if (sqlite3_column_text(stmt, 5)) {
+            node.targetType = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 5));
+        }
+        node.targetId = sqlite3_column_int(stmt, 6);
+        if (sqlite3_column_text(stmt, 7)) {
+            node.forkedContent = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 7));
+        }
         node.isFolder = false;
         nodes.append(node);
     }
     sqlite3_finalize(stmt);
     return nodes;
+}
+
+QList<DocumentNode> BookDatabase::getDraftsByTarget(const QString& targetType, int targetId) const {
+    QList<DocumentNode> nodes;
+    if (!m_isOpen) return nodes;
+
+    const char* sql = "SELECT id, folder_id, title, content, timestamp, target_type, target_id, forked_content FROM drafts WHERE target_type = ? AND target_id = ? ORDER BY timestamp ASC;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return nodes;
+
+    sqlite3_bind_text(stmt, 1, targetType.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 2, targetId);
+
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        DocumentNode node;
+        node.id = sqlite3_column_int(stmt, 0);
+        node.folderId = sqlite3_column_int(stmt, 1);
+        node.title = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 2));
+        node.content = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 3));
+        QString ts = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 4));
+        node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
+        if (sqlite3_column_text(stmt, 5)) {
+            node.targetType = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 5));
+        }
+        node.targetId = sqlite3_column_int(stmt, 6);
+        if (sqlite3_column_text(stmt, 7)) {
+            node.forkedContent = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 7));
+        }
+        node.isFolder = false;
+        nodes.append(node);
+    }
+    sqlite3_finalize(stmt);
+    return nodes;
+}
+
+DocumentNode BookDatabase::getDraftById(int id) const {
+    DocumentNode node;
+    node.id = InvalidId;
+    if (!m_isOpen) return node;
+
+    const char* sql = "SELECT id, folder_id, title, content, timestamp, target_type, target_id, forked_content FROM drafts WHERE id = ?;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return node;
+
+    sqlite3_bind_int(stmt, 1, id);
+
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        node.id = sqlite3_column_int(stmt, 0);
+        node.folderId = sqlite3_column_int(stmt, 1);
+        node.title = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 2));
+        node.content = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 3));
+        QString ts = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 4));
+        node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
+        if (sqlite3_column_text(stmt, 5)) {
+            node.targetType = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 5));
+        }
+        node.targetId = sqlite3_column_int(stmt, 6);
+        if (sqlite3_column_text(stmt, 7)) {
+            node.forkedContent = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 7));
+        }
+        node.isFolder = false;
+    }
+    sqlite3_finalize(stmt);
+    return node;
 }
 
 bool BookDatabase::deleteDraft(int id) {
@@ -1552,6 +1665,30 @@ QSet<int> BookDatabase::getAllChatIds() const {
         sqlite3_finalize(stmt);
     }
     return ids;
+}
+
+DocumentNode BookDatabase::getTemplateById(int id) const {
+    DocumentNode node;
+    node.id = InvalidId;
+    if (!m_isOpen) return node;
+
+    const char* sql = "SELECT id, folder_id, title, content, timestamp FROM templates WHERE id = ?;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return node;
+
+    sqlite3_bind_int(stmt, 1, id);
+
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        node.id = sqlite3_column_int(stmt, 0);
+        node.folderId = sqlite3_column_int(stmt, 1);
+        node.title = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 2));
+        node.content = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 3));
+        QString ts = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 4));
+        node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
+        node.isFolder = false;
+    }
+    sqlite3_finalize(stmt);
+    return node;
 }
 
 bool BookDatabase::deleteTemplate(int id) {

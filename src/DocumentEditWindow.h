@@ -18,6 +18,8 @@ class DocumentEditWindow : public KXmlGuiWindow {
                                 const QString& itemType = "document", QWidget* parent = nullptr);
     ~DocumentEditWindow() override;
 
+    void setContent(const QString& content);
+
    signals:
     void documentModified(int documentId);
     void newDocumentCreated(int newDocumentId);
@@ -53,6 +55,7 @@ class DocumentEditWindow : public KXmlGuiWindow {
     bool saveToDb();
     int forkDocument(const QString& newTitle);
     int saveToDraft(const QString& newTitle);
+    QString getOriginalContent() const;
 };
 
 #endif  // DOCUMENTEDITWINDOW_H

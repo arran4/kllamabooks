@@ -1,4 +1,5 @@
 #include "MainWindow.h"
+#include "DraftSelectionDialog.h"
 
 #include <KActionCollection>
 #include <KActionMenu>
@@ -4959,8 +4960,36 @@ void MainWindow::onEditDocument() {
         }
     }
 
+    // Check for existing drafts
+    QList<DocumentNode> associatedDrafts = currentDb->getDraftsByTarget(type, currentDocumentId);
+
+    DocumentNode selectedDraft;
+    bool useDraft = false;
+
+    if (!associatedDrafts.isEmpty()) {
+        QString originalContent;
+        QString outTitle;
+        getDocumentContent(currentDocumentId, type, outTitle, originalContent);
+
+        DraftSelectionDialog dialog(currentDb, originalContent, associatedDrafts, this);
+        if (dialog.exec() == QDialog::Accepted) {
+            if (dialog.getSelectedAction() == DraftSelectionDialog::UseDraft) {
+                useDraft = true;
+                selectedDraft = dialog.getSelectedDraft();
+                // We do NOT delete the draft here.
+                // It remains in the database until the user explicitly saves or deletes it, preventing data loss.
+            }
+        } else {
+            return; // Cancelled
+        }
+    }
+
     DocumentEditWindow* editWin = new DocumentEditWindow(currentDb, currentDocumentId, currentTitle, type);
     m_openDocEditors.insert(editorKey, editWin);
+
+    if (useDraft) {
+        editWin->setContent(selectedDraft.content);
+    }
 
     connect(editWin, &DocumentEditWindow::documentModified, this, [this, type](int docId) {
         loadDocumentsAndNotes();  // Refresh tree

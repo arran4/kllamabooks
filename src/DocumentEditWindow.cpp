@@ -33,6 +33,13 @@ DocumentEditWindow::DocumentEditWindow(std::shared_ptr<BookDatabase> db, int doc
 
 DocumentEditWindow::~DocumentEditWindow() {}
 
+void DocumentEditWindow::setContent(const QString& content) {
+    if (m_editor) {
+        m_editor->setPlainText(content);
+        m_statusLabel->setText(tr("Draft content loaded (Unsaved)"));
+    }
+}
+
 void DocumentEditWindow::setupWindow() {
     QWidget* centralWidget = new QWidget(this);
     QVBoxLayout* layout = new QVBoxLayout(centralWidget);
@@ -264,7 +271,26 @@ int DocumentEditWindow::saveToDraft(const QString& newTitle) {
         }
     }
 
-    return m_db->addDraft(folderId, newTitle, m_editor->toPlainText());
+    return m_db->addDraft(folderId, newTitle, m_editor->toPlainText(), m_itemType, m_documentId, getOriginalContent());
+}
+
+QString DocumentEditWindow::getOriginalContent() const {
+    if (!m_db || !m_db->isOpen()) return "";
+
+    DocumentNode doc;
+    if (m_itemType == "document") {
+        doc = m_db->getDocumentById(m_documentId);
+    } else if (m_itemType == "draft") {
+        doc = m_db->getDraftById(m_documentId);
+    } else if (m_itemType == "template") {
+        doc = m_db->getTemplateById(m_documentId);
+    }
+
+    if (doc.id != BookDatabase::InvalidId) {
+        return doc.content;
+    }
+
+    return "";
 }
 
 bool DocumentEditWindow::saveToDb() {

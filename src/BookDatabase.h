@@ -24,6 +24,9 @@ struct DocumentNode {
     QString content;
     QDateTime timestamp;
     bool isFolder;  // Deprecated, but keeping for compatibility during migration if needed
+    QString targetType;
+    int targetId = 0;
+    QString forkedContent;
 };
 
 struct ChatNode {
@@ -89,6 +92,8 @@ struct Notification {
 
 class BookDatabase {
    public:
+    static constexpr int InvalidId = -1;
+
     BookDatabase(const QString& filepath);
     ~BookDatabase();
 
@@ -122,6 +127,7 @@ class BookDatabase {
     int addDocument(int folderId, const QString& title, const QString& content, int parentId = 0);
     bool updateDocument(int id, const QString& newTitle, const QString& newContent);
     QList<DocumentNode> getDocuments(int folderId = -1) const;  // -1 for all, 0 for root
+    DocumentNode getDocumentById(int id) const;
     bool deleteDocument(int id);
     bool addDocumentHistory(int documentId, const QString& actionType, const QString& content);
 
@@ -137,12 +143,15 @@ class BookDatabase {
     int addTemplate(int folderId, const QString& title, const QString& content);
     bool updateTemplate(int id, const QString& newTitle, const QString& newContent);
     QList<DocumentNode> getTemplates(int folderId = -1) const;
+    DocumentNode getTemplateById(int id) const;
     bool deleteTemplate(int id);
 
     // Drafts
-    int addDraft(int folderId, const QString& title, const QString& content);
+    int addDraft(int folderId, const QString& title, const QString& content, const QString& targetType = "", int targetId = 0, const QString& forkedContent = "");
     bool updateDraft(int id, const QString& newTitle, const QString& newContent);
     QList<DocumentNode> getDrafts(int folderId = -1) const;
+    QList<DocumentNode> getDraftsByTarget(const QString& targetType, int targetId) const;
+    DocumentNode getDraftById(int id) const;
     bool deleteDraft(int id);
 
     // Notes
