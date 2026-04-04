@@ -322,6 +322,68 @@ void MainWindow::setupUi() {
     });
 
     connect(backToNotesBtn, &QPushButton::clicked, this, [this]() {
+        bool hasChanges = false;
+        if (currentDb) {
+            QString currentText = noteEditorView->toPlainText();
+            if (isCreatingNewNote) {
+                if (!currentText.isEmpty()) {
+                    hasChanges = true;
+                }
+            } else {
+                QString dbText;
+                QList<NoteNode> notes = currentDb->getNotes();
+                for (const auto& note : notes) {
+                    if (note.id == currentNoteId) {
+                        dbText = note.content;
+                        break;
+                    }
+                }
+                if (currentText != dbText) {
+                    hasChanges = true;
+                }
+            }
+        }
+
+        if (hasChanges) {
+            QMessageBox msgBox(this);
+            msgBox.setWindowTitle(tr("Unsaved Changes"));
+            msgBox.setText(tr("The note has been modified."));
+            msgBox.setInformativeText(tr("Do you want to save your changes?"));
+            QPushButton* saveBtn = msgBox.addButton(tr("Save"), QMessageBox::AcceptRole);
+            QPushButton* saveDraftBtn = msgBox.addButton(tr("Save to Drafts"), QMessageBox::AcceptRole);
+            QPushButton* discardBtn = msgBox.addButton(tr("Discard"), QMessageBox::DestructiveRole);
+            QPushButton* cancelBtn = msgBox.addButton(tr("Cancel"), QMessageBox::RejectRole);
+            msgBox.setDefaultButton(saveBtn);
+            msgBox.exec();
+
+            if (msgBox.clickedButton() == cancelBtn) {
+                return;
+            } else if (msgBox.clickedButton() == saveBtn) {
+                onSaveNoteBtnClicked();
+            } else if (msgBox.clickedButton() == saveDraftBtn) {
+                QModelIndex index = openBooksTree->currentIndex();
+                QStandardItem* item = index.isValid() ? openBooksModel->itemFromIndex(index) : nullptr;
+                QString title = item ? item->text() : tr("New Note");
+                if (title == "*New Item*")
+                    title = tr("Unsaved Draft");
+                else
+                    title = tr("Draft of: ") + title;
+
+                if (currentAutoDraftId == 0) {
+                    currentAutoDraftId = currentDb->addDraft(0, title, noteEditorView->toPlainText());
+                } else {
+                    currentDb->updateDraft(currentAutoDraftId, title, noteEditorView->toPlainText());
+                }
+                statusBar->showMessage(tr("Note saved to drafts."), 3000);
+            } else if (msgBox.clickedButton() == discardBtn) {
+                // If discard is clicked, we should revert the draft if there was one
+                if (currentAutoDraftId != 0 && currentDb) {
+                    currentDb->deleteDraft(currentAutoDraftId);
+                    currentAutoDraftId = 0;
+                }
+            }
+        }
+
         mainContentStack->setCurrentWidget(vfsExplorer);
         QModelIndex currentIdx = openBooksTree->currentIndex();
         if (currentIdx.isValid()) {
@@ -708,8 +770,12 @@ void MainWindow::setupUi() {
         }
     });
 
+    connect(&ollamaClient, &OllamaClient::modelInfoUpdated, this, [this](const QList<OllamaModelInfo>& infos) {
+        m_availableModelInfos = infos;
+    });
+
     connect(modelSelectButton, &QPushButton::clicked, this, [this]() {
-        ModelSelectionDialog dlg(m_availableModels, this);
+        ModelSelectionDialog dlg(m_availableModelInfos, m_availableModels, this);
         if (dlg.exec() == QDialog::Accepted) {
             QString selected = dlg.selectedModel();
             if (!selected.isEmpty()) {
@@ -3412,6 +3478,10 @@ void MainWindow::onOpenBooksSelectionChanged(const QItemSelection& selected, con
                 documentEditorView->clear();
                 mainContentStack->setCurrentWidget(docContainer);
             } else if (currentDb) {
+                // If it was marked as updated via AI notification modifications, dismiss it
+                currentDb->dismissNotificationByMessageIdAndType(currentDocumentId, "updated");
+                updateNotificationStatus();
+
                 QList<DocumentNode> docs =
                     (type == "template") ? currentDb->getTemplates()
                                          : ((type == "draft") ? currentDb->getDrafts() : currentDb->getDocuments());
@@ -3928,12 +3998,32 @@ void MainWindow::updateNotificationStatus() {
         QString filePath = bookItem->data(Qt::UserRole + 2).toString();
         QString fileName = QFileInfo(filePath).fileName();
         if (m_openDatabases.contains(fileName)) {
-            auto notifications = m_openDatabases[fileName]->getNotifications();
-            updateTreeMarkersRecursive(bookItem, notifications);
+            auto db = m_openDatabases[fileName];
+            auto notifications = db->getNotifications();
+            auto queueItems = db->getQueue();
+
+            QMap<QPair<QString, int>, int> activeNotifications;
+            for (const auto& n : notifications) {
+                if (n.isDismissed) continue;
+                if (n.type == "review_needed") {
+                    for (const auto& q : queueItems) {
+                        if (q.id == n.messageId && q.targetType == "document") {
+                            activeNotifications[{ "document", q.messageId }] = 1;
+                            break;
+                        }
+                    }
+                } else if (n.type == "updated") {
+                    activeNotifications[{ "document", n.messageId }] = 1;
+                } else {
+                    activeNotifications[{ "chat_node", n.messageId }] = (n.type == "error") ? 2 : 1;
+                }
+            }
+
+            updateTreeMarkersRecursive(bookItem, activeNotifications);
 
             // Also update VFS and Fork explorers if they are currently displaying items for this DB
             if (currentDb && currentDb->filepath() == filePath) {
-                updateVfsMarkers(notifications);
+                updateVfsMarkers(activeNotifications);
             }
         }
     }
@@ -4094,21 +4184,13 @@ void MainWindow::onQueueItemClicked(std::shared_ptr<BookDatabase> db, int messag
 /** * @brief Adds custom visual badges (like error or pending states) over items in the VFS explorer. *  * This function
  * is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal
  * application models. */
-void MainWindow::updateVfsMarkers(const QList<Notification>& notifications) {
+void MainWindow::updateVfsMarkers(const QMap<QPair<QString, int>, int>& activeNotifications) {
     if (vfsModel) {
         for (int i = 0; i < vfsModel->rowCount(); ++i) {
             QStandardItem* item = vfsModel->item(i);
             int id = item->data(Qt::UserRole).toInt();
             QString itemType = item->data(Qt::UserRole + 1).toString();
-            int nType = 0;
-            if (itemType == "chat_node") {
-                for (const auto& n : notifications) {
-                    if (n.messageId == id && !n.isDismissed) {
-                        nType = (n.type == "error") ? 2 : 1;
-                        break;
-                    }
-                }
-            }
+            int nType = activeNotifications.value({itemType, id}, 0);
             item->setData(nType, Qt::UserRole + 10);
         }
     }
@@ -4117,15 +4199,7 @@ void MainWindow::updateVfsMarkers(const QList<Notification>& notifications) {
             QStandardItem* item = forkExplorerModel->item(i);
             int id = item->data(Qt::UserRole).toInt();
             QString itemType = item->data(Qt::UserRole + 1).toString();
-            int nType = 0;
-            if (itemType == "chat_node") {
-                for (const auto& n : notifications) {
-                    if (n.messageId == id && !n.isDismissed) {
-                        nType = (n.type == "error") ? 2 : 1;
-                        break;
-                    }
-                }
-            }
+            int nType = activeNotifications.value({itemType, id}, 0);
             item->setData(nType, Qt::UserRole + 10);
         }
     }
@@ -4134,24 +4208,18 @@ void MainWindow::updateVfsMarkers(const QList<Notification>& notifications) {
 /** * @brief Executes logic for updateTreeMarkersRecursive. This function manages component initialization and handles
  * state transitions for the UI. *  * This function is an integral component of the MainWindow class structure. * It
  * ensures that side effects map accurately to internal application models. */
-void MainWindow::updateTreeMarkersRecursive(QStandardItem* parent, const QList<Notification>& notifications) {
+void MainWindow::updateTreeMarkersRecursive(QStandardItem* parent, const QMap<QPair<QString, int>, int>& activeNotifications) {
     if (!parent) return;
     for (int i = 0; i < parent->rowCount(); ++i) {
         QStandardItem* child = parent->child(i);
         if (!child) continue;
         int messageId = child->data(Qt::UserRole).toInt();
         QString itemType = child->data(Qt::UserRole + 1).toString();
-        int notifyType = 0;
-        if (itemType == "chat_node") {
-            for (const auto& n : notifications) {
-                if (n.messageId == messageId && !n.isDismissed) {
-                    notifyType = (n.type == "error") ? 2 : 1;
-                    break;
-                }
-            }
-        }
+
+        int notifyType = activeNotifications.value({itemType, messageId}, 0);
         child->setData(notifyType, Qt::UserRole + 10);
-        updateTreeMarkersRecursive(child, notifications);
+
+        updateTreeMarkersRecursive(child, activeNotifications);
     }
 }
 
@@ -4356,6 +4424,9 @@ void MainWindow::onOpenBooksTreeDoubleClicked(const QModelIndex& index) {
     QString type = item->data(Qt::UserRole + 1).toString();
     if (type == "document" || type == "template" || type == "draft") {
         int docId = item->data(Qt::UserRole).toInt();
+
+        currentDb->dismissNotificationByMessageIdAndType(docId, "updated");
+        updateNotificationStatus();
 
         QList<DocumentNode> docs;
         if (type == "document")

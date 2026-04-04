@@ -38,6 +38,7 @@
 #include "ModelExplorer.h"
 #include "OllamaClient.h"
 #include "SettingsDialog.h"
+#include "OllamaModelInfo.h"
 
 class CustomItemModel : public QStandardItemModel {
     Q_OBJECT
@@ -118,8 +119,8 @@ class MainWindow : public KXmlGuiWindow {
     void showQueueWindow();
     void showSpyWindow();
     void onQueueItemClicked(std::shared_ptr<BookDatabase> db, int messageId);
-    void updateTreeMarkersRecursive(QStandardItem* parent, const QList<Notification>& notifications);
-    void updateVfsMarkers(const QList<Notification>& notifications);
+    void updateTreeMarkersRecursive(QStandardItem* parent, const QMap<QPair<QString, int>, int>& activeNotifications);
+    void updateVfsMarkers(const QMap<QPair<QString, int>, int>& activeNotifications);
     bool moveItemToFolder(QStandardItem* draggedItem, QStandardItem* targetItem, bool isCopy = false);
     void onQueueChunk(std::shared_ptr<BookDatabase> db, int messageId, const QString& chunk, const QString& targetType);
     void onProcessingStarted(std::shared_ptr<BookDatabase> db, int messageId, const QString& targetType);
@@ -201,6 +202,7 @@ class MainWindow : public KXmlGuiWindow {
     QPushButton* dismissDraftBtn;
     QPushButton* modelSelectButton;
     QStringList m_availableModels;
+    QList<OllamaModelInfo> m_availableModelInfos;
     QString m_selectedModel;
     QToolButton* inputSettingsButton;
     QComboBox* modelComboBox;
