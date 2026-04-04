@@ -1730,19 +1730,9 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
         QAction* exportAction = nullptr;
         QAction* replaceAction = nullptr;
         QAction* loadTemplateAction = nullptr;
-        QAction* resumeDraftAction = nullptr;
 
         if (type == "template") {
             loadTemplateAction = menu.addAction(QIcon::fromTheme("document-import"), "Load Template");
-            menu.addSeparator();
-        } else if (type == "draft") {
-            resumeDraftAction = menu.addAction(QIcon::fromTheme("document-import"), "Resume Draft");
-            menu.addSeparator();
-        }
-
-        QAction* discardAction = nullptr;
-        if (type == "draft") {
-            discardAction = menu.addAction(QIcon::fromTheme("edit-delete"), "Discard Draft");
             menu.addSeparator();
         }
 
@@ -1761,8 +1751,11 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
         }
 
         if (selectedAction == editAction) {
-            if (type == "document") {
+            if (type == "document" || type == "draft" || type == "template") {
                 onEditDocument();
+            } else if (type == "note") {
+                mainContentStack->setCurrentWidget(noteContainer);
+                noteEditorView->setFocus();
             }
         } else if (historyAction && selectedAction == historyAction) {
             onDocumentHistory();
@@ -1793,24 +1786,6 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
                         break;
                     }
                 }
-            }
-        } else if (resumeDraftAction && selectedAction == resumeDraftAction) {
-            int docId = item->data(Qt::UserRole).toInt();
-            if (currentDb) {
-                QList<DocumentNode> drafts = currentDb->getDrafts();
-                for (const auto& d : drafts) {
-                    if (d.id == docId) {
-                        inputField->setPlainText(d.content);
-                        break;
-                    }
-                }
-            }
-        } else if (discardAction && selectedAction == discardAction) {
-            int docId = item->data(Qt::UserRole).toInt();
-            if (currentDb) {
-                currentDb->deleteDraft(docId);
-                loadDocumentsAndNotes();
-                statusBar->showMessage(tr("Draft discarded."), 3000);
             }
         } else if (exportAction && selectedAction == exportAction) {
             exportDocument(item->data(Qt::UserRole).toInt(), type);
@@ -4379,30 +4354,33 @@ void MainWindow::onVfsExplorerDoubleClicked(const QModelIndex& index) {
 void MainWindow::onEditDocument() {
     if (!currentDb || currentDocumentId == 0) return;
 
-    if (m_openDocEditors.contains(currentDocumentId)) {
-        DocumentEditWindow* win = m_openDocEditors.value(currentDocumentId);
+    QModelIndex index = openBooksTree->currentIndex();
+    QStandardItem* item = index.isValid() ? openBooksModel->itemFromIndex(index) : nullptr;
+    QString type = item ? item->data(Qt::UserRole + 1).toString() : "document";
+    QString currentTitle = item ? item->text() : "Document";
+
+    QString editorKey = QString("%1_%2").arg(type).arg(currentDocumentId);
+
+    if (m_openDocEditors.contains(editorKey)) {
+        DocumentEditWindow* win = m_openDocEditors.value(editorKey);
         if (win) {
             win->show();
             win->raise();
             win->activateWindow();
             return;
         } else {
-            m_openDocEditors.remove(currentDocumentId);
+            m_openDocEditors.remove(editorKey);
         }
     }
 
-    QModelIndex index = openBooksTree->currentIndex();
-    QStandardItem* item = index.isValid() ? openBooksModel->itemFromIndex(index) : nullptr;
-    QString currentTitle = item ? item->text() : "Document";
+    DocumentEditWindow* editWin = new DocumentEditWindow(currentDb, currentDocumentId, currentTitle, type);
+    m_openDocEditors.insert(editorKey, editWin);
 
-    DocumentEditWindow* editWin = new DocumentEditWindow(currentDb, currentDocumentId, currentTitle);
-    m_openDocEditors.insert(currentDocumentId, editWin);
-
-    connect(editWin, &DocumentEditWindow::documentModified, this, [this](int docId) {
+    connect(editWin, &DocumentEditWindow::documentModified, this, [this, type](int docId) {
         loadDocumentsAndNotes();  // Refresh tree
         if (currentDocumentId == docId) {
             QString outTitle, outContent;
-            getDocumentContent(docId, "document", outTitle, outContent);
+            getDocumentContent(docId, type, outTitle, outContent);
             documentEditorView->blockSignals(true);
             documentEditorView->setPlainText(outContent);
             documentEditorView->blockSignals(false);
