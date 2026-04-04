@@ -1,11 +1,13 @@
 #include "ModelSelectionDialog.h"
 
+#include <QDialogButtonBox>
 #include <QHeaderView>
 #include <QIcon>
 #include <QSettings>
 #include <QVBoxLayout>
 
-ModelSelectionDialog::ModelSelectionDialog(const QList<OllamaModelInfo>& modelInfos, const QStringList& fallbackModels, QWidget* parent)
+ModelSelectionDialog::ModelSelectionDialog(const QList<OllamaModelInfo>& modelInfos, const QStringList& fallbackModels,
+                                           QWidget* parent)
     : QDialog(parent), m_modelInfos(modelInfos), m_fallbackModels(fallbackModels) {
     setWindowTitle("Select Model");
     resize(600, 400);
@@ -14,7 +16,7 @@ ModelSelectionDialog::ModelSelectionDialog(const QList<OllamaModelInfo>& modelIn
 
 ModelSelectionDialog::~ModelSelectionDialog() {}
 
-QString ModelSelectionDialog::selectedModel() const { return m_selectedModel; }
+QStringList ModelSelectionDialog::selectedModels() const { return m_selectedModels; }
 
 void ModelSelectionDialog::setupUi() {
     QVBoxLayout* mainLayout = new QVBoxLayout(this);
@@ -27,7 +29,7 @@ void ModelSelectionDialog::setupUi() {
     m_modelTable = new QTableWidget(0, 5, this);
     m_modelTable->setHorizontalHeaderLabels({"Name", "Size", "Family", "Parameters", "Quantization"});
     m_modelTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_modelTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_modelTable->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_modelTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_modelTable->horizontalHeader()->setStretchLastSection(true);
     m_modelTable->verticalHeader()->setVisible(false);
@@ -84,6 +86,11 @@ void ModelSelectionDialog::setupUi() {
     connect(m_searchField, &QLineEdit::textChanged, this, &ModelSelectionDialog::onSearchChanged);
     connect(m_modelTable, &QTableWidget::itemDoubleClicked, this, &ModelSelectionDialog::onItemSelected);
 
+    QDialogButtonBox* buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
+    connect(buttonBox, &QDialogButtonBox::accepted, this, &ModelSelectionDialog::onAccept);
+    connect(buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
+    mainLayout->addWidget(buttonBox);
+
     // Allow enter to select if exactly one is visible
     connect(m_searchField, &QLineEdit::returnPressed, this, [this]() {
         QTableWidgetItem* selected = nullptr;
@@ -116,8 +123,39 @@ void ModelSelectionDialog::onItemSelected(QTableWidgetItem* item) {
         int row = item->row();
         QTableWidgetItem* nameItem = m_modelTable->item(row, 0);
         if (nameItem) {
-            m_selectedModel = nameItem->data(Qt::UserRole).toString();
+            m_selectedModels.clear();
+            m_selectedModels.append(nameItem->data(Qt::UserRole).toString());
             accept();
         }
     }
+}
+
+void ModelSelectionDialog::onAccept() {
+    m_selectedModels.clear();
+    QSet<int> selectedRows;
+    for (QTableWidgetItem* item : m_modelTable->selectedItems()) {
+        selectedRows.insert(item->row());
+    }
+
+    for (int row : selectedRows) {
+        QTableWidgetItem* nameItem = m_modelTable->item(row, 0);
+        if (nameItem) {
+            m_selectedModels.append(nameItem->data(Qt::UserRole).toString());
+        }
+    }
+
+    if (m_selectedModels.isEmpty() && m_modelTable->rowCount() > 0) {
+        // Fallback to first visible
+        for (int i = 0; i < m_modelTable->rowCount(); ++i) {
+            if (!m_modelTable->isRowHidden(i)) {
+                QTableWidgetItem* nameItem = m_modelTable->item(i, 0);
+                if (nameItem) {
+                    m_selectedModels.append(nameItem->data(Qt::UserRole).toString());
+                    break;
+                }
+            }
+        }
+    }
+
+    accept();
 }
