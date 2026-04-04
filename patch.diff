@@ -1,0 +1,13 @@
+--- src/ModelExplorer.cpp
++++ src/ModelExplorer.cpp
+@@ -76,6 +76,10 @@
+         externalSearchLayout->addWidget(searchHfButton);
+         layout->addLayout(externalSearchLayout);
+
++        QLabel* hfNoteLabel = new QLabel("Note: Downloading Hugging Face models may require configuring Ollama's HF connection (e.g., via HF CLI).", this);
++        hfNoteLabel->setStyleSheet("color: gray; font-style: italic; font-size: 10px;");
++        layout->addWidget(hfNoteLabel);
++
+         connect(searchOllamaButton, &QPushButton::clicked, this, &ModelExplorer::onSearchOllamaClicked);
+         connect(searchHfButton, &QPushButton::clicked, this, &ModelExplorer::onSearchHfClicked);
+     }
