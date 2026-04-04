@@ -1398,8 +1398,8 @@ void MainWindow::updateInputBehavior() {
                 } else if (!m_availableModels.isEmpty()) {
                     m_selectedModels = QStringList() << m_availableModels.first();
                 }
-                if (modelLabel) modelLabel->setText(tr("Model: %1 (System Selected)").arg(m_selectedModels.first()));
-                if (modelSelectButton) modelSelectButton->setText(m_selectedModels.first());
+                if (modelLabel && !m_selectedModels.isEmpty()) modelLabel->setText(tr("Model: %1 (System Selected)").arg(m_selectedModels.first()));
+                if (modelSelectButton && !m_selectedModels.isEmpty()) modelSelectButton->setText(m_selectedModels.first());
             }
         }
 
@@ -1657,7 +1657,7 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
                         } else if (!m_availableModels.isEmpty()) {
                             m_selectedModels = QStringList() << m_availableModels.first();
                         }
-                        modelLabel->setText(tr("Model: %1 (System Selected)").arg(m_selectedModels.first()));
+                        if (!m_selectedModels.isEmpty()) modelLabel->setText(tr("Model: %1 (System Selected)").arg(m_selectedModels.first()));
                     }
                     if (currentLastNodeId != 0 && mainContentStack->currentWidget() == chatWindowView) {
                         updateLinearChatView(currentLastNodeId, currentDb->getMessages());
