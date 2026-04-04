@@ -124,6 +124,8 @@ class MainWindow : public KXmlGuiWindow {
     void onQueueChunk(std::shared_ptr<BookDatabase> db, int messageId, const QString& chunk, const QString& targetType);
     void onProcessingStarted(std::shared_ptr<BookDatabase> db, int messageId, const QString& targetType);
     void onProcessingFinished(std::shared_ptr<BookDatabase> db, int messageId, bool success, const QString& targetType);
+    void onCancelActiveGeneration();
+    void updateGenerationUI();
 
    protected:
     void closeEvent(QCloseEvent* event) override;
@@ -194,6 +196,7 @@ class MainWindow : public KXmlGuiWindow {
     QStandardItemModel* chatModel;
     ChatInputWidget* inputField;  // Using HEAD's custom input field
     QPushButton* sendButton;
+    QPushButton* cancelGenerationBtn;
     QPushButton* discardChangesBtn;
     QPushButton* dismissDraftBtn;
     QPushButton* modelSelectButton;

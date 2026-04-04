@@ -175,6 +175,7 @@ void OllamaClient::generate(const QString& model, const QString& prompt, std::fu
     emit requestSent(model, m_systemPrompt, prompt);
 
     QNetworkReply* reply = m_networkManager->post(request, data);
+    m_activeGenerations.append(reply);
 
     // Shared pointer to accumulate the full response safely
     auto fullResponse = std::make_shared<QString>();
@@ -215,7 +216,8 @@ void OllamaClient::generate(const QString& model, const QString& prompt, std::fu
         }
     });
 
-    connect(reply, &QNetworkReply::finished, this, [reply, onComplete, onError, fullResponse]() {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, onComplete, onError, fullResponse]() {
+        m_activeGenerations.removeAll(reply);
         if (reply->error() != QNetworkReply::NoError) {
             onError(reply->errorString());
         } else {
@@ -275,6 +277,7 @@ void OllamaClient::generateChat(const QString& model, const QJsonArray& messages
     emit requestSent(model, m_systemPrompt, QString(debugDoc.toJson(QJsonDocument::Compact)));
 
     QNetworkReply* reply = m_networkManager->post(request, data);
+    m_activeGenerations.append(reply);
 
     auto fullResponse = std::make_shared<QString>();
     auto buffer = std::make_shared<QByteArray>();
@@ -319,7 +322,8 @@ void OllamaClient::generateChat(const QString& model, const QJsonArray& messages
         }
     });
 
-    connect(reply, &QNetworkReply::finished, this, [reply, onComplete, onError, fullResponse]() {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, onComplete, onError, fullResponse]() {
+        m_activeGenerations.removeAll(reply);
         if (reply->error() != QNetworkReply::NoError) {
             onError(reply->errorString());
         } else {
@@ -327,4 +331,12 @@ void OllamaClient::generateChat(const QString& model, const QJsonArray& messages
         }
         reply->deleteLater();
     });
+}
+
+void OllamaClient::abortGenerations() {
+    const auto activeGens = m_activeGenerations;
+    for (QNetworkReply* reply : activeGens) {
+        reply->abort();
+    }
+    // They will be removed from m_activeGenerations in the finished slot
 }

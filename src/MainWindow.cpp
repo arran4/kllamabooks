@@ -430,6 +430,10 @@ void MainWindow::setupUi() {
     });
 
     sendButton = new QPushButton("Send", this);
+    cancelGenerationBtn = new QPushButton("Stop", this);
+    cancelGenerationBtn->setIcon(QIcon::fromTheme("process-stop"));
+    cancelGenerationBtn->hide();
+
     inputSettingsButton = new QToolButton(this);
     inputSettingsButton->setIcon(QIcon::fromTheme("configure"));
     inputSettingsButton->setToolTip(tr("Input Settings"));
@@ -437,6 +441,7 @@ void MainWindow::setupUi() {
 
     QHBoxLayout* topBtnLayout = new QHBoxLayout();
     topBtnLayout->addWidget(sendButton);
+    topBtnLayout->addWidget(cancelGenerationBtn);
     topBtnLayout->addWidget(inputSettingsButton);
     inputLayout->addLayout(topBtnLayout);
     inputLayout->setAlignment(topBtnLayout, Qt::AlignTop);
@@ -637,6 +642,7 @@ void MainWindow::setupUi() {
     connect(bookList, &QListWidget::doubleClicked, this,
             &MainWindow::onBookSelected);  // Open book from list via double click
     connect(sendButton, &QPushButton::clicked, this, &MainWindow::onSendMessage);
+    connect(cancelGenerationBtn, &QPushButton::clicked, this, &MainWindow::onCancelActiveGeneration);
     connect(inputField, &ChatInputWidget::returnPressed, this, &MainWindow::onSendMessage);
 
     QTimer* draftDebounceTimer = new QTimer(this);
@@ -1328,6 +1334,8 @@ void MainWindow::updateInputBehavior() {
             }
         }
     }
+
+    updateGenerationUI();
 }
 
 /** * @brief Configures the window's title, geometry, and system tray icon based on prior settings. *  * This function
@@ -2905,9 +2913,36 @@ void MainWindow::onProcessingStarted(std::shared_ptr<BookDatabase> db, int messa
             statusBar->showMessage(tr("AI is generating document changes..."));
         } else if (targetType == "message" && currentLastNodeId == messageId) {
             statusBar->showMessage(tr("LLM is responding..."));
+            updateGenerationUI();
         }
     }
     updateQueueStatus();
+}
+
+void MainWindow::updateGenerationUI() {
+    bool isGeneratingCurrentChat = false;
+    if (QueueManager::instance().isProcessing() && currentDb && currentDb == QueueManager::instance().currentProcessingDb()) {
+        auto item = QueueManager::instance().currentProcessingItem();
+        if (item.targetType == "message" && item.messageId == currentLastNodeId) {
+            isGeneratingCurrentChat = true;
+        }
+    }
+
+    if (isGeneratingCurrentChat) {
+        sendButton->hide();
+        cancelGenerationBtn->show();
+    } else {
+        cancelGenerationBtn->hide();
+        sendButton->show();
+    }
+}
+
+void MainWindow::onCancelActiveGeneration() {
+    if (QueueManager::instance().isProcessing() && currentDb == QueueManager::instance().currentProcessingDb()) {
+        int queueId = QueueManager::instance().currentProcessingItem().id;
+        QueueManager::instance().cancelItem(currentDb, queueId);
+        updateGenerationUI();
+    }
 }
 
 void MainWindow::onProcessingFinished(std::shared_ptr<BookDatabase> db, int messageId, bool success,
@@ -2919,6 +2954,7 @@ void MainWindow::onProcessingFinished(std::shared_ptr<BookDatabase> db, int mess
                                    3000);
         } else if (targetType == "message" && currentLastNodeId == messageId) {
             statusBar->showMessage(success ? tr("Response complete.") : tr("Error in response."), 3000);
+            updateGenerationUI();
             updateLinearChatView(currentLastNodeId, currentDb->getMessages());
         }
     }
