@@ -2946,6 +2946,7 @@ void MainWindow::onChatNodeSelected(const QModelIndex& current, const QModelInde
     if (item) {
         int previewNodeId = item->data(Qt::UserRole).toInt();
         if (currentDb) {
+            currentLastNodeId = previewNodeId;
             updateLinearChatView(previewNodeId, currentDb->getMessages());
             updateInputBehavior();  // Keep it updated when selecting nodes/chats
         }
