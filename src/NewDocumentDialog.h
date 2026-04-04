@@ -25,14 +25,18 @@ class NewDocumentDialog : public QDialog {
     QString getPrompt() const;
     int getSelectedTemplateId() const;
     int getSelectedDraftId() const;
+    bool isOverwriteDocument() const;
+    int getOverwriteDocumentId() const;
 
    private slots:
     void onTypeChanged(int index);
+    void onOverwriteToggled(int state);
 
    private:
     void populateFolders(QTreeWidgetItem* parentItem, int parentId);
     void populateTemplates();
     void populateDrafts();
+    void populateDocuments();
 
     std::shared_ptr<BookDatabase> m_db;
     int m_defaultFolderId;
@@ -49,6 +53,8 @@ class NewDocumentDialog : public QDialog {
 
     QWidget* m_draftWidget;
     QComboBox* m_draftCombo;
+    class QCheckBox* m_overwriteCheck;
+    QComboBox* m_documentCombo;
 
     QTreeWidget* m_folderTree;
 };

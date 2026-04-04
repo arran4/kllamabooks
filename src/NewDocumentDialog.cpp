@@ -1,5 +1,6 @@
 #include "NewDocumentDialog.h"
 
+#include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QLabel>
@@ -59,6 +60,16 @@ NewDocumentDialog::NewDocumentDialog(std::shared_ptr<BookDatabase> db, int defau
     draftLayout->addWidget(new QLabel(tr("Select Draft:"), m_draftWidget));
     m_draftCombo = new QComboBox(m_draftWidget);
     draftLayout->addWidget(m_draftCombo);
+
+    m_overwriteCheck = new QCheckBox(tr("Overwrite Existing Document"), m_draftWidget);
+    draftLayout->addWidget(m_overwriteCheck);
+
+    m_documentCombo = new QComboBox(m_draftWidget);
+    m_documentCombo->setEnabled(false);
+    draftLayout->addWidget(m_documentCombo);
+
+    connect(m_overwriteCheck, &QCheckBox::stateChanged, this, &NewDocumentDialog::onOverwriteToggled);
+
     mainLayout->addWidget(m_draftWidget);
     m_draftWidget->hide();
 
@@ -79,6 +90,7 @@ NewDocumentDialog::NewDocumentDialog(std::shared_ptr<BookDatabase> db, int defau
         populateFolders(rootItem, 0);
         populateTemplates();
         populateDrafts();
+        populateDocuments();
     }
 
     m_folderTree->expandAll();
@@ -133,6 +145,23 @@ void NewDocumentDialog::populateDrafts() {
     }
 }
 
+void NewDocumentDialog::populateDocuments() {
+    if (!m_db) return;
+    QList<DocumentNode> docs = m_db->getDocuments(-1);  // Get all documents
+    for (const auto& doc : docs) {
+        m_documentCombo->addItem(doc.title, doc.id);
+    }
+    if (m_documentCombo->count() == 0) {
+        m_documentCombo->addItem(tr("No existing documents"), -1);
+        m_overwriteCheck->setEnabled(false);
+    }
+}
+
+void NewDocumentDialog::onOverwriteToggled(int state) {
+    m_documentCombo->setEnabled(state == Qt::Checked);
+    m_titleEdit->setEnabled(state != Qt::Checked);
+}
+
 void NewDocumentDialog::onTypeChanged(int index) {
     DocumentType type = static_cast<DocumentType>(m_typeCombo->itemData(index).toInt());
 
@@ -182,3 +211,7 @@ QString NewDocumentDialog::getPrompt() const { return m_promptEdit->toPlainText(
 int NewDocumentDialog::getSelectedTemplateId() const { return m_templateCombo->currentData().toInt(); }
 
 int NewDocumentDialog::getSelectedDraftId() const { return m_draftCombo->currentData().toInt(); }
+
+bool NewDocumentDialog::isOverwriteDocument() const { return m_overwriteCheck->isChecked(); }
+
+int NewDocumentDialog::getOverwriteDocumentId() const { return m_documentCombo->currentData().toInt(); }

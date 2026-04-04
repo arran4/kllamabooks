@@ -4350,11 +4350,27 @@ void MainWindow::handleNewDocumentCreation(int defaultFolderId) {
                         break;
                     }
                 }
-                // Optional: Delete the draft after resuming it
-                // currentDb->deleteDraft(draftId);
+                currentDb->deleteDraft(draftId);
             }
-            newDocId = currentDb->addDocument(folderId, title, content);
-            shouldNavigate = true;
+            if (dialog.isOverwriteDocument()) {
+                int overwriteId = dialog.getOverwriteDocumentId();
+                if (overwriteId != -1) {
+                    // Let's get the old title
+                    QString oldTitle;
+                    for (const auto& d : currentDb->getDocuments(-1)) {
+                        if (d.id == overwriteId) {
+                            oldTitle = d.title;
+                            break;
+                        }
+                    }
+                    currentDb->updateDocument(overwriteId, oldTitle, content);
+                    newDocId = overwriteId;
+                    shouldNavigate = true;
+                }
+            } else {
+                newDocId = currentDb->addDocument(folderId, title, content);
+                shouldNavigate = true;
+            }
             loadDocumentsAndNotes();
         }
 
@@ -4375,6 +4391,10 @@ void MainWindow::handleNewDocumentCreation(int defaultFolderId) {
                 documentEditorView->setPlainText(outContent);
                 documentEditorView->blockSignals(false);
                 mainContentStack->setCurrentWidget(docContainer);
+
+                if (dialog.getDocumentType() == NewDocumentDialog::ResumeDraft) {
+                    onEditDocument();
+                }
             }
         }
     }
