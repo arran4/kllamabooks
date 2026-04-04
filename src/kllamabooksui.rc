@@ -24,8 +24,6 @@
             <Separator />
             <Action name="close_book" />
             <Separator />
-            <Action name="export_chat_session" />
-            <Separator />
             <Action name="quit" />
         </Menu>
         <Menu name="edit">
@@ -33,6 +31,10 @@
         </Menu>
         <Menu name="view">
             <text>&amp;View</text>
+            <Action name="zoom_in" />
+            <Action name="zoom_out" />
+            <Action name="reset_zoom" />
+            <Separator />
             <Action name="show_queue" />
             <Action name="show_spy" />
         </Menu>

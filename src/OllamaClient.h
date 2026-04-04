@@ -10,6 +10,8 @@
 #include <QUrl>
 #include <functional>
 
+#include "OllamaModelInfo.h"
+
 class OllamaClient : public QObject {
     Q_OBJECT
    public:
@@ -24,14 +26,19 @@ class OllamaClient : public QObject {
     void setSystemPrompt(const QString& prompt);
 
     void generate(const QString& model, const QString& prompt, std::function<void(const QString&)> onChunk,
-                  std::function<void(const QString&)> onComplete, std::function<void(const QString&)> onError);
+                  std::function<void(const QString&)> onComplete,
+                  std::function<void(QNetworkReply::NetworkError, const QString&)> onError);
 
     void generateChat(const QString& model, const QJsonArray& messages, std::function<void(const QString&)> onChunk,
-                      std::function<void(const QString&)> onComplete, std::function<void(const QString&)> onError);
+                      std::function<void(const QString&)> onComplete,
+                      std::function<void(QNetworkReply::NetworkError, const QString&)> onError);
+
+    void abortGenerations();
 
    signals:
     void connectionStatusChanged(bool isOk);
     void modelListUpdated(const QStringList& models);
+    void modelInfoUpdated(const QList<OllamaModelInfo>& models);
     void pullProgressUpdated(const QString& modelName, int percent, const QString& status);
     void pullFinished(const QString& modelName, bool success, const QString& errorString = "");
     void generationMetrics(double tokensPerSecond);
@@ -48,6 +55,7 @@ class OllamaClient : public QObject {
     QString m_systemPrompt;
     QMap<QNetworkReply*, QString> m_activePulls;
     QMap<QNetworkReply*, QByteArray> m_pullBuffers;
+    QList<QNetworkReply*> m_activeGenerations;
 };
 
 #endif  // OLLAMACLIENT_H

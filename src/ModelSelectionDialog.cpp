@@ -1,13 +1,14 @@
 #include "ModelSelectionDialog.h"
 
+#include <QHeaderView>
 #include <QIcon>
 #include <QSettings>
 #include <QVBoxLayout>
 
-ModelSelectionDialog::ModelSelectionDialog(const QStringList& models, QWidget* parent)
-    : QDialog(parent), m_allModels(models) {
+ModelSelectionDialog::ModelSelectionDialog(const QList<OllamaModelInfo>& modelInfos, const QStringList& fallbackModels, QWidget* parent)
+    : QDialog(parent), m_modelInfos(modelInfos), m_fallbackModels(fallbackModels) {
     setWindowTitle("Select Model");
-    resize(400, 300);
+    resize(600, 400);
     setupUi();
 }
 
@@ -23,41 +24,74 @@ void ModelSelectionDialog::setupUi() {
     m_searchField->setClearButtonEnabled(true);
     mainLayout->addWidget(m_searchField);
 
-    m_modelList = new QListWidget(this);
-    mainLayout->addWidget(m_modelList);
+    m_modelTable = new QTableWidget(0, 5, this);
+    m_modelTable->setHorizontalHeaderLabels({"Name", "Size", "Family", "Parameters", "Quantization"});
+    m_modelTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_modelTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_modelTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_modelTable->horizontalHeader()->setStretchLastSection(true);
+    m_modelTable->verticalHeader()->setVisible(false);
+    mainLayout->addWidget(m_modelTable);
 
     QSettings settings;
     QStringList favorites = settings.value("favoriteModels").toStringList();
 
-    // Populate the list
-    for (const QString& model : m_allModels) {
-        if (favorites.contains(model)) {
-            QListWidgetItem* item = new QListWidgetItem("⭐ " + model);
-            item->setData(Qt::UserRole, model);
-            m_modelList->addItem(item);
+    // Determine the list of models to display
+    QList<OllamaModelInfo> itemsToDisplay;
+    if (!m_modelInfos.isEmpty()) {
+        itemsToDisplay = m_modelInfos;
+    } else {
+        for (const QString& name : m_fallbackModels) {
+            OllamaModelInfo info;
+            info.name = name;
+            itemsToDisplay.append(info);
         }
     }
 
-    for (const QString& model : m_allModels) {
-        if (!favorites.contains(model)) {
-            QListWidgetItem* item = new QListWidgetItem(model);
-            item->setData(Qt::UserRole, model);
-            m_modelList->addItem(item);
+    // Populate the list (favorites first)
+    int row = 0;
+    for (const OllamaModelInfo& info : itemsToDisplay) {
+        if (favorites.contains(info.name)) {
+            m_modelTable->insertRow(row);
+            QTableWidgetItem* nameItem = new QTableWidgetItem("⭐ " + info.name);
+            nameItem->setData(Qt::UserRole, info.name);
+            m_modelTable->setItem(row, 0, nameItem);
+            m_modelTable->setItem(row, 1, new QTableWidgetItem(info.size));
+            m_modelTable->setItem(row, 2, new QTableWidgetItem(info.family));
+            m_modelTable->setItem(row, 3, new QTableWidgetItem(info.parameterSize));
+            m_modelTable->setItem(row, 4, new QTableWidgetItem(info.quantizationLevel));
+            row++;
         }
     }
+
+    for (const OllamaModelInfo& info : itemsToDisplay) {
+        if (!favorites.contains(info.name)) {
+            m_modelTable->insertRow(row);
+            QTableWidgetItem* nameItem = new QTableWidgetItem(info.name);
+            nameItem->setData(Qt::UserRole, info.name);
+            m_modelTable->setItem(row, 0, nameItem);
+            m_modelTable->setItem(row, 1, new QTableWidgetItem(info.size));
+            m_modelTable->setItem(row, 2, new QTableWidgetItem(info.family));
+            m_modelTable->setItem(row, 3, new QTableWidgetItem(info.parameterSize));
+            m_modelTable->setItem(row, 4, new QTableWidgetItem(info.quantizationLevel));
+            row++;
+        }
+    }
+
+    m_modelTable->resizeColumnsToContents();
 
     // Connect signals
     connect(m_searchField, &QLineEdit::textChanged, this, &ModelSelectionDialog::onSearchChanged);
-    connect(m_modelList, &QListWidget::itemDoubleClicked, this, &ModelSelectionDialog::onItemSelected);
+    connect(m_modelTable, &QTableWidget::itemDoubleClicked, this, &ModelSelectionDialog::onItemSelected);
+
     // Allow enter to select if exactly one is visible
     connect(m_searchField, &QLineEdit::returnPressed, this, [this]() {
-        QListWidgetItem* selected = nullptr;
+        QTableWidgetItem* selected = nullptr;
         int visibleCount = 0;
-        for (int i = 0; i < m_modelList->count(); ++i) {
-            QListWidgetItem* item = m_modelList->item(i);
-            if (!item->isHidden()) {
+        for (int i = 0; i < m_modelTable->rowCount(); ++i) {
+            if (!m_modelTable->isRowHidden(i)) {
                 visibleCount++;
-                selected = item;
+                selected = m_modelTable->item(i, 0);
             }
         }
         if (visibleCount == 1 && selected) {
@@ -68,16 +102,22 @@ void ModelSelectionDialog::setupUi() {
 
 void ModelSelectionDialog::onSearchChanged(const QString& text) {
     QString query = text.toLower();
-    for (int i = 0; i < m_modelList->count(); ++i) {
-        QListWidgetItem* item = m_modelList->item(i);
-        QString itemName = item->data(Qt::UserRole).toString();
-        item->setHidden(!itemName.toLower().contains(query));
+    for (int i = 0; i < m_modelTable->rowCount(); ++i) {
+        QTableWidgetItem* item = m_modelTable->item(i, 0);
+        if (item) {
+            QString itemName = item->data(Qt::UserRole).toString();
+            m_modelTable->setRowHidden(i, !itemName.toLower().contains(query));
+        }
     }
 }
 
-void ModelSelectionDialog::onItemSelected(QListWidgetItem* item) {
+void ModelSelectionDialog::onItemSelected(QTableWidgetItem* item) {
     if (item) {
-        m_selectedModel = item->data(Qt::UserRole).toString();
-        accept();
+        int row = item->row();
+        QTableWidgetItem* nameItem = m_modelTable->item(row, 0);
+        if (nameItem) {
+            m_selectedModel = nameItem->data(Qt::UserRole).toString();
+            accept();
+        }
     }
 }

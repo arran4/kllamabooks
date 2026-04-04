@@ -79,7 +79,12 @@ void QueueWindow::refresh() {
                 statusStr = "ERROR";
         }
 
+        if (statusStr == "PENDING" && !QueueManager::instance().isEndpointUp()) {
+            statusStr = "ENDPOINT DOWN";
+        }
+
         QString targetTitle = "Unknown";
+
         if (mi.item.targetType == "document") {
             auto docs = mi.db->getDocuments(-1);
             for (const auto& doc : docs) {
@@ -103,6 +108,10 @@ void QueueWindow::refresh() {
                            .arg(mi.item.prompt.left(100).replace("\n", " ").trimmed() + "...")
                            .arg(mi.item.model);
 
+        if (statusStr == "ERROR" && !mi.item.lastError.isEmpty()) {
+            text += QString(" - Error: %1").arg(mi.item.lastError);
+        }
+
         QListWidgetItem* listItem = new QListWidgetItem(text, m_queueList);
         listItem->setData(Qt::UserRole, QVariant::fromValue(mi.item.id));
         listItem->setData(Qt::UserRole + 1, mi.db->filepath());
@@ -113,6 +122,8 @@ void QueueWindow::refresh() {
             listItem->setBackground(Qt::red);
         } else if (statusStr == "COMPLETED") {
             listItem->setBackground(Qt::green);
+        } else if (statusStr == "ENDPOINT DOWN") {
+            listItem->setBackground(Qt::yellow);
         }
     }
     updateButtons();
