@@ -13,6 +13,9 @@ QList<AIOperation> AIOperationsManager::getBuiltInOperations() {
                 "Rewrite the following text according to your instructions. Only output the rewritten text, nothing "
                 "else.\n\nInstructions: {textarea}\n\nText:\n{context}",
                 "built-in"});
+    ops.append({"merge_documents", "Merge Documents",
+                "Merge the following documents into a single cohesive document:\n\n{range:documents, between:\n---\n}\n{content}\n{endrange}",
+                "built-in"});
     return ops;
 }
 

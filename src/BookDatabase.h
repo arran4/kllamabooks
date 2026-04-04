@@ -118,6 +118,9 @@ class BookDatabase {
     QString getSetting(const QString& scope, int targetId, const QString& key,
                        const QString& defaultValue = QString()) const;
 
+    void setMetadata(int documentId, const QString& key, const QString& value);
+    QString getMetadata(int documentId, const QString& key) const;
+
     // Documents
     int addDocument(int folderId, const QString& title, const QString& content, int parentId = 0);
     bool updateDocument(int id, const QString& newTitle, const QString& newContent);

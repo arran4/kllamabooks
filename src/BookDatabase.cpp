@@ -474,6 +474,21 @@ bool BookDatabase::initSchema() {
         userVersion = 14;
     }
 
+    if (userVersion < 19) {
+        const char* sql =
+            "CREATE TABLE IF NOT EXISTS metadata ("
+            "document_id INTEGER, "
+            "key TEXT, "
+            "value TEXT, "
+            "PRIMARY KEY(document_id, key)"
+            ");";
+        sqlite3_exec((sqlite3*)m_db, sql, nullptr, nullptr, nullptr);
+        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (19);", nullptr, nullptr,
+                     nullptr);
+        sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 19;", nullptr, nullptr, nullptr);
+        userVersion = 19;
+    }
+
     return true;
 }
 
@@ -548,6 +563,39 @@ bool BookDatabase::moveFolder(int id, int newParentId) {
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
     return (rc == SQLITE_DONE);
+}
+
+void BookDatabase::setMetadata(int documentId, const QString& key, const QString& value) {
+    if (!m_isOpen) return;
+    const char* sql = "INSERT OR REPLACE INTO metadata (document_id, key, value) VALUES (?, ?, ?);";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_int(stmt, 1, documentId);
+        sqlite3_bind_text(stmt, 2, key.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 3, value.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(stmt) != SQLITE_DONE) {
+            qWarning() << "Failed to set metadata:" << sqlite3_errmsg((sqlite3*)m_db);
+        }
+        sqlite3_finalize(stmt);
+    } else {
+        qWarning() << "Failed to prepare set metadata stmt:" << sqlite3_errmsg((sqlite3*)m_db);
+    }
+}
+
+QString BookDatabase::getMetadata(int documentId, const QString& key) const {
+    if (!m_isOpen) return "";
+    const char* sql = "SELECT value FROM metadata WHERE document_id = ? AND key = ?;";
+    sqlite3_stmt* stmt;
+    QString value;
+    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_int(stmt, 1, documentId);
+        sqlite3_bind_text(stmt, 2, key.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            value = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0)));
+        }
+        sqlite3_finalize(stmt);
+    }
+    return value;
 }
 
 int BookDatabase::addMessage(int parentId, const QString& content, const QString& role, int folderId) {

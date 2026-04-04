@@ -11,6 +11,7 @@
 #include <QVBoxLayout>
 
 #include "BookDatabase.h"
+#include "AIOperationsManager.h"
 
 NewDocumentDialog::NewDocumentDialog(std::shared_ptr<BookDatabase> db, int defaultFolderId, QWidget* parent)
     : QDialog(parent), m_db(db), m_defaultFolderId(defaultFolderId) {
@@ -26,6 +27,7 @@ NewDocumentDialog::NewDocumentDialog(std::shared_ptr<BookDatabase> db, int defau
     m_typeCombo->addItem(tr("From AI Prompt"), FromPrompt);
     m_typeCombo->addItem(tr("From Template"), FromTemplate);
     m_typeCombo->addItem(tr("Resume a Draft"), ResumeDraft);
+    m_typeCombo->addItem(tr("Merge Documents"), MergeDocuments);
     mainLayout->addWidget(m_typeCombo);
 
     // Title
@@ -72,6 +74,39 @@ NewDocumentDialog::NewDocumentDialog(std::shared_ptr<BookDatabase> db, int defau
 
     mainLayout->addWidget(m_draftWidget);
     m_draftWidget->hide();
+
+    // Merge Widget (Hidden by default)
+    m_mergeWidget = new QWidget(this);
+    QVBoxLayout* mergeLayout = new QVBoxLayout(m_mergeWidget);
+    mergeLayout->setContentsMargins(0, 0, 0, 0);
+    mergeLayout->addWidget(new QLabel(tr("Select Documents to Merge:"), m_mergeWidget));
+    m_mergeDocTree = new QTreeWidget(m_mergeWidget);
+    m_mergeDocTree->setHeaderHidden(true);
+    m_mergeDocTree->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    mergeLayout->addWidget(m_mergeDocTree);
+
+    mergeLayout->addWidget(new QLabel(tr("Merge Prompt Template:"), m_mergeWidget));
+    m_mergeTemplateCombo = new QComboBox(m_mergeWidget);
+    mergeLayout->addWidget(m_mergeTemplateCombo);
+
+    mergeLayout->addWidget(new QLabel(tr("Merge Prompt (use {context} for merged text):"), m_mergeWidget));
+    m_mergePromptEdit = new QTextEdit(m_mergeWidget);
+    mergeLayout->addWidget(m_mergePromptEdit);
+    mainLayout->addWidget(m_mergeWidget);
+    m_mergeWidget->hide();
+
+    connect(m_mergeTemplateCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+            &NewDocumentDialog::onMergeTemplateChanged);
+
+    if (m_db) {
+        QList<AIOperation> ops = AIOperationsManager::getMergedOperations(m_db.get());
+        for (const auto& op : ops) {
+            m_mergeTemplateCombo->addItem(op.name, op.prompt);
+            if (op.id == "merge_documents") {
+                m_mergeTemplateCombo->setCurrentIndex(m_mergeTemplateCombo->count() - 1);
+            }
+        }
+    }
 
     // Folder Selection
     mainLayout->addWidget(new QLabel(tr("Location:"), this));
@@ -150,11 +185,18 @@ void NewDocumentDialog::populateDocuments() {
     QList<DocumentNode> docs = m_db->getDocuments(-1);  // Get all documents
     for (const auto& doc : docs) {
         m_documentCombo->addItem(doc.title, doc.id);
+        QTreeWidgetItem* item = new QTreeWidgetItem(m_mergeDocTree);
+        item->setText(0, doc.title);
+        item->setData(0, Qt::UserRole, doc.id);
     }
     if (m_documentCombo->count() == 0) {
         m_documentCombo->addItem(tr("No existing documents"), -1);
         m_overwriteCheck->setEnabled(false);
     }
+}
+
+void NewDocumentDialog::onMergeTemplateChanged(int index) {
+    m_mergePromptEdit->setPlainText(m_mergeTemplateCombo->itemData(index).toString());
 }
 
 void NewDocumentDialog::onOverwriteToggled(int state) {
@@ -168,6 +210,7 @@ void NewDocumentDialog::onTypeChanged(int index) {
     m_promptWidget->setVisible(type == FromPrompt);
     m_templateWidget->setVisible(type == FromTemplate);
     m_draftWidget->setVisible(type == ResumeDraft);
+    m_mergeWidget->setVisible(type == MergeDocuments);
 
     if (type == FromPrompt) {
         if (m_titleEdit->text() == tr("New Document") || m_titleEdit->text() == tr("Document from Template") ||
@@ -215,3 +258,14 @@ int NewDocumentDialog::getSelectedDraftId() const { return m_draftCombo->current
 bool NewDocumentDialog::isOverwriteDocument() const { return m_overwriteCheck->isChecked(); }
 
 int NewDocumentDialog::getOverwriteDocumentId() const { return m_documentCombo->currentData().toInt(); }
+
+QList<int> NewDocumentDialog::getSelectedMergeDocumentIds() const {
+    QList<int> ids;
+    QList<QTreeWidgetItem*> selected = m_mergeDocTree->selectedItems();
+    for (QTreeWidgetItem* item : selected) {
+        ids.append(item->data(0, Qt::UserRole).toInt());
+    }
+    return ids;
+}
+
+QString NewDocumentDialog::getMergePrompt() const { return m_mergePromptEdit->toPlainText(); }

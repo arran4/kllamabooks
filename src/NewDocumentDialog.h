@@ -15,7 +15,7 @@ class BookDatabase;
 class NewDocumentDialog : public QDialog {
     Q_OBJECT
    public:
-    enum DocumentType { Empty, FromPrompt, FromTemplate, ResumeDraft };
+    enum DocumentType { Empty, FromPrompt, FromTemplate, ResumeDraft, MergeDocuments };
 
     explicit NewDocumentDialog(std::shared_ptr<BookDatabase> db, int defaultFolderId, QWidget* parent = nullptr);
 
@@ -28,7 +28,11 @@ class NewDocumentDialog : public QDialog {
     bool isOverwriteDocument() const;
     int getOverwriteDocumentId() const;
 
+    QList<int> getSelectedMergeDocumentIds() const;
+    QString getMergePrompt() const;
+
    private slots:
+    void onMergeTemplateChanged(int index);
     void onTypeChanged(int index);
     void onOverwriteToggled(int state);
 
@@ -55,6 +59,11 @@ class NewDocumentDialog : public QDialog {
     QComboBox* m_draftCombo;
     class QCheckBox* m_overwriteCheck;
     QComboBox* m_documentCombo;
+
+    QWidget* m_mergeWidget;
+    QTreeWidget* m_mergeDocTree;
+    QComboBox* m_mergeTemplateCombo;
+    QTextEdit* m_mergePromptEdit;
 
     QTreeWidget* m_folderTree;
 };

@@ -178,6 +178,7 @@ void MainWindow::setupUi() {
     openBooksTree->setDragEnabled(true);
     openBooksTree->setDragDropMode(QAbstractItemView::DragDrop);
     openBooksTree->setDefaultDropAction(Qt::MoveAction);
+    openBooksTree->setSelectionMode(QAbstractItemView::ExtendedSelection);
     openBooksTree->setEditTriggers(QAbstractItemView::NoEditTriggers);
     openBooksTree->setDropIndicatorShown(true);
     openBooksTree->installEventFilter(this);
@@ -766,15 +767,15 @@ void MainWindow::setupUi() {
                 m_availableModels.append("llama2");  // fallback
             }
         }
-        if (m_selectedModel.isEmpty() && !m_availableModels.isEmpty()) {
+        if (m_selectedModels.isEmpty() && !m_availableModels.isEmpty()) {
             QString systemModel = settings.value("systemModel", "").toString();
             if (!systemModel.isEmpty() && m_availableModels.contains(systemModel)) {
-                m_selectedModel = systemModel;
+                m_selectedModels = QStringList() << systemModel;
             } else {
-                m_selectedModel = m_availableModels.first();
+                m_selectedModels = QStringList() << m_availableModels.first();
             }
-            modelSelectButton->setText(m_selectedModel);
-            modelLabel->setText(tr("Model: %1 (System Selected)").arg(m_selectedModel));
+            modelSelectButton->setText(m_selectedModels.first());
+            modelLabel->setText(tr("Model: %1 (System Selected)").arg(m_selectedModels.first()));
         }
     });
 
@@ -1394,7 +1395,7 @@ void MainWindow::updateInputBehavior() {
                 QSettings settings;
                 QString systemModel = settings.value("systemModel", "").toString();
                 if (!systemModel.isEmpty() && m_availableModels.contains(systemModel)) {
-                    m_selectedModel = systemModel;
+                    m_selectedModels = QStringList() << systemModel;
                 } else if (!m_availableModels.isEmpty()) {
                     m_selectedModels = QStringList() << m_availableModels.first();
                 }
@@ -1653,7 +1654,7 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
                         QSettings settings;
                         QString systemModel = settings.value("systemModel", "").toString();
                         if (!systemModel.isEmpty() && m_availableModels.contains(systemModel)) {
-                            m_selectedModel = systemModel;
+                            m_selectedModels = QStringList() << systemModel;
                         } else if (!m_availableModels.isEmpty()) {
                             m_selectedModels = QStringList() << m_availableModels.first();
                         }
@@ -4906,6 +4907,79 @@ void MainWindow::handleNewDocumentCreation(int defaultFolderId) {
                 }
             } else {
                 newDocId = currentDb->addDocument(folderId, title, content);
+                shouldNavigate = true;
+            }
+            loadDocumentsAndNotes();
+        } else if (dialog.getDocumentType() == NewDocumentDialog::MergeDocuments) {
+            QList<int> sourceIds = dialog.getSelectedMergeDocumentIds();
+            QString userPrompt = dialog.getMergePrompt();
+
+            QList<DocumentNode> allDocs = currentDb->getDocuments(-1);
+            QStringList documentContents;
+            for (int id : sourceIds) {
+                QString content;
+                for (const auto& d : allDocs) {
+                    if (d.id == id) {
+                        content = d.content;
+                        break;
+                    }
+                }
+                documentContents.append(content);
+            }
+
+            QString finalPrompt = userPrompt;
+            QRegularExpression rangeRegex("\\{range:documents(,\\s*between:([^\\}]*))?\\}(.*?)\\{endrange\\}", QRegularExpression::DotMatchesEverythingOption);
+
+            QList<QRegularExpressionMatch> matches;
+            QRegularExpressionMatchIterator it = rangeRegex.globalMatch(finalPrompt);
+            while (it.hasNext()) {
+                matches.append(it.next());
+            }
+
+            for (int i = matches.size() - 1; i >= 0; --i) {
+                QRegularExpressionMatch match = matches.at(i);
+                QString between = match.captured(2).replace("\\n", "\n").replace("\\t", "\t");
+                QString innerTemplate = match.captured(3);
+                QStringList generated;
+                for (const QString& doc : documentContents) {
+                    QString item = innerTemplate;
+                    item.replace("{content}", doc);
+                    generated.append(item);
+                }
+                QString fullReplacement = generated.join(between);
+                int start = static_cast<int>(match.capturedStart());
+                int length = static_cast<int>(match.capturedLength());
+                finalPrompt.replace(start, length, fullReplacement);
+            }
+
+            finalPrompt.replace("{documents}", documentContents.join("\n\n"));
+            // Fallback for {context} to mean plain joined documents if range isn't used
+            finalPrompt.replace("{context}", documentContents.join("\n\n"));
+
+            QStringList sourceIdsStrList;
+            for (int id : sourceIds) sourceIdsStrList.append(QString::number(id));
+            QString sourceIdsString = sourceIdsStrList.join(",");
+
+            QStringList models = m_selectedModels;
+            if (models.isEmpty() && !m_availableModels.isEmpty()) {
+                models.append(m_availableModels.first());
+            }
+
+            if (models.size() > 1) {
+                int newFolderId = currentDb->addFolder(folderId, title, "folder");
+                for (const QString& model : models) {
+                    QString docTitle = title + " (" + model + ")";
+                    newDocId = currentDb->addDocument(newFolderId, docTitle, "*Generating...*");
+                    currentDb->enqueuePrompt(newDocId, model, finalPrompt, 0, "document", 0, "replace");
+                    currentDb->setMetadata(newDocId, "source_documents", sourceIdsString);
+                    currentDb->setMetadata(newDocId, "original_prompt", userPrompt);
+                }
+            } else {
+                QString model = models.isEmpty() ? "" : models.first();
+                newDocId = currentDb->addDocument(folderId, title, "*Generating...*");
+                currentDb->enqueuePrompt(newDocId, model, finalPrompt, 0, "document", 0, "replace");
+                currentDb->setMetadata(newDocId, "source_documents", sourceIdsString);
+                currentDb->setMetadata(newDocId, "original_prompt", userPrompt);
                 shouldNavigate = true;
             }
             loadDocumentsAndNotes();
