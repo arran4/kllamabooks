@@ -181,6 +181,7 @@ class BookDatabase {
     QList<Notification> getNotifications(bool includeDismissed = false) const;
     bool dismissNotification(int id);
     bool dismissNotificationByMessageId(int messageId);
+    bool dismissNotificationByMessageIdAndType(int messageId, const QString& type);
 
     QString getDatabaseDebugInfo() const;
 
