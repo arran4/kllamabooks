@@ -123,6 +123,33 @@ QMimeData* CustomItemModel::mimeData(const QModelIndexList& indexes) const {
     return data;
 }
 
+namespace {
+void saveExpandedState(QTreeView* tree, QStandardItem* item, QSet<QString>& expanded) {
+    if (!item) return;
+    if (tree->isExpanded(item->index())) {
+        QString path = item->text();
+        QStandardItem* p = item->parent();
+        while (p) {
+            path = p->text() + "/" + path;
+            p = p->parent();
+        }
+        expanded.insert(path);
+    }
+    for (int i = 0; i < item->rowCount(); ++i) saveExpandedState(tree, item->child(i), expanded);
+}
+void restoreExpandedState(QTreeView* tree, QStandardItem* item, const QSet<QString>& expanded) {
+    if (!item) return;
+    QString path = item->text();
+    QStandardItem* p = item->parent();
+    while (p) {
+        path = p->text() + "/" + path;
+        p = p->parent();
+    }
+    if (expanded.contains(path)) tree->setExpanded(item->index(), true);
+    for (int i = 0; i < item->rowCount(); ++i) restoreExpandedState(tree, item->child(i), expanded);
+}
+}  // namespace
+
 MainWindow::MainWindow(QWidget* parent) : KXmlGuiWindow(parent), currentLastNodeId(0) {
     QueueManager::instance().setClient(&ollamaClient);
     connect(&QueueManager::instance(), &QueueManager::queueChanged, this, &MainWindow::updateQueueStatus);
@@ -152,7 +179,12 @@ void MainWindow::closeEvent(QCloseEvent* event) {
 
     QStringList openBooks;
     for (int i = 0; i < openBooksModel->rowCount(); ++i) {
-        openBooks.append(openBooksModel->item(i)->text());
+        QString fileName = openBooksModel->item(i)->text();
+        openBooks.append(fileName);
+
+        QSet<QString> expanded;
+        saveExpandedState(openBooksTree, openBooksModel->item(i), expanded);
+        settings.setValue("expandedState/" + fileName, QStringList(expanded.values()));
     }
     settings.setValue("openBooks", openBooks);
 
@@ -2108,7 +2140,16 @@ void MainWindow::onBookSelected(const QModelIndex& index) {
     bookItem->appendRow(draftsItem);
 
     openBooksModel->appendRow(bookItem);
-    openBooksTree->expandAll();
+
+    QSettings settings;
+    QString key = "expandedState/" + fileName;
+    if (settings.contains(key)) {
+        QStringList list = settings.value(key).toStringList();
+        QSet<QString> expanded(list.begin(), list.end());
+        restoreExpandedState(openBooksTree, bookItem, expanded);
+    } else {
+        openBooksTree->expandAll();
+    }
 
     // Remove from closed books list
     delete bookList->takeItem(index.row());
@@ -3571,6 +3612,11 @@ void MainWindow::closeBook(const QString& fileName) {
     // Remove from tree
     for (int i = 0; i < openBooksModel->rowCount(); ++i) {
         if (openBooksModel->item(i)->text() == fileName) {
+            QSet<QString> expanded;
+            saveExpandedState(openBooksTree, openBooksModel->item(i), expanded);
+            QSettings settings;
+            settings.setValue("expandedState/" + fileName, QStringList(expanded.values()));
+
             openBooksModel->removeRow(i);
             break;
         }
@@ -3754,33 +3800,6 @@ void MainWindow::onOpenBooksSelectionChanged(const QItemSelection& selected, con
 
     updateBreadcrumbs();
 }
-
-namespace {
-void saveExpandedState(QTreeView* tree, QStandardItem* item, QSet<QString>& expanded) {
-    if (!item) return;
-    if (tree->isExpanded(item->index())) {
-        QString path = item->text();
-        QStandardItem* p = item->parent();
-        while (p) {
-            path = p->text() + "/" + path;
-            p = p->parent();
-        }
-        expanded.insert(path);
-    }
-    for (int i = 0; i < item->rowCount(); ++i) saveExpandedState(tree, item->child(i), expanded);
-}
-void restoreExpandedState(QTreeView* tree, QStandardItem* item, const QSet<QString>& expanded) {
-    if (!item) return;
-    QString path = item->text();
-    QStandardItem* p = item->parent();
-    while (p) {
-        path = p->text() + "/" + path;
-        p = p->parent();
-    }
-    if (expanded.contains(path)) tree->setExpanded(item->index(), true);
-    for (int i = 0; i < item->rowCount(); ++i) restoreExpandedState(tree, item->child(i), expanded);
-}
-}  // namespace
 
 /** * @brief Reloads the primary side-pane `openBooksTree` showing all folders, documents, and chat records. *  * This
  * function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to
