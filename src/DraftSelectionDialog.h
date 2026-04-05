@@ -26,6 +26,7 @@ class DraftSelectionDialog : public QDialog {
    private slots:
     void onSelectionChanged();
     void onUseThis();
+    void onIgnoreDrafts();
     void onDeleteView();
     void onPreview();
     void onShowDifferences();

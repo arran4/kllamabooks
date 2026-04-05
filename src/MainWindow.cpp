@@ -1873,7 +1873,10 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
         QAction* discardAction = nullptr;
         QAction* deleteAction = nullptr;
 
+        QAction* gotoOriginalAction = nullptr;
+
         if (type == "draft") {
+            gotoOriginalAction = menu.addAction(QIcon::fromTheme("go-jump"), "Goto Original");
             discardAction = dangerMenu->addAction(QIcon::fromTheme("edit-delete"), "Discard Draft");
         } else if (type == "document") {
             deleteAction = dangerMenu->addAction(QIcon::fromTheme("edit-delete"), "Delete Document");
@@ -1894,6 +1897,26 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
             } else if (type == "note") {
                 mainContentStack->setCurrentWidget(noteContainer);
                 noteEditorView->setFocus();
+            }
+        } else if (gotoOriginalAction && selectedAction == gotoOriginalAction) {
+            int docId = item->data(Qt::UserRole).toInt();
+            if (currentDb) {
+                QList<DocumentNode> drafts = currentDb->getDrafts();
+                for (const auto& d : drafts) {
+                    if (d.id == docId) {
+                        QStandardItem* originalItem = findItemInTree(d.parentId, d.targetType);
+                        if (originalItem) {
+                            openBooksTree->setCurrentIndex(originalItem->index());
+                            openBooksTree->selectionModel()->select(originalItem->index(),
+                                                                    QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Current);
+                            openBooksTree->scrollTo(originalItem->index());
+                            onOpenBooksTreeDoubleClicked(originalItem->index());
+                        } else {
+                            statusBar->showMessage(tr("Original document not found."), 3000);
+                        }
+                        break;
+                    }
+                }
             }
         } else if (historyAction && selectedAction == historyAction) {
             onDocumentHistory();
@@ -5029,8 +5052,9 @@ void MainWindow::onEditDocument() {
         int res = dialog.exec();
         if (res == QDialog::Accepted && dialog.didSelectDraft()) {
             initialContent = dialog.getSelectedDraftContent();
+        } else if (res == QDialog::Rejected) {
+            return;
         }
-        // If Rejected, the user clicked "Ignore Drafts / Cancel", so we just proceed without initialContent
     }
 
     DocumentEditWindow* editWin = new DocumentEditWindow(currentDb, currentDocumentId, currentTitle, targetTypeStr);

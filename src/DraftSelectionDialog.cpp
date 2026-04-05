@@ -41,12 +41,14 @@ DraftSelectionDialog::DraftSelectionDialog(std::shared_ptr<BookDatabase> db, int
     QPushButton* useBtn = new QPushButton(tr("Use This"), this);
     QPushButton* delBtn = new QPushButton(tr("Delete View"), this);
     QPushButton* diffBtn = new QPushButton(tr("Show Differences"), this);
-    QPushButton* cancelBtn = new QPushButton(tr("Ignore Drafts / Cancel"), this);
+    QPushButton* ignoreBtn = new QPushButton(tr("Ignore Drafts"), this);
+    QPushButton* cancelBtn = new QPushButton(tr("Cancel"), this);
 
     btnLayout->addWidget(useBtn);
     btnLayout->addWidget(delBtn);
     btnLayout->addWidget(diffBtn);
     btnLayout->addStretch();
+    btnLayout->addWidget(ignoreBtn);
     btnLayout->addWidget(cancelBtn);
 
     mainLayout->addLayout(btnLayout);
@@ -55,6 +57,7 @@ DraftSelectionDialog::DraftSelectionDialog(std::shared_ptr<BookDatabase> db, int
     connect(useBtn, &QPushButton::clicked, this, &DraftSelectionDialog::onUseThis);
     connect(delBtn, &QPushButton::clicked, this, &DraftSelectionDialog::onDeleteView);
     connect(diffBtn, &QPushButton::clicked, this, &DraftSelectionDialog::onShowDifferences);
+    connect(ignoreBtn, &QPushButton::clicked, this, &DraftSelectionDialog::onIgnoreDrafts);
     connect(cancelBtn, &QPushButton::clicked, this, &QDialog::reject);
 
     refreshDraftsList();
@@ -80,6 +83,12 @@ void DraftSelectionDialog::refreshDraftsList() {
 
 void DraftSelectionDialog::onSelectionChanged() {
     onPreview();
+}
+
+void DraftSelectionDialog::onIgnoreDrafts() {
+    // If we just want to ignore drafts, we accept the dialog without selecting a draft content
+    m_draftSelected = false;
+    accept();
 }
 
 void DraftSelectionDialog::onUseThis() {
