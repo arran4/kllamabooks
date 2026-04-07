@@ -482,6 +482,29 @@ bool BookDatabase::initSchema() {
         userVersion = 15;
     }
 
+    if (userVersion < 16) {
+        const char* sql =
+            "CREATE TABLE IF NOT EXISTS metadata ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "entity_id INTEGER, "
+            "entity_type TEXT, "
+            "key TEXT, "
+            "value TEXT"
+            ");";
+        sqlite3_exec((sqlite3*)m_db, sql, nullptr, nullptr, nullptr);
+        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (16);", nullptr, nullptr, nullptr);
+        sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 16;", nullptr, nullptr, nullptr);
+        userVersion = 16;
+    }
+
+    if (userVersion < 17) {
+        sqlite3_exec((sqlite3*)m_db, "ALTER TABLE folders ADD COLUMN is_expanded BOOLEAN DEFAULT 0;", nullptr, nullptr, nullptr);
+        sqlite3_exec((sqlite3*)m_db, "ALTER TABLE messages ADD COLUMN is_expanded BOOLEAN DEFAULT 0;", nullptr, nullptr, nullptr);
+        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (17);", nullptr, nullptr, nullptr);
+        sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 17;", nullptr, nullptr, nullptr);
+        userVersion = 17;
+    }
+
     return true;
 }
 
@@ -735,7 +758,7 @@ QList<MessageNode> BookDatabase::getMessages() const {
     QList<MessageNode> nodes;
     if (!m_isOpen) return nodes;
 
-    const char* sql = "SELECT id, parent_id, folder_id, role, content, timestamp FROM messages ORDER BY id;";
+    const char* sql = "SELECT id, parent_id, folder_id, role, content, timestamp, is_expanded FROM messages ORDER BY id;";
     sqlite3_stmt* stmt;
     int rc = sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return nodes;
@@ -749,6 +772,7 @@ QList<MessageNode> BookDatabase::getMessages() const {
         node.content = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 4));
         QString ts = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 5));
         node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
+        node.isExpanded = sqlite3_column_int(stmt, 6) != 0;
         nodes.append(node);
     }
     sqlite3_finalize(stmt);
@@ -1119,12 +1143,34 @@ bool BookDatabase::deleteFolder(int id) {
     return rc == SQLITE_DONE;
 }
 
+void BookDatabase::setFolderExpanded(int id, bool expanded) {
+    if (!m_isOpen) return;
+    const char* sql = "UPDATE folders SET is_expanded = ? WHERE id = ?;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return;
+    sqlite3_bind_int(stmt, 1, expanded ? 1 : 0);
+    sqlite3_bind_int(stmt, 2, id);
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+}
+
+void BookDatabase::setMessageExpanded(int id, bool expanded) {
+    if (!m_isOpen) return;
+    const char* sql = "UPDATE messages SET is_expanded = ? WHERE id = ?;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return;
+    sqlite3_bind_int(stmt, 1, expanded ? 1 : 0);
+    sqlite3_bind_int(stmt, 2, id);
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+}
+
 QList<FolderNode> BookDatabase::getFolders(const QString& type) const {
     QList<FolderNode> folderNodes;
     if (!m_isOpen) return folderNodes;
 
     const char* sql =
-        "SELECT id, parent_id, name, type, timestamp, position FROM folders WHERE type = ? ORDER BY position ASC, name "
+        "SELECT id, parent_id, name, type, timestamp, position, is_expanded FROM folders WHERE type = ? ORDER BY position ASC, name "
         "ASC;";
     sqlite3_stmt* stmt;
     int rc = sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr);
@@ -1141,6 +1187,7 @@ QList<FolderNode> BookDatabase::getFolders(const QString& type) const {
         QString ts = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 4));
         node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
         node.position = sqlite3_column_int(stmt, 5);
+        node.isExpanded = sqlite3_column_int(stmt, 6) != 0;
         folderNodes.append(node);
     }
     sqlite3_finalize(stmt);

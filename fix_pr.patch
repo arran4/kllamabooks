@@ -1,0 +1,31 @@
+--- src/BookDatabase.cpp
++++ src/BookDatabase.cpp
+@@ -482,6 +482,24 @@
+         userVersion = 15;
+     }
+
++    if (userVersion < 16) {
++        const char* sql =
++            "CREATE TABLE IF NOT EXISTS metadata ("
++            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
++            "entity_id INTEGER, "
++            "entity_type TEXT, "
++            "key TEXT, "
++            "value TEXT"
++            ");";
++        sqlite3_exec((sqlite3*)m_db, sql, nullptr, nullptr, nullptr);
++        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (16);", nullptr, nullptr, nullptr);
++        sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 16;", nullptr, nullptr, nullptr);
++        userVersion = 16;
++    }
++
++    if (userVersion < 17) {
++        sqlite3_exec((sqlite3*)m_db, "ALTER TABLE folders ADD COLUMN is_expanded BOOLEAN DEFAULT 0;", nullptr, nullptr, nullptr);
++        sqlite3_exec((sqlite3*)m_db, "ALTER TABLE messages ADD COLUMN is_expanded BOOLEAN DEFAULT 0;", nullptr, nullptr, nullptr);
++        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (17);", nullptr, nullptr, nullptr);
++        sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 17;", nullptr, nullptr, nullptr);
++        userVersion = 17;
++    }
++
+     return true;
+ }
