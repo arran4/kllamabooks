@@ -48,6 +48,8 @@ add_executable(kllamabooks
     src/AiActionDialog.h
     src/MergeDocumentsDialog.cpp
     src/MergeDocumentsDialog.h
+    src/TemplateParser.cpp
+    src/TemplateParser.h
     src/AIOperationsDialog.cpp
     src/AIOperationsDialog.h
     src/AIOperationsManager.cpp
@@ -102,6 +104,13 @@ install(FILES src/kllamabooks.desktop
 install(FILES src/com.arran4.kllamabooks.metainfo.xml
     DESTINATION ${CMAKE_INSTALL_DATADIR}/metainfo
 )
+
+# Tests
+enable_testing()
+find_package(Qt6 COMPONENTS Test REQUIRED)
+add_executable(test_TemplateParser tests/test_TemplateParser.cpp src/TemplateParser.cpp)
+target_link_libraries(test_TemplateParser Qt6::Test Qt6::Core)
+add_test(NAME test_TemplateParser COMMAND test_TemplateParser)
 
 install(FILES src/assets/icon.svg
     DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps

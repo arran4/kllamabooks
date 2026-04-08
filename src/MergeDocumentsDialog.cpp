@@ -12,6 +12,7 @@
 #include <QSettings>
 
 #include "ModelSelectionDialog.h"
+#include "TemplateParser.h"
 
 MergeDocumentsDialog::MergeDocumentsDialog(BookDatabase* db, const QList<int>& documentIds, const QList<OllamaModelInfo>& modelInfos, const QStringList& fallbackModels, QWidget* parent)
     : QDialog(parent), m_db(db), m_documentIds(documentIds), m_modelInfos(modelInfos), m_fallbackModels(fallbackModels) {
@@ -39,8 +40,18 @@ MergeDocumentsDialog::MergeDocumentsDialog(BookDatabase* db, const QList<int>& d
     topLayout->addWidget(m_templateCombo);
     layout->addLayout(topLayout);
 
+    QHBoxLayout* instructionLayout = new QHBoxLayout();
     QLabel* instructionLabel = new QLabel(tr("Prompt Configuration:"), this);
-    layout->addWidget(instructionLabel);
+    instructionLayout->addWidget(instructionLabel);
+
+    QPushButton* helpBtn = new QPushButton("?", this);
+    helpBtn->setFixedWidth(30);
+    helpBtn->setToolTip(tr("Show template help"));
+    instructionLayout->addWidget(helpBtn);
+    instructionLayout->addStretch();
+    layout->addLayout(instructionLayout);
+
+    connect(helpBtn, &QPushButton::clicked, this, &MergeDocumentsDialog::onHelpClicked);
 
     m_instructionEdit = new QTextEdit(this);
     m_instructionEdit->setPlaceholderText(tr("Use {foreach contexts}...{between}...{end} and {input \"label\"} placeholders..."));
@@ -113,6 +124,26 @@ void MergeDocumentsDialog::loadTemplates() {
     for (const auto& op : m_templates) {
         m_templateCombo->addItem(op.name, op.id);
     }
+}
+
+void MergeDocumentsDialog::onHelpClicked() {
+    QString helpText = tr(
+        "<b>Template Language Help</b><br><br>"
+        "You can configure how the selected documents are merged using template tags.<br><br>"
+        "<b><code>{foreach contexts} ... {end}</code></b><br>"
+        "Loops over every selected document. Inside this block, use <b><code>{context}</code></b> to output the document's content.<br><br>"
+        "<b><code>{between}</code></b><br>"
+        "Placed inside a <code>{foreach}</code> block to separate documents. Text after <code>{between}</code> is only inserted between documents, not at the very end.<br><br>"
+        "<b>Example:</b><br>"
+        "<code>{foreach contexts}</code><br>"
+        "<code>Doc: {context}</code><br>"
+        "<code>{between}</code><br>"
+        "<code>---</code><br>"
+        "<code>{end}</code><br><br>"
+        "<b>Dynamic Inputs:</b><br>"
+        "You can also use <code>{input \"Label\"}</code> or <code>{textarea \"Label\"}</code> to create custom input fields that will be requested before merging."
+    );
+    QMessageBox::information(this, tr("Template Help"), helpText);
 }
 
 void MergeDocumentsDialog::onTemplateChanged(int index) {
@@ -261,49 +292,7 @@ void MergeDocumentsDialog::accept() {
         }
     }
 
-    // 2. Process {foreach contexts} block
-    // Syntax: {foreach contexts} ... {context} ... [{between} ... ] {end}
-    // Note: Use a non-greedy match for the block
-    QRegularExpression foreachRe("\\{foreach contexts\\}(.*?)\\{end\\}", QRegularExpression::DotMatchesEverythingOption);
-
-    int offset = 0;
-    while (true) {
-        QRegularExpressionMatch match = foreachRe.match(prompt, offset);
-        if (!match.hasMatch()) {
-            break;
-        }
-
-        QString innerBlock = match.captured(1);
-        QString mergedContexts;
-
-        // Split by {between}
-        int betweenIndex = innerBlock.indexOf("{between}");
-        QString mainPart = innerBlock;
-        QString betweenPart = "";
-
-        if (betweenIndex != -1) {
-            mainPart = innerBlock.left(betweenIndex);
-            betweenPart = innerBlock.mid(betweenIndex + 9); // length of "{between}"
-        }
-
-        for (int k = 0; k < m_documentContents.size(); ++k) {
-            QString docPart = mainPart;
-            docPart.replace("{context}", m_documentContents[k]);
-            mergedContexts += docPart;
-            if (k < m_documentContents.size() - 1) {
-                mergedContexts += betweenPart;
-            }
-        }
-
-        prompt.replace(match.capturedStart(0), match.capturedLength(0), mergedContexts);
-        offset = match.capturedStart(0) + mergedContexts.length();
-    }
-
-    // Also support a simple {context} for backwards compatibility if needed?
-    // Just replace it with all joined by newlines just in case
-    if (prompt.contains("{context}")) {
-        prompt.replace("{context}", m_documentContents.join("\n\n---\n\n"));
-    }
+    prompt = TemplateParser::parseMergeTemplate(prompt, m_documentContents);
 
     m_finalPrompt = prompt;
     QDialog::accept();

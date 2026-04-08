@@ -31,6 +31,7 @@ class MergeDocumentsDialog : public QDialog {
     void updateDynamicInputs();
     void onSelectModelsClicked();
     void onTemplateChanged(int index);
+    void onHelpClicked();
 
    private:
     void loadTemplates();

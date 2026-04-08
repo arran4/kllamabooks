@@ -474,15 +474,14 @@ bool BookDatabase::initSchema() {
         userVersion = 14;
     }
 
-    if (userVersion < 19) {
-        // Skip 15, 16, 17, 18 per instructions
+    if (userVersion < 18) {
         const char* sql_alter_documents = "ALTER TABLE documents ADD COLUMN metadata TEXT DEFAULT '';";
         sqlite3_exec((sqlite3*)m_db, sql_alter_documents, nullptr, nullptr, nullptr);
 
-        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (19);", nullptr, nullptr,
+        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (18);", nullptr, nullptr,
                      nullptr);
-        sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 19;", nullptr, nullptr, nullptr);
-        userVersion = 19;
+        sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 18;", nullptr, nullptr, nullptr);
+        userVersion = 18;
     }
 
     return true;
