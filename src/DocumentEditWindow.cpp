@@ -104,8 +104,9 @@ void DocumentEditWindow::setupWindow() {
             if (originalTimestamp > m_openTimestamp) {
                 QMessageBox msgBox(this);
                 msgBox.setWindowTitle(tr("Conflict Detected"));
-                msgBox.setText(tr("Warning: The original document has drifted (been modified) since this draft was opened.\nWhat would you like to do?"));
+                msgBox.setText(tr("Warning: The original document has drifted (been modified) since this draft was created/opened.\nWhat would you like to do?"));
 
+                QPushButton* viewDiffBtn = msgBox.addButton(tr("View Differences"), QMessageBox::ActionRole);
                 QPushButton* continueBtn = msgBox.addButton(tr("Continue & Replace"), QMessageBox::AcceptRole);
                 QPushButton* forkBtn = msgBox.addButton(tr("Create New Forked Document"), QMessageBox::AcceptRole);
                 QPushButton* deleteDraftBtn = msgBox.addButton(tr("Delete Draft & Cancel"), QMessageBox::DestructiveRole);
@@ -113,7 +114,10 @@ void DocumentEditWindow::setupWindow() {
 
                 msgBox.exec();
 
-                if (msgBox.clickedButton() == continueBtn) {
+                if (msgBox.clickedButton() == viewDiffBtn) {
+                    emit jumpToDocumentRequested(parentId); // Jump to original document
+                    return; // abort replacement for now
+                } else if (msgBox.clickedButton() == continueBtn) {
                     // fallthrough to regular replace logic
                 } else if (msgBox.clickedButton() == forkBtn) {
                     bool ok;
