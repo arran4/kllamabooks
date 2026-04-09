@@ -202,6 +202,12 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
                                         AIOperationsManager::getBuiltInOperations());
     tabWidget->addTab(m_aiOperationsEditor, tr("AI Operations"));
 
+    // Document Templates Tab
+    m_documentTemplatesEditor = new DocumentTemplatesEditorWidget("global", this);
+    m_documentTemplatesEditor->setTemplates(DocumentTemplatesManager::getGlobalTemplates(),
+                                            DocumentTemplatesManager::getBuiltInTemplates());
+    tabWidget->addTab(m_documentTemplatesEditor, tr("Document Templates"));
+
     mainLayout->addWidget(tabWidget);
 
     // Dialog buttons
@@ -372,6 +378,7 @@ void SettingsDialog::onApply() {
     m_settings.setValue("prioritizeSameModel", m_prioritizeSameModelCheck->isChecked());
 
     AIOperationsManager::setGlobalOperations(m_aiOperationsEditor->getOperations());
+    DocumentTemplatesManager::setGlobalTemplates(m_documentTemplatesEditor->getTemplates());
 
     emit settingsApplied();
     accept();
