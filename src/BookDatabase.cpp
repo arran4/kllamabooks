@@ -482,6 +482,14 @@ bool BookDatabase::initSchema() {
         userVersion = 15;
     }
 
+    if (userVersion < 16) {
+        sqlite3_exec((sqlite3*)m_db, "ALTER TABLE drafts ADD COLUMN parent_id INTEGER DEFAULT 0;", nullptr, nullptr, nullptr);
+        sqlite3_exec((sqlite3*)m_db, "ALTER TABLE drafts ADD COLUMN target_type TEXT DEFAULT 'document';", nullptr, nullptr, nullptr);
+        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (16);", nullptr, nullptr, nullptr);
+        sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 16;", nullptr, nullptr, nullptr);
+        userVersion = 16;
+    }
+
     if (userVersion < 17) {
         sqlite3_exec((sqlite3*)m_db, "ALTER TABLE folders ADD COLUMN is_expanded BOOLEAN DEFAULT 0;", nullptr, nullptr, nullptr);
         sqlite3_exec((sqlite3*)m_db, "ALTER TABLE messages ADD COLUMN is_expanded BOOLEAN DEFAULT 0;", nullptr, nullptr, nullptr);
@@ -994,10 +1002,10 @@ QList<DocumentNode> BookDatabase::getTemplates(int folderId) const {
     return nodes;
 }
 
-int BookDatabase::addDraft(int folderId, const QString& title, const QString& content) {
+int BookDatabase::addDraft(int folderId, const QString& title, const QString& content, int parentId, const QString& targetType) {
     if (!m_isOpen) return -1;
 
-    const char* sql = "INSERT INTO drafts (folder_id, title, content) VALUES (?, ?, ?);";
+    const char* sql = "INSERT INTO drafts (folder_id, title, content, parent_id, target_type) VALUES (?, ?, ?, ?, ?);";
     sqlite3_stmt* stmt;
     int rc = sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return -1;
@@ -1005,6 +1013,8 @@ int BookDatabase::addDraft(int folderId, const QString& title, const QString& co
     sqlite3_bind_int(stmt, 1, folderId);
     sqlite3_bind_text(stmt, 2, title.toUtf8().constData(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 3, content.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 4, parentId);
+    sqlite3_bind_text(stmt, 5, targetType.toUtf8().constData(), -1, SQLITE_TRANSIENT);
 
     rc = sqlite3_step(stmt);
     if (rc != SQLITE_DONE) {
@@ -1038,7 +1048,7 @@ QList<DocumentNode> BookDatabase::getDrafts(int folderId) const {
     QList<DocumentNode> nodes;
     if (!m_isOpen) return nodes;
 
-    QString sqlStr = "SELECT id, folder_id, title, content, timestamp FROM drafts";
+    QString sqlStr = "SELECT id, folder_id, title, content, timestamp, parent_id, target_type FROM drafts";
     if (folderId != -1) sqlStr += " WHERE folder_id = ?";
     sqlStr += " ORDER BY timestamp ASC;";
 
@@ -1056,6 +1066,8 @@ QList<DocumentNode> BookDatabase::getDrafts(int folderId) const {
         node.content = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 3));
         QString ts = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 4));
         node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
+        node.parentId = sqlite3_column_int(stmt, 5);
+        node.targetType = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 6));
         node.isFolder = false;
         nodes.append(node);
     }

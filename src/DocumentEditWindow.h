@@ -15,8 +15,10 @@ class DocumentEditWindow : public KXmlGuiWindow {
     Q_OBJECT
    public:
     explicit DocumentEditWindow(std::shared_ptr<BookDatabase> db, int documentId, const QString& title,
-                                const QString& itemType = "document", QWidget* parent = nullptr);
+                                const QString& targetType = "document", QWidget* parent = nullptr);
     ~DocumentEditWindow() override;
+
+    void setInitialContent(const QString& content);
 
    signals:
     void documentModified(int documentId);
@@ -31,6 +33,7 @@ class DocumentEditWindow : public KXmlGuiWindow {
     void onJumpClicked();
     void onSaveAsClicked();
     void onSaveAsDraftClicked();
+    void onSaveAsTemplateClicked();
     void onRenameClicked();
     void onContentChanged();
 
@@ -40,7 +43,7 @@ class DocumentEditWindow : public KXmlGuiWindow {
     QString m_title;
     QDateTime m_openTimestamp;
     QString m_initialContent;
-    QString m_itemType;
+    QString m_targetType;
 
     QTextEdit* m_editor;
     QLabel* m_statusLabel;
