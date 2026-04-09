@@ -2172,10 +2172,10 @@ void MainWindow::populateDocumentFolders(QStandardItem* parentItem, int folderId
                 item->setData("notes_folder", Qt::UserRole + 1);
 
             parentItem->appendRow(item);
+            populateDocumentFolders(item, folder.id, type, db);
             if (folder.isExpanded) {
                 openBooksTree->setExpanded(item->index(), true);
             }
-            populateDocumentFolders(item, folder.id, type, db);
         }
     }
 
@@ -2356,12 +2356,12 @@ void MainWindow::populateChatFolders(QStandardItem* parentItem, int folderId, co
             folderItem->setData("chats_folder", Qt::UserRole + 1);
             parentItem->appendRow(folderItem);
 
+            // Recurse into subfolders
+            populateChatFolders(folderItem, folder.id, allMessages, db);
+
             if (folder.isExpanded) {
                 openBooksTree->setExpanded(folderItem->index(), true);
             }
-
-            // Recurse into subfolders
-            populateChatFolders(folderItem, folder.id, allMessages, db);
         }
     }
 
@@ -2389,12 +2389,12 @@ void MainWindow::populateChatFolders(QStandardItem* parentItem, int folderId, co
             item->setData("chat_node", Qt::UserRole + 1);
             parentItem->appendRow(item);
 
+            // Populate the rest of the branch under this root message
+            populateMessageForks(item, endNodeId, allMessages);
+
             if (msg.isExpanded) {
                 openBooksTree->setExpanded(item->index(), true);
             }
-
-            // Populate the rest of the branch under this root message
-            populateMessageForks(item, endNodeId, allMessages);
         }
     }
 }
@@ -2426,12 +2426,12 @@ void MainWindow::populateMessageForks(QStandardItem* parentItem, int parentId, c
             item->setData("chat_node", Qt::UserRole + 1);
             parentItem->appendRow(item);
 
+            // Recursively populate under this item.
+            populateMessageForks(item, endNodeId, allMessages);
+
             if (msg.isExpanded) {
                 openBooksTree->setExpanded(item->index(), true);
             }
-
-            // Recursively populate under this item.
-            populateMessageForks(item, endNodeId, allMessages);
         }
     }
 }
