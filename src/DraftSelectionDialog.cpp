@@ -89,7 +89,24 @@ void DraftSelectionDialog::refreshDraftsList() {
     for (const auto& d : m_drafts) {
         QString displayTime = d.timestamp.toString("yyyy-MM-dd HH:mm:ss");
         QString title = d.title.isEmpty() ? tr("Untitled Draft") : d.title;
-        m_draftsList->addItem(QString("%1\n%2").arg(title, displayTime));
+
+        QString desc = "";
+        if (m_db && m_db->isOpen()) {
+            QList<CommentNode> existing = m_db->getComments("draft", d.id);
+            if (!existing.isEmpty()) {
+                desc = existing.first().content;
+                if (desc.length() > 30) {
+                    desc = desc.left(27) + "...";
+                }
+            }
+        }
+
+        QListWidgetItem* item = new QListWidgetItem(QString("%1\n%2").arg(title, displayTime));
+        if (!desc.isEmpty()) {
+            item->setToolTip(desc);
+            item->setText(item->text() + QString("\n[%1]").arg(desc));
+        }
+        m_draftsList->addItem(item);
     }
     if (m_draftsList->count() > 0) {
         m_draftsList->setCurrentRow(0);

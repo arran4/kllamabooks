@@ -120,6 +120,39 @@ void DocumentEditWindow::setupWindow() {
         });
     }
 
+    QAction* addCommentAction = nullptr;
+    if (m_targetType == "draft") {
+        addCommentAction = new QAction(QIcon::fromTheme("view-pim-notes"), tr("Edit Draft Description"), this);
+        connect(addCommentAction, &QAction::triggered, this, [this]() {
+            if (!m_db || !m_db->isOpen()) return;
+
+            QString existingComment = "";
+            int commentId = -1;
+            QList<CommentNode> comments = m_db->getComments("draft", m_documentId);
+            if (!comments.isEmpty()) {
+                existingComment = comments.first().content;
+                commentId = comments.first().id;
+            }
+
+            bool ok;
+            QString desc = QInputDialog::getMultiLineText(this, tr("Draft Description"),
+                                                          tr("Enter a description to help identify this draft:"),
+                                                          existingComment, &ok);
+            if (ok) {
+                if (commentId == -1 && !desc.isEmpty()) {
+                    m_db->addComment("draft", m_documentId, desc);
+                } else if (commentId != -1) {
+                    if (desc.isEmpty()) {
+                        m_db->deleteComment(commentId);
+                    } else {
+                        m_db->updateComment(commentId, desc);
+                    }
+                }
+                emit documentModified(m_documentId); // Force UI refresh
+            }
+        });
+    }
+
     QAction* renameAction = new QAction(QIcon::fromTheme("edit-rename"), tr("Rename"), this);
     connect(renameAction, &QAction::triggered, this, &DocumentEditWindow::onRenameClicked);
 
@@ -156,6 +189,7 @@ void DocumentEditWindow::setupWindow() {
         if (replaceOriginalAction) mainToolBar->addAction(replaceOriginalAction);
         if (viewOriginalAction) mainToolBar->addAction(viewOriginalAction);
         if (dismissDraftAction) mainToolBar->addAction(dismissDraftAction);
+        if (addCommentAction) mainToolBar->addAction(addCommentAction);
     }
     mainToolBar->addAction(renameAction);
     mainToolBar->addAction(jumpAction);
@@ -171,6 +205,7 @@ void DocumentEditWindow::setupWindow() {
         if (replaceOriginalAction) fileMenu->addAction(replaceOriginalAction);
         if (viewOriginalAction) fileMenu->addAction(viewOriginalAction);
         if (dismissDraftAction) fileMenu->addAction(dismissDraftAction);
+        if (addCommentAction) fileMenu->addAction(addCommentAction);
     }
     fileMenu->addSeparator();
     fileMenu->addAction(renameAction);
