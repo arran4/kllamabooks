@@ -54,11 +54,26 @@ DraftSelectionDialog::DraftSelectionDialog(std::shared_ptr<BookDatabase> db, int
     mainLayout->addLayout(btnLayout);
 
     connect(m_draftsList, &QListWidget::itemSelectionChanged, this, &DraftSelectionDialog::onSelectionChanged);
+    QPushButton* previewBtn = new QPushButton(tr("Back to Drafts"), this);
+    connect(previewBtn, &QPushButton::clicked, this, &DraftSelectionDialog::onPreview);
+    btnLayout->insertWidget(3, previewBtn);
+
+    QPushButton* navigateOrigBtn = new QPushButton(tr("Navigate to Original Document"), this);
+    btnLayout->insertWidget(0, navigateOrigBtn);
+
+    connect(m_draftsList, &QListWidget::itemSelectionChanged, this, &DraftSelectionDialog::onSelectionChanged);
     connect(useBtn, &QPushButton::clicked, this, &DraftSelectionDialog::onUseThis);
     connect(delBtn, &QPushButton::clicked, this, &DraftSelectionDialog::onDeleteView);
     connect(diffBtn, &QPushButton::clicked, this, &DraftSelectionDialog::onShowDifferences);
     connect(ignoreBtn, &QPushButton::clicked, this, &DraftSelectionDialog::onIgnoreDrafts);
     connect(cancelBtn, &QPushButton::clicked, this, &QDialog::reject);
+    connect(navigateOrigBtn, &QPushButton::clicked, this, [this]() {
+        // Find the original document ID
+        if (m_db && m_db->isOpen() && m_drafts.size() > 0) {
+            // Signal navigation externally (MainWindow handles the jump logic best). We'll set m_draftSelected to false and a specific exit code.
+            done(QDialog::Accepted + 10);
+        }
+    });
 
     refreshDraftsList();
 }

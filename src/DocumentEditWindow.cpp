@@ -89,6 +89,11 @@ void DocumentEditWindow::setupWindow() {
                 m_db->updateNote(parentId, m_title, m_editor->toPlainText());
                 QMessageBox::information(this, tr("Success"), tr("Original note replaced successfully."));
             }
+
+            // Delete the draft after replacing
+            m_db->deleteDraft(m_documentId);
+            emit documentModified(m_documentId); // Trigger a refresh
+            close();
         });
 
         viewOriginalAction = new QAction(QIcon::fromTheme("view-preview"), tr("View Original Document"), this);
@@ -121,6 +126,24 @@ void DocumentEditWindow::setupWindow() {
     QAction* jumpAction = new QAction(QIcon::fromTheme("go-jump"), tr("Jump to Item"), this);
     connect(jumpAction, &QAction::triggered, this, &DocumentEditWindow::onJumpClicked);
 
+    QAction* dismissDraftAction = nullptr;
+    if (m_targetType == "draft") {
+        dismissDraftAction = new QAction(QIcon::fromTheme("edit-delete"), tr("Dismiss Draft"), this);
+        connect(dismissDraftAction, &QAction::triggered, this, [this]() {
+            if (!m_db || !m_db->isOpen()) return;
+
+            QMessageBox::StandardButton reply;
+            reply = QMessageBox::question(this, tr("Dismiss Draft"), tr("Are you sure you want to dismiss this draft permanently?"),
+                                          QMessageBox::Yes|QMessageBox::No);
+            if (reply == QMessageBox::Yes) {
+                m_db->deleteDraft(m_documentId);
+                m_initialContent = m_editor->toPlainText(); // Prevent save prompt
+                emit documentModified(m_documentId);
+                close();
+            }
+        });
+    }
+
     QAction* closeAction = new QAction(QIcon::fromTheme("window-close"), tr("Close"), this);
     connect(closeAction, &QAction::triggered, this, &QWidget::close);
 
@@ -132,6 +155,7 @@ void DocumentEditWindow::setupWindow() {
     } else {
         if (replaceOriginalAction) mainToolBar->addAction(replaceOriginalAction);
         if (viewOriginalAction) mainToolBar->addAction(viewOriginalAction);
+        if (dismissDraftAction) mainToolBar->addAction(dismissDraftAction);
     }
     mainToolBar->addAction(renameAction);
     mainToolBar->addAction(jumpAction);
@@ -146,6 +170,7 @@ void DocumentEditWindow::setupWindow() {
     } else {
         if (replaceOriginalAction) fileMenu->addAction(replaceOriginalAction);
         if (viewOriginalAction) fileMenu->addAction(viewOriginalAction);
+        if (dismissDraftAction) fileMenu->addAction(dismissDraftAction);
     }
     fileMenu->addSeparator();
     fileMenu->addAction(renameAction);

@@ -5053,6 +5053,19 @@ void MainWindow::onEditDocument() {
                 initialContent = dialog.getSelectedDraftContent();
             } else if (res == QDialog::Rejected) {
                 return;
+            } else if (res == QDialog::Accepted + 10) {
+                // Navigate to original
+                QStandardItem* originalItem = findItemInTree(associatedDrafts.first().parentId, associatedDrafts.first().targetType);
+                if (originalItem) {
+                    openBooksTree->setCurrentIndex(originalItem->index());
+                    openBooksTree->selectionModel()->select(originalItem->index(),
+                                                            QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Current);
+                    openBooksTree->scrollTo(originalItem->index());
+                    onOpenBooksTreeDoubleClicked(originalItem->index());
+                } else {
+                    statusBar->showMessage(tr("Original document not found."), 3000);
+                }
+                return;
             }
         }
     }
