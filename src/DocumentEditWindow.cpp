@@ -226,11 +226,26 @@ void DocumentEditWindow::loadDocument() {
     if (m_targetType == "document") docs = m_db->getDocuments();
     else if (m_targetType == "draft") docs = m_db->getDrafts();
     else if (m_targetType == "template") docs = m_db->getTemplates();
+    else if (m_targetType == "note") {
+        auto notes = m_db->getNotes();
+        for (const auto& n : notes) {
+            if (n.id == m_documentId) {
+                m_initialContent = n.content;
+                if (m_editor->toPlainText().isEmpty()) {
+                    m_editor->setPlainText(m_initialContent);
+                }
+                break;
+            }
+        }
+        return;
+    }
 
     for (const auto& d : docs) {
         if (d.id == m_documentId) {
             m_initialContent = d.content;
-            m_editor->setPlainText(m_initialContent);
+            if (m_editor->toPlainText().isEmpty()) {
+                m_editor->setPlainText(m_initialContent);
+            }
             break;
         }
     }
