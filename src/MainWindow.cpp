@@ -928,11 +928,13 @@ void MainWindow::updateEndpointsList() {
         // Fallback for old setting
         endpointComboBox->addItem("Default Ollama", settings.value("ollamaUrl", "http://localhost:11434").toString());
         endpointComboBox->setItemData(0, "", Qt::UserRole + 1);  // Auth Key
+        endpointComboBox->setItemData(0, 1, Qt::UserRole + 2);   // Max Concurrent
     } else {
         for (int i = 0; i < connections.size(); ++i) {
             QVariantMap map = connections[i].toMap();
             endpointComboBox->addItem(map["name"].toString(), map["url"].toString());
             endpointComboBox->setItemData(i, map["authKey"].toString(), Qt::UserRole + 1);
+            endpointComboBox->setItemData(i, map.value("maxConcurrent", 1).toInt(), Qt::UserRole + 2);
         }
     }
 
@@ -955,10 +957,14 @@ void MainWindow::onActiveEndpointChanged(int index) {
 
     QString url = endpointComboBox->itemData(index, Qt::UserRole).toString();
     QString authKey = endpointComboBox->itemData(index, Qt::UserRole + 1).toString();
+    int maxConcurrent = endpointComboBox->itemData(index, Qt::UserRole + 2).toInt();
+    if (maxConcurrent < 1) maxConcurrent = 1;
 
     ollamaClient.setBaseUrl(url);
     ollamaClient.setAuthKey(authKey);
     ollamaClient.fetchModels();  // Test connection and fetch
+
+    QueueManager::instance().setMaxConcurrent(maxConcurrent);
 
     QSettings settings;
     settings.setValue("lastEndpointIndex", index);
@@ -3209,11 +3215,13 @@ void MainWindow::onProcessingStarted(std::shared_ptr<BookDatabase> db, int messa
 
 void MainWindow::updateGenerationUI() {
     bool isGeneratingCurrentChat = false;
-    if (QueueManager::instance().isProcessing() && currentDb &&
-        currentDb == QueueManager::instance().currentProcessingDb()) {
-        auto item = QueueManager::instance().currentProcessingItem();
-        if (item.targetType == "message" && item.messageId == currentLastNodeId) {
-            isGeneratingCurrentChat = true;
+    if (QueueManager::instance().isProcessing() && currentDb) {
+        auto items = QueueManager::instance().currentProcessingItems();
+        for (const auto& mergedItem : items) {
+            if (mergedItem.db == currentDb && mergedItem.item.targetType == "message" && mergedItem.item.messageId == currentLastNodeId) {
+                isGeneratingCurrentChat = true;
+                break;
+            }
         }
     }
 
@@ -3227,9 +3235,14 @@ void MainWindow::updateGenerationUI() {
 }
 
 void MainWindow::onCancelActiveGeneration() {
-    if (QueueManager::instance().isProcessing() && currentDb == QueueManager::instance().currentProcessingDb()) {
-        int queueId = QueueManager::instance().currentProcessingItem().id;
-        QueueManager::instance().cancelItem(currentDb, queueId);
+    if (QueueManager::instance().isProcessing() && currentDb) {
+        auto items = QueueManager::instance().currentProcessingItems();
+        for (const auto& mergedItem : items) {
+            if (mergedItem.db == currentDb && mergedItem.item.targetType == "message" && mergedItem.item.messageId == currentLastNodeId) {
+                QueueManager::instance().cancelItem(currentDb, mergedItem.item.id);
+                break; // Assuming only one active generation per chat node
+            }
+        }
         updateGenerationUI();
     }
 }
