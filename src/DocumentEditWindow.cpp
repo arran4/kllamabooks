@@ -236,6 +236,9 @@ void DocumentEditWindow::setupWindow() {
     QAction* renameAction = new QAction(QIcon::fromTheme("edit-rename"), tr("Rename"), this);
     connect(renameAction, &QAction::triggered, this, &DocumentEditWindow::onRenameClicked);
 
+    QAction* saveAsTemplateAction = new QAction(QIcon::fromTheme("document-save-as"), tr("Save as Template"), this);
+    connect(saveAsTemplateAction, &QAction::triggered, this, &DocumentEditWindow::onSaveAsTemplateClicked);
+
     QAction* jumpAction = new QAction(QIcon::fromTheme("go-jump"), tr("Jump to Item"), this);
     connect(jumpAction, &QAction::triggered, this, &DocumentEditWindow::onJumpClicked);
 
@@ -264,13 +267,14 @@ void DocumentEditWindow::setupWindow() {
     mainToolBar->addAction(saveAction);
     mainToolBar->addAction(saveAsAction);
     if (m_targetType != "draft") {
-        mainToolBar->addAction(saveAsDraftAction);
+    mainToolBar->addAction(saveAsDraftAction);
     } else {
         if (replaceOriginalAction) mainToolBar->addAction(replaceOriginalAction);
         if (viewOriginalAction) mainToolBar->addAction(viewOriginalAction);
         if (dismissDraftAction) mainToolBar->addAction(dismissDraftAction);
         if (addCommentAction) mainToolBar->addAction(addCommentAction);
     }
+    mainToolBar->addAction(saveAsTemplateAction);
     mainToolBar->addAction(renameAction);
     mainToolBar->addAction(jumpAction);
     mainToolBar->addAction(closeAction);
@@ -287,6 +291,7 @@ void DocumentEditWindow::setupWindow() {
         if (dismissDraftAction) fileMenu->addAction(dismissDraftAction);
         if (addCommentAction) fileMenu->addAction(addCommentAction);
     }
+    fileMenu->addAction(saveAsTemplateAction);
     fileMenu->addSeparator();
     fileMenu->addAction(renameAction);
     fileMenu->addAction(jumpAction);
@@ -442,6 +447,21 @@ void DocumentEditWindow::onSaveAsClicked() {
             m_statusLabel->setText(tr("Saved as new document"));
             updateStatusBar();
             emit newDocumentCreated(m_documentId);
+        }
+    }
+}
+
+void DocumentEditWindow::onSaveAsTemplateClicked() {
+    bool ok;
+    QString newTitle = QInputDialog::getText(this, tr("Save As Template"), tr("Template Title:"), QLineEdit::Normal,
+                                             m_title + " (Template)", &ok);
+    if (ok && !newTitle.isEmpty()) {
+        if (m_db && m_db->isOpen()) {
+            int newId = m_db->addTemplate(0, newTitle, m_editor->toPlainText());
+            if (newId > 0) {
+                m_statusLabel->setText(tr("Saved to templates"));
+                emit newDocumentCreated(newId);
+            }
         }
     }
 }

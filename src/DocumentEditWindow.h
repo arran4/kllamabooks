@@ -33,6 +33,7 @@ class DocumentEditWindow : public KXmlGuiWindow {
     void onJumpClicked();
     void onSaveAsClicked();
     void onSaveAsDraftClicked();
+    void onSaveAsTemplateClicked();
     void onRenameClicked();
     void onContentChanged();
 
