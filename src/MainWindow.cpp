@@ -180,6 +180,7 @@ void MainWindow::setupUi() {
     openBooksTree->setDragDropMode(QAbstractItemView::DragDrop);
     openBooksTree->setDefaultDropAction(Qt::MoveAction);
     openBooksTree->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    openBooksTree->setSelectionMode(QAbstractItemView::ExtendedSelection);
     openBooksTree->setDropIndicatorShown(true);
     openBooksTree->installEventFilter(this);
     openBooksTree->viewport()->installEventFilter(this);
@@ -224,6 +225,7 @@ void MainWindow::setupUi() {
     vfsExplorer->setDragDropMode(QAbstractItemView::DragDrop);
     vfsExplorer->setDefaultDropAction(Qt::MoveAction);
     vfsExplorer->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    vfsExplorer->setSelectionMode(QAbstractItemView::ExtendedSelection);
     vfsExplorer->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(vfsExplorer, &QWidget::customContextMenuRequested, this, &MainWindow::showVfsContextMenu);
     vfsExplorer->installEventFilter(this);
@@ -2032,15 +2034,36 @@ void MainWindow::showVfsContextMenu(const QPoint& pos) {
 void MainWindow::onMergeDocumentsSelected() {
     if (!currentDb) return;
 
-    QModelIndexList selectedIndexes = vfsExplorer->selectionModel()->selectedIndexes();
     QList<int> sourceDocumentIds;
     QStringList sourceTitles;
 
+    // Check vfsExplorer first
+    QModelIndexList selectedIndexes = vfsExplorer->selectionModel()->selectedIndexes();
     for (const QModelIndex& selIndex : selectedIndexes) {
         QStandardItem* selItem = vfsModel->itemFromIndex(selIndex);
         if (selItem && selItem->data(Qt::UserRole + 1).toString() == "document") {
-            sourceDocumentIds.append(selItem->data(Qt::UserRole).toInt());
-            sourceTitles.append(selItem->text());
+            int id = selItem->data(Qt::UserRole).toInt();
+            if (!sourceDocumentIds.contains(id)) {
+                sourceDocumentIds.append(id);
+                sourceTitles.append(selItem->text());
+            }
+        }
+    }
+
+    // Check openBooksTree if not enough documents found in vfsExplorer
+    if (sourceDocumentIds.size() < 2) {
+        sourceDocumentIds.clear();
+        sourceTitles.clear();
+        selectedIndexes = openBooksTree->selectionModel()->selectedIndexes();
+        for (const QModelIndex& selIndex : selectedIndexes) {
+            QStandardItem* selItem = openBooksModel->itemFromIndex(selIndex);
+            if (selItem && selItem->data(Qt::UserRole + 1).toString() == "document") {
+                int id = selItem->data(Qt::UserRole).toInt();
+                if (!sourceDocumentIds.contains(id)) {
+                    sourceDocumentIds.append(id);
+                    sourceTitles.append(selItem->text());
+                }
+            }
         }
     }
 
@@ -3968,6 +3991,26 @@ void MainWindow::loadDocumentsAndNotes() {
  * @param pos The coordinate position to spawn the menu.
  */
 void MainWindow::showOpenBookContextMenu(const QPoint& pos) {
+    // Handle multi-selection for merge
+    QModelIndexList selectedIndexes = openBooksTree->selectionModel()->selectedIndexes();
+    int documentCount = 0;
+    for (const QModelIndex& selIndex : selectedIndexes) {
+        QStandardItem* selItem = openBooksModel->itemFromIndex(selIndex);
+        if (selItem && selItem->data(Qt::UserRole + 1).toString() == "document") {
+            documentCount++;
+        }
+    }
+
+    if (documentCount >= 2) {
+        QMenu menu(this);
+        QAction* mergeAction = menu.addAction(QIcon::fromTheme("merge"), "Merge Documents with AI...");
+        QAction* selectedAction = menu.exec(openBooksTree->viewport()->mapToGlobal(pos));
+        if (selectedAction == mergeAction) {
+            onMergeDocumentsSelected();
+        }
+        return; // Don't show regular single-item context menu
+    }
+
     QModelIndex index = openBooksTree->indexAt(pos);
     if (!index.isValid()) return;
 
