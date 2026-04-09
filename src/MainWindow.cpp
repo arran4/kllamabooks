@@ -53,6 +53,7 @@
 #include "DocumentEditWindow.h"
 #include "DocumentHistoryDialog.h"
 #include "DocumentReviewDialog.h"
+#include "DraftSelectionDialog.h"
 #include "ModelSelectionDialog.h"
 #include "DocumentTemplatesManager.h"
 #include "NewDocumentDialog.h"
@@ -1879,7 +1880,10 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
         QAction* discardAction = nullptr;
         QAction* deleteAction = nullptr;
 
+        QAction* gotoOriginalAction = nullptr;
+
         if (type == "draft") {
+            gotoOriginalAction = menu.addAction(QIcon::fromTheme("go-jump"), "Goto Original");
             discardAction = dangerMenu->addAction(QIcon::fromTheme("edit-delete"), "Discard Draft");
         } else if (type == "document") {
             deleteAction = dangerMenu->addAction(QIcon::fromTheme("edit-delete"), "Delete Document");
@@ -1900,6 +1904,26 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
             } else if (type == "note") {
                 mainContentStack->setCurrentWidget(noteContainer);
                 noteEditorView->setFocus();
+            }
+        } else if (gotoOriginalAction && selectedAction == gotoOriginalAction) {
+            int docId = item->data(Qt::UserRole).toInt();
+            if (currentDb) {
+                QList<DocumentNode> drafts = currentDb->getDrafts();
+                for (const auto& d : drafts) {
+                    if (d.id == docId) {
+                        QStandardItem* originalItem = findItemInTree(d.parentId, d.targetType);
+                        if (originalItem) {
+                            openBooksTree->setCurrentIndex(originalItem->index());
+                            openBooksTree->selectionModel()->select(originalItem->index(),
+                                                                    QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Current);
+                            openBooksTree->scrollTo(originalItem->index());
+                            onOpenBooksTreeDoubleClicked(originalItem->index());
+                        } else {
+                            statusBar->showMessage(tr("Original document not found."), 3000);
+                        }
+                        break;
+                    }
+                }
             }
         } else if (historyAction && selectedAction == historyAction) {
             onDocumentHistory();
@@ -2105,7 +2129,19 @@ void MainWindow::onBookSelected(const QModelIndex& index) {
 
     populateDocumentFolders(docsItem, 0, "documents", dbPtr.get());
     populateDocumentFolders(templatesItem, 0, "templates", dbPtr.get());
-    populateDocumentFolders(draftsItem, 0, "drafts", dbPtr.get());
+
+    // Populate Drafts Folders recursively by type
+    QStringList types = {"documents", "templates", "notes"};
+    for (const QString& tType : types) {
+        QString fName = tType;
+        fName = fName.left(1).toUpper() + fName.mid(1);
+        QStandardItem* tItem = new QStandardItem(QIcon::fromTheme("folder-open"), fName);
+        tItem->setData("drafts_folder", Qt::UserRole + 1);
+        tItem->setData(0, Qt::UserRole);
+        populateDraftsFolders(tItem, 0, tType, dbPtr.get());
+        draftsItem->appendRow(tItem);
+    }
+
     populateDocumentFolders(notesItem, 0, "notes", dbPtr.get());
 
     bookItem->appendRow(chatsItem);
@@ -2123,6 +2159,36 @@ void MainWindow::onBookSelected(const QModelIndex& index) {
     loadSession(0);  // For now, load all as one session
 
     openBooksTree->setCurrentIndex(bookItem->index());
+}
+
+void MainWindow::populateDraftsFolders(QStandardItem* parentItem, int folderId, const QString& underlyingType,
+                                       BookDatabase* db) {
+    if (!db) return;
+
+    // First, add subfolders of the underlying type
+    QList<FolderNode> folders = db->getFolders(underlyingType);
+    for (const auto& folder : folders) {
+        if (folder.parentId == folderId) {
+            QStandardItem* item = new QStandardItem(QIcon::fromTheme("folder-open"), folder.name);
+            item->setData(folder.id, Qt::UserRole);
+            item->setData("drafts_folder", Qt::UserRole + 1);
+
+            parentItem->appendRow(item);
+            populateDraftsFolders(item, folder.id, underlyingType, db);
+        }
+    }
+
+    // Now, add any drafts whose parentId corresponds to an item in this folder.
+    QList<DocumentNode> allDrafts = db->getDrafts(folderId);
+    for (const auto& doc : allDrafts) {
+        // DocumentNode targetType now works
+        if (doc.targetType == underlyingType || doc.targetType == underlyingType.left(underlyingType.length() - 1)) {
+            QStandardItem* docItem = new QStandardItem(QIcon::fromTheme("text-plain"), doc.title);
+            docItem->setData(doc.id, Qt::UserRole);
+            docItem->setData("draft", Qt::UserRole + 1);
+            parentItem->appendRow(docItem);
+        }
+    }
 }
 
 void MainWindow::populateDocumentFolders(QStandardItem* parentItem, int folderId, const QString& type,
@@ -4977,7 +5043,47 @@ void MainWindow::onEditDocument() {
         }
     }
 
-    DocumentEditWindow* editWin = new DocumentEditWindow(currentDb, currentDocumentId, currentTitle, type);
+    QString initialContent = "";
+    QString targetTypeStr = type;
+
+    // Check for associated drafts only if we are NOT currently editing a draft
+    if (targetTypeStr != "draft") {
+        QList<DocumentNode> allDrafts = currentDb->getDrafts();
+        QList<DocumentNode> associatedDrafts;
+        for (const auto& d : allDrafts) {
+            if (d.parentId == currentDocumentId) {
+                associatedDrafts.append(d);
+            }
+        }
+
+        if (!associatedDrafts.isEmpty()) {
+            DraftSelectionDialog dialog(currentDb, currentDocumentId, associatedDrafts, targetTypeStr, this);
+            int res = dialog.exec();
+            if (res == QDialog::Accepted && dialog.didSelectDraft()) {
+                initialContent = dialog.getSelectedDraftContent();
+            } else if (res == QDialog::Rejected) {
+                return;
+            } else if (res == QDialog::Accepted + 10) {
+                // Navigate to original
+                QStandardItem* originalItem = findItemInTree(associatedDrafts.first().parentId, associatedDrafts.first().targetType);
+                if (originalItem) {
+                    openBooksTree->setCurrentIndex(originalItem->index());
+                    openBooksTree->selectionModel()->select(originalItem->index(),
+                                                            QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Current);
+                    openBooksTree->scrollTo(originalItem->index());
+                    onOpenBooksTreeDoubleClicked(originalItem->index());
+                } else {
+                    statusBar->showMessage(tr("Original document not found."), 3000);
+                }
+                return;
+            }
+        }
+    }
+
+    DocumentEditWindow* editWin = new DocumentEditWindow(currentDb, currentDocumentId, currentTitle, targetTypeStr);
+    if (!initialContent.isEmpty()) {
+        editWin->setInitialContent(initialContent);
+    }
     m_openDocEditors.insert(editorKey, editWin);
 
     connect(editWin, &DocumentEditWindow::documentModified, this, [this, type](int docId) {
@@ -4996,11 +5102,24 @@ void MainWindow::onEditDocument() {
     });
 
     connect(editWin, &DocumentEditWindow::jumpToDocumentRequested, this, [this, type](int docId) {
+        // Find by type but try finding the original target type if it fails
         QStandardItem* item = findItemInTree(docId, type);
+        if (!item && type == "draft" && currentDb) {
+            QList<DocumentNode> drafts = currentDb->getDrafts();
+            for (const auto& d : drafts) {
+                if (d.id == currentDocumentId) {
+                    item = findItemInTree(d.parentId, d.targetType);
+                    break;
+                }
+            }
+        }
+
         if (item) {
+            openBooksTree->setCurrentIndex(item->index());
             openBooksTree->selectionModel()->select(item->index(),
                                                     QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Current);
             openBooksTree->scrollTo(item->index());
+            onOpenBooksTreeDoubleClicked(item->index());
         }
         this->raise();
         this->activateWindow();

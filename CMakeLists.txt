@@ -57,7 +57,9 @@ add_executable(kllamabooks
     src/DocumentTemplatesEditorWidget.cpp
     src/DocumentTemplatesEditorWidget.h
     src/DocumentEditWindow.cpp
+    src/DraftSelectionDialog.cpp
     src/DocumentEditWindow.h
+    src/DraftSelectionDialog.h
     src/DocumentReviewDialog.cpp
     src/DocumentReviewDialog.h
     src/DocumentHistoryDialog.cpp
