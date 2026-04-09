@@ -19,6 +19,7 @@
 #include <QVariantMap>
 
 #include "AIOperationsEditorWidget.h"
+#include "DocumentTemplatesEditorWidget.h"
 
 class ConnectionDialog : public QDialog {
     Q_OBJECT
@@ -81,6 +82,7 @@ class SettingsDialog : public QDialog {
     QCheckBox* m_prioritizeSameModelCheck;
 
     AIOperationsEditorWidget* m_aiOperationsEditor;
+    DocumentTemplatesEditorWidget* m_documentTemplatesEditor;
 };
 
 #endif  // SETTINGSDIALOG_H

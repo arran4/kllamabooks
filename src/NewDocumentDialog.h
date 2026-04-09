@@ -15,7 +15,7 @@ class BookDatabase;
 class NewDocumentDialog : public QDialog {
     Q_OBJECT
    public:
-    enum DocumentType { Empty, FromPrompt, FromTemplate, ResumeDraft };
+    enum DocumentType { FromTemplate, FromPrompt, ResumeDraft };
 
     explicit NewDocumentDialog(std::shared_ptr<BookDatabase> db, int defaultFolderId, QWidget* parent = nullptr);
 
@@ -23,7 +23,7 @@ class NewDocumentDialog : public QDialog {
     QString getTitle() const;
     int getSelectedFolderId() const;
     QString getPrompt() const;
-    int getSelectedTemplateId() const;
+    QString getSelectedTemplateId() const;
     int getSelectedDraftId() const;
     bool isOverwriteDocument() const;
     int getOverwriteDocumentId() const;
