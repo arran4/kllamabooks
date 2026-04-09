@@ -45,7 +45,7 @@ void DocumentEditWindow::setupWindow() {
     connect(m_editor, &QTextEdit::textChanged, this, &DocumentEditWindow::onContentChanged);
 
     // Toolbar actions
-    QAction* saveAction = new QAction(QIcon::fromTheme("document-save"), tr("Save"), this);
+    QAction* saveAction = new QAction(QIcon::fromTheme("document-save"), m_targetType == "draft" ? tr("Update Draft") : tr("Save"), this);
     connect(saveAction, &QAction::triggered, this, &DocumentEditWindow::onSaveClicked);
 
     QAction* saveAsAction = new QAction(QIcon::fromTheme("document-save-as"), tr("Save As..."), this);
@@ -54,10 +54,71 @@ void DocumentEditWindow::setupWindow() {
     QAction* saveAsDraftAction = new QAction(QIcon::fromTheme("document-new"), tr("Save as Draft"), this);
     connect(saveAsDraftAction, &QAction::triggered, this, &DocumentEditWindow::onSaveAsDraftClicked);
 
+    QAction* replaceOriginalAction = nullptr;
+    QAction* viewOriginalAction = nullptr;
+    if (m_targetType == "draft") {
+        saveAsDraftAction->setVisible(false); // Hide "Save as Draft" if it is already a draft.
+
+        replaceOriginalAction = new QAction(QIcon::fromTheme("document-export"), tr("Replace Original Document"), this);
+        connect(replaceOriginalAction, &QAction::triggered, this, [this]() {
+            if (!m_db || !m_db->isOpen()) return;
+
+            QList<DocumentNode> drafts = m_db->getDrafts(-1);
+            int parentId = 0;
+            QString targetType = "";
+            for (const auto& d : drafts) {
+                if (d.id == m_documentId) {
+                    parentId = d.parentId;
+                    targetType = d.targetType;
+                    break;
+                }
+            }
+
+            if (parentId <= 0) {
+                QMessageBox::warning(this, tr("Not Found"), tr("Cannot find original document."));
+                return;
+            }
+
+            if (targetType == "document") {
+                m_db->updateDocument(parentId, m_title, m_editor->toPlainText());
+                QMessageBox::information(this, tr("Success"), tr("Original document replaced successfully."));
+            } else if (targetType == "template") {
+                m_db->updateTemplate(parentId, m_title, m_editor->toPlainText());
+                QMessageBox::information(this, tr("Success"), tr("Original template replaced successfully."));
+            } else if (targetType == "note") {
+                m_db->updateNote(parentId, m_title, m_editor->toPlainText());
+                QMessageBox::information(this, tr("Success"), tr("Original note replaced successfully."));
+            }
+        });
+
+        viewOriginalAction = new QAction(QIcon::fromTheme("view-preview"), tr("View Original Document"), this);
+        connect(viewOriginalAction, &QAction::triggered, this, [this]() {
+            if (!m_db || !m_db->isOpen()) return;
+
+            QList<DocumentNode> drafts = m_db->getDrafts(-1);
+            int parentId = 0;
+            QString targetType = "";
+            for (const auto& d : drafts) {
+                if (d.id == m_documentId) {
+                    parentId = d.parentId;
+                    targetType = d.targetType;
+                    break;
+                }
+            }
+
+            if (parentId <= 0) {
+                QMessageBox::warning(this, tr("Not Found"), tr("Cannot find original document."));
+                return;
+            }
+
+            emit jumpToDocumentRequested(parentId); // Signal MainWindow to jump there, need to update param
+        });
+    }
+
     QAction* renameAction = new QAction(QIcon::fromTheme("edit-rename"), tr("Rename"), this);
     connect(renameAction, &QAction::triggered, this, &DocumentEditWindow::onRenameClicked);
 
-    QAction* jumpAction = new QAction(QIcon::fromTheme("go-jump"), tr("Jump to Document"), this);
+    QAction* jumpAction = new QAction(QIcon::fromTheme("go-jump"), tr("Jump to Item"), this);
     connect(jumpAction, &QAction::triggered, this, &DocumentEditWindow::onJumpClicked);
 
     QAction* closeAction = new QAction(QIcon::fromTheme("window-close"), tr("Close"), this);
@@ -66,7 +127,12 @@ void DocumentEditWindow::setupWindow() {
     KToolBar* mainToolBar = new KToolBar("mainToolBar", this);
     mainToolBar->addAction(saveAction);
     mainToolBar->addAction(saveAsAction);
-    mainToolBar->addAction(saveAsDraftAction);
+    if (m_targetType != "draft") {
+        mainToolBar->addAction(saveAsDraftAction);
+    } else {
+        if (replaceOriginalAction) mainToolBar->addAction(replaceOriginalAction);
+        if (viewOriginalAction) mainToolBar->addAction(viewOriginalAction);
+    }
     mainToolBar->addAction(renameAction);
     mainToolBar->addAction(jumpAction);
     mainToolBar->addAction(closeAction);
@@ -75,7 +141,12 @@ void DocumentEditWindow::setupWindow() {
     QMenu* fileMenu = new QMenu(tr("File"), this);
     fileMenu->addAction(saveAction);
     fileMenu->addAction(saveAsAction);
-    fileMenu->addAction(saveAsDraftAction);
+    if (m_targetType != "draft") {
+        fileMenu->addAction(saveAsDraftAction);
+    } else {
+        if (replaceOriginalAction) fileMenu->addAction(replaceOriginalAction);
+        if (viewOriginalAction) fileMenu->addAction(viewOriginalAction);
+    }
     fileMenu->addSeparator();
     fileMenu->addAction(renameAction);
     fileMenu->addAction(jumpAction);

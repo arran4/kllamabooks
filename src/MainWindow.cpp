@@ -5079,11 +5079,24 @@ void MainWindow::onEditDocument() {
     });
 
     connect(editWin, &DocumentEditWindow::jumpToDocumentRequested, this, [this, type](int docId) {
+        // Find by type but try finding the original target type if it fails
         QStandardItem* item = findItemInTree(docId, type);
+        if (!item && type == "draft" && currentDb) {
+            QList<DocumentNode> drafts = currentDb->getDrafts();
+            for (const auto& d : drafts) {
+                if (d.id == currentDocumentId) {
+                    item = findItemInTree(d.parentId, d.targetType);
+                    break;
+                }
+            }
+        }
+
         if (item) {
+            openBooksTree->setCurrentIndex(item->index());
             openBooksTree->selectionModel()->select(item->index(),
                                                     QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Current);
             openBooksTree->scrollTo(item->index());
+            onOpenBooksTreeDoubleClicked(item->index());
         }
         this->raise();
         this->activateWindow();
