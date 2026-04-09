@@ -694,7 +694,10 @@ void DocumentEditWindow::closeEvent(QCloseEvent* event) {
         msgBox.exec();
 
         if (msgBox.clickedButton() == saveDraftBtn) {
-            saveToDraft(m_title + " (Draft)");
+            int newId = saveToDraft(m_title);
+            if (newId > 0) {
+                emit newDocumentCreated(newId);
+            }
             event->accept();
         } else if (msgBox.clickedButton() == discardBtn) {
             event->accept();
