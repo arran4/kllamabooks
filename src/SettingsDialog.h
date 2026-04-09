@@ -25,13 +25,14 @@ class ConnectionDialog : public QDialog {
    public:
     explicit ConnectionDialog(QWidget* parent = nullptr, const QString& name = "New Connection",
                               const QString& backend = "Ollama", const QString& url = "http://localhost:11434",
-                              const QString& authKey = "");
+                              const QString& authKey = "", int maxConcurrent = 1);
     ~ConnectionDialog();
 
     QString name() const;
     QString backend() const;
     QString url() const;
     QString authKey() const;
+    int maxConcurrent() const;
 
    private slots:
     void onTestConnection();
@@ -41,6 +42,7 @@ class ConnectionDialog : public QDialog {
     QComboBox* m_backendCombo;
     QLineEdit* m_urlEdit;
     QLineEdit* m_authKeyEdit;
+    QSpinBox* m_maxConcurrentSpinBox;
     QPushButton* m_testButton;
 };
 
