@@ -474,6 +474,64 @@ void DocumentEditWindow::closeEvent(QCloseEvent* event) {
 
         // If it's already a draft, they can just save it or discard
         if (m_targetType == "draft") {
+            // First check if the original document has changed
+            int originalId = -1;
+            QString targetType = "";
+            QDateTime originalTimestamp;
+            QList<DocumentNode> drafts = m_db->getDrafts(-1);
+            for (const auto& d : drafts) {
+                if (d.id == m_documentId) {
+                    originalId = d.parentId;
+                    targetType = d.targetType;
+                    break;
+                }
+            }
+
+            if (originalId > 0) {
+                // Fetch the original's current timestamp
+                QList<DocumentNode> originals;
+                if (targetType == "document") originals = m_db->getDocuments(-1);
+                else if (targetType == "template") originals = m_db->getTemplates(-1);
+
+                for (const auto& doc : originals) {
+                    if (doc.id == originalId) {
+                        originalTimestamp = doc.timestamp;
+                        break;
+                    }
+                }
+
+                // If the original has changed since this draft was created, we should warn them.
+                // We use m_openTimestamp as a proxy, as we load it when the draft is opened.
+                // Wait, m_openTimestamp tracks when the *draft* was opened. We should really
+                // compare against when the draft was created/last updated, but since we don't have
+                // the original's timestamp at draft creation easily accessible without joining history,
+                // we'll just check if the original changed since we opened the draft window.
+                // It's a best-effort check given the schema.
+
+                if (originalTimestamp > m_openTimestamp) {
+                    msgBox.setText(tr("Warning: The original document has been modified since you started editing this draft.\nWould you still like to Save this draft, Discard your current edits, or Cancel?"));
+                    QPushButton* saveBtn = msgBox.addButton(tr("Save Draft"), QMessageBox::AcceptRole);
+                    QPushButton* discardBtn = msgBox.addButton(tr("Discard Edits"), QMessageBox::DestructiveRole);
+                    QPushButton* cancelBtn = msgBox.addButton(tr("Cancel"), QMessageBox::RejectRole);
+
+                    msgBox.exec();
+
+                    if (msgBox.clickedButton() == saveBtn) {
+                        if (saveToDb()) {
+                            emit documentModified(m_documentId);
+                            event->accept();
+                        } else {
+                            event->ignore();
+                        }
+                    } else if (msgBox.clickedButton() == discardBtn) {
+                        event->accept();
+                    } else {
+                        event->ignore();
+                    }
+                    return;
+                }
+            }
+
             msgBox.setText(tr("You have unsaved changes to this draft.\nWould you like to Save, Discard, or Cancel?"));
             QPushButton* saveBtn = msgBox.addButton(tr("Save"), QMessageBox::AcceptRole);
             QPushButton* discardBtn = msgBox.addButton(tr("Discard"), QMessageBox::DestructiveRole);
