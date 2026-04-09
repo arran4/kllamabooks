@@ -96,6 +96,7 @@ void DocumentEditWindow::onContentChanged() {
     QString text = m_editor->toPlainText();
     int words = text.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts).size();
     m_wordCountLabel->setText(tr("Words: %1").arg(words));
+    updateStatusBar();
 }
 
 void DocumentEditWindow::setInitialContent(const QString& content) {
@@ -103,10 +104,19 @@ void DocumentEditWindow::setInitialContent(const QString& content) {
 }
 
 void DocumentEditWindow::updateStatusBar() {
+    if (m_targetType == "draft") {
+        m_statusLabel->setText(tr("Viewing Draft"));
+        m_statusLabel->setStyleSheet("color: #FF8C00; font-weight: bold;"); // Dark Orange
+        return;
+    }
+
     QDateTime currentDbTimestamp = getLatestDbTimestamp();
     if (currentDbTimestamp > m_openTimestamp) {
         m_statusLabel->setText(tr("⚠️ Must Fork - Document was modified externally"));
         m_statusLabel->setStyleSheet("color: red; font-weight: bold;");
+    } else if (m_editor->toPlainText() != m_initialContent) {
+        m_statusLabel->setText(tr("Modified"));
+        m_statusLabel->setStyleSheet("color: blue;");
     } else {
         m_statusLabel->setText(tr("Ready"));
         m_statusLabel->setStyleSheet("");
@@ -311,7 +321,10 @@ bool DocumentEditWindow::saveToDb() {
     QDateTime currentDbTimestamp = getLatestDbTimestamp();
     // Sometimes timestamps match exactly due to seconds resolution. We consider it modified if strictly >
     // m_openTimestamp Wait, let's just do a strict greater check
-    if (currentDbTimestamp > m_openTimestamp) {
+
+    // Ignore conflict checking if this is just a draft we are editing,
+    // since the target's modifications shouldn't prevent saving the draft itself
+    if (currentDbTimestamp > m_openTimestamp && m_targetType != "draft") {
         // Conflict
         QMessageBox msgBox(this);
         msgBox.setWindowTitle(tr("Conflict Detected"));
@@ -362,6 +375,31 @@ void DocumentEditWindow::closeEvent(QCloseEvent* event) {
     if (m_editor->toPlainText() != m_initialContent) {
         QMessageBox msgBox(this);
         msgBox.setWindowTitle(tr("Unsaved Changes"));
+
+        // If it's already a draft, they can just save it or discard
+        if (m_targetType == "draft") {
+            msgBox.setText(tr("You have unsaved changes to this draft.\nWould you like to Save, Discard, or Cancel?"));
+            QPushButton* saveBtn = msgBox.addButton(tr("Save"), QMessageBox::AcceptRole);
+            QPushButton* discardBtn = msgBox.addButton(tr("Discard"), QMessageBox::DestructiveRole);
+            QPushButton* cancelBtn = msgBox.addButton(tr("Cancel"), QMessageBox::RejectRole);
+
+            msgBox.exec();
+
+            if (msgBox.clickedButton() == saveBtn) {
+                if (saveToDb()) {
+                    emit documentModified(m_documentId);
+                    event->accept();
+                } else {
+                    event->ignore();
+                }
+            } else if (msgBox.clickedButton() == discardBtn) {
+                event->accept();
+            } else {
+                event->ignore();
+            }
+            return;
+        }
+
         msgBox.setText(tr("You have unsaved changes.\nWould you like to Save to Drafts, Discard, or Cancel?"));
 
         QPushButton* saveDraftBtn = msgBox.addButton(tr("Save to Drafts"), QMessageBox::AcceptRole);

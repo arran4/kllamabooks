@@ -5034,26 +5034,26 @@ void MainWindow::onEditDocument() {
     }
 
     QString initialContent = "";
-    QString targetTypeStr = "document";
-    if (item && item->data(Qt::UserRole + 1).toString().startsWith("template")) targetTypeStr = "template";
-    else if (item && item->data(Qt::UserRole + 1).toString().startsWith("note")) targetTypeStr = "note";
+    QString targetTypeStr = type;
 
-    // Check for associated drafts
-    QList<DocumentNode> allDrafts = currentDb->getDrafts();
-    QList<DocumentNode> associatedDrafts;
-    for (const auto& d : allDrafts) {
-        if (d.parentId == currentDocumentId) {
-            associatedDrafts.append(d);
+    // Check for associated drafts only if we are NOT currently editing a draft
+    if (targetTypeStr != "draft") {
+        QList<DocumentNode> allDrafts = currentDb->getDrafts();
+        QList<DocumentNode> associatedDrafts;
+        for (const auto& d : allDrafts) {
+            if (d.parentId == currentDocumentId) {
+                associatedDrafts.append(d);
+            }
         }
-    }
 
-    if (!associatedDrafts.isEmpty()) {
-        DraftSelectionDialog dialog(currentDb, currentDocumentId, associatedDrafts, targetTypeStr, this);
-        int res = dialog.exec();
-        if (res == QDialog::Accepted && dialog.didSelectDraft()) {
-            initialContent = dialog.getSelectedDraftContent();
-        } else if (res == QDialog::Rejected) {
-            return;
+        if (!associatedDrafts.isEmpty()) {
+            DraftSelectionDialog dialog(currentDb, currentDocumentId, associatedDrafts, targetTypeStr, this);
+            int res = dialog.exec();
+            if (res == QDialog::Accepted && dialog.didSelectDraft()) {
+                initialContent = dialog.getSelectedDraftContent();
+            } else if (res == QDialog::Rejected) {
+                return;
+            }
         }
     }
 
