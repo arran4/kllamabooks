@@ -14,6 +14,7 @@ struct MessageNode {
     QString role;  // "user" or "assistant"
     QDateTime timestamp;
     QList<MessageNode*> children;
+    bool isExpanded = false;
 };
 
 struct DocumentNode {
@@ -54,6 +55,7 @@ struct FolderNode {
     QString type;  // "documents", "notes", "templates", "drafts"
     QDateTime timestamp;
     int position;
+    bool isExpanded = false;
 };
 
 struct QueueItem {
@@ -157,6 +159,8 @@ class BookDatabase {
     int addFolder(int parentId, const QString& name, const QString& type);
     bool updateFolder(int id, const QString& newName);
     bool deleteFolder(int id);
+    void setFolderExpanded(int id, bool expanded);
+    void setMessageExpanded(int id, bool expanded);
     QList<FolderNode> getFolders(const QString& type) const;
     bool moveItem(const QString& table, int id, int newFolderId);
     bool moveFolder(int id, int newParentId);

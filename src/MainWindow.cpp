@@ -189,6 +189,34 @@ void MainWindow::setupUi() {
 
     connect(openBooksTree, &QTreeView::doubleClicked, this, &MainWindow::onOpenBooksTreeDoubleClicked);
 
+    connect(openBooksTree, &QTreeView::expanded, this, [this](const QModelIndex& index) {
+        if (!currentDb) return;
+        QStandardItem* item = openBooksModel->itemFromIndex(index);
+        if (item) {
+            int id = item->data(Qt::UserRole).toInt();
+            QString type = item->data(Qt::UserRole + 1).toString();
+            if (type.endsWith("_folder")) {
+                currentDb->setFolderExpanded(id, true);
+            } else if (type == "chat_node") {
+                currentDb->setMessageExpanded(id, true);
+            }
+        }
+    });
+
+    connect(openBooksTree, &QTreeView::collapsed, this, [this](const QModelIndex& index) {
+        if (!currentDb) return;
+        QStandardItem* item = openBooksModel->itemFromIndex(index);
+        if (item) {
+            int id = item->data(Qt::UserRole).toInt();
+            QString type = item->data(Qt::UserRole + 1).toString();
+            if (type.endsWith("_folder")) {
+                currentDb->setFolderExpanded(id, false);
+            } else if (type == "chat_node") {
+                currentDb->setMessageExpanded(id, false);
+            }
+        }
+    });
+
     bookList = new QListWidget(this);
     bookList->setMinimumSize(0, 0);
     bookList->setAcceptDrops(true);
@@ -2123,6 +2151,14 @@ void MainWindow::onBookSelected(const QModelIndex& index) {
     draftsItem->setData("drafts_folder", Qt::UserRole + 1);
 
     // Populate actual chats from database directly into the tree
+    bookItem->appendRow(chatsItem);
+    bookItem->appendRow(docsItem);
+    bookItem->appendRow(notesItem);
+    bookItem->appendRow(templatesItem);
+    bookItem->appendRow(draftsItem);
+
+    openBooksModel->appendRow(bookItem);
+
     auto dbPtr = currentDb;  // Keep shared_ptr to avoid issues during iteration
     QList<MessageNode> msgs = currentDb->getMessages();
     populateChatFolders(chatsItem, 0, msgs, dbPtr.get());
@@ -2144,14 +2180,11 @@ void MainWindow::onBookSelected(const QModelIndex& index) {
 
     populateDocumentFolders(notesItem, 0, "notes", dbPtr.get());
 
-    bookItem->appendRow(chatsItem);
-    bookItem->appendRow(docsItem);
-    bookItem->appendRow(notesItem);
-    bookItem->appendRow(templatesItem);
-    bookItem->appendRow(draftsItem);
-
-    openBooksModel->appendRow(bookItem);
-    openBooksTree->expandAll();
+    // Always expand the book root and its primary categories
+    openBooksTree->setExpanded(bookItem->index(), true);
+    for (int i = 0; i < bookItem->rowCount(); ++i) {
+        openBooksTree->setExpanded(bookItem->child(i)->index(), true);
+    }
 
     // Remove from closed books list
     delete bookList->takeItem(index.row());
@@ -2213,6 +2246,9 @@ void MainWindow::populateDocumentFolders(QStandardItem* parentItem, int folderId
 
             parentItem->appendRow(item);
             populateDocumentFolders(item, folder.id, type, db);
+            if (folder.isExpanded) {
+                openBooksTree->setExpanded(item->index(), true);
+            }
         }
     }
 
@@ -2297,7 +2333,6 @@ void MainWindow::loadSession(int rootId) {
     QList<MessageNode> msgs = currentDb->getMessages();
     QStandardItem* rootItem = chatModel->invisibleRootItem();
     populateChatFolders(rootItem, 0, msgs, currentDb.get());
-    chatTree->expandAll();
 
     if (!msgs.isEmpty()) {
         currentLastNodeId = msgs.last().id;
@@ -2396,6 +2431,10 @@ void MainWindow::populateChatFolders(QStandardItem* parentItem, int folderId, co
 
             // Recurse into subfolders
             populateChatFolders(folderItem, folder.id, allMessages, db);
+
+            if (folder.isExpanded) {
+                openBooksTree->setExpanded(folderItem->index(), true);
+            }
         }
     }
 
@@ -2425,6 +2464,10 @@ void MainWindow::populateChatFolders(QStandardItem* parentItem, int folderId, co
 
             // Populate the rest of the branch under this root message
             populateMessageForks(item, endNodeId, allMessages);
+
+            if (msg.isExpanded) {
+                openBooksTree->setExpanded(item->index(), true);
+            }
         }
     }
 }
@@ -2455,8 +2498,13 @@ void MainWindow::populateMessageForks(QStandardItem* parentItem, int parentId, c
             item->setData(endNodeId, Qt::UserRole);
             item->setData("chat_node", Qt::UserRole + 1);
             parentItem->appendRow(item);
+
             // Recursively populate under this item.
             populateMessageForks(item, endNodeId, allMessages);
+
+            if (msg.isExpanded) {
+                openBooksTree->setExpanded(item->index(), true);
+            }
         }
     }
 }
@@ -3835,33 +3883,6 @@ void MainWindow::onOpenBooksSelectionChanged(const QItemSelection& selected, con
     updateBreadcrumbs();
 }
 
-namespace {
-void saveExpandedState(QTreeView* tree, QStandardItem* item, QSet<QString>& expanded) {
-    if (!item) return;
-    if (tree->isExpanded(item->index())) {
-        QString path = item->text();
-        QStandardItem* p = item->parent();
-        while (p) {
-            path = p->text() + "/" + path;
-            p = p->parent();
-        }
-        expanded.insert(path);
-    }
-    for (int i = 0; i < item->rowCount(); ++i) saveExpandedState(tree, item->child(i), expanded);
-}
-void restoreExpandedState(QTreeView* tree, QStandardItem* item, const QSet<QString>& expanded) {
-    if (!item) return;
-    QString path = item->text();
-    QStandardItem* p = item->parent();
-    while (p) {
-        path = p->text() + "/" + path;
-        p = p->parent();
-    }
-    if (expanded.contains(path)) tree->setExpanded(item->index(), true);
-    for (int i = 0; i < item->rowCount(); ++i) restoreExpandedState(tree, item->child(i), expanded);
-}
-}  // namespace
-
 /** * @brief Reloads the primary side-pane `openBooksTree` showing all folders, documents, and chat records. *  * This
  * function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to
  * internal application models. */
@@ -3877,11 +3898,6 @@ void MainWindow::loadDocumentsAndNotes() {
             currId = currItem->data(Qt::UserRole).toInt();
             currType = currItem->data(Qt::UserRole + 1).toString();
         }
-    }
-
-    QSet<QString> expanded;
-    for (int i = 0; i < openBooksModel->rowCount(); ++i) {
-        saveExpandedState(openBooksTree, openBooksModel->item(i), expanded);
     }
 
     for (int i = 0; i < openBooksModel->rowCount(); ++i) {
@@ -3929,10 +3945,6 @@ void MainWindow::loadDocumentsAndNotes() {
             chatsFolder->removeRows(0, chatsFolder->rowCount());
             populateChatFolders(chatsFolder, 0, currentDb->getMessages(), db.get());
         }
-    }
-
-    for (int i = 0; i < openBooksModel->rowCount(); ++i) {
-        restoreExpandedState(openBooksTree, openBooksModel->item(i), expanded);
     }
 
     if (currId != 0 || !currType.isEmpty()) {
