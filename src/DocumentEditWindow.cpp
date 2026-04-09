@@ -79,6 +79,82 @@ void DocumentEditWindow::setupWindow() {
                 return;
             }
 
+            QDateTime originalTimestamp;
+            QList<DocumentNode> originals;
+            if (targetType == "document") originals = m_db->getDocuments(-1);
+            else if (targetType == "template") originals = m_db->getTemplates(-1);
+            else if (targetType == "note") {
+                auto notes = m_db->getNotes(-1);
+                for (const auto& n : notes) {
+                    if (n.id == parentId) {
+                        originalTimestamp = n.timestamp;
+                        break;
+                    }
+                }
+            }
+            if (targetType != "note") {
+                for (const auto& doc : originals) {
+                    if (doc.id == parentId) {
+                        originalTimestamp = doc.timestamp;
+                        break;
+                    }
+                }
+            }
+
+            if (originalTimestamp > m_openTimestamp) {
+                QMessageBox msgBox(this);
+                msgBox.setWindowTitle(tr("Conflict Detected"));
+                msgBox.setText(tr("Warning: The original document has drifted (been modified) since this draft was opened.\nWhat would you like to do?"));
+
+                QPushButton* continueBtn = msgBox.addButton(tr("Continue & Replace"), QMessageBox::AcceptRole);
+                QPushButton* forkBtn = msgBox.addButton(tr("Create New Forked Document"), QMessageBox::AcceptRole);
+                QPushButton* deleteDraftBtn = msgBox.addButton(tr("Delete Draft & Cancel"), QMessageBox::DestructiveRole);
+                QPushButton* cancelBtn = msgBox.addButton(tr("Cancel"), QMessageBox::RejectRole);
+
+                msgBox.exec();
+
+                if (msgBox.clickedButton() == continueBtn) {
+                    // fallthrough to regular replace logic
+                } else if (msgBox.clickedButton() == forkBtn) {
+                    bool ok;
+                    QString newTitle = QInputDialog::getText(this, tr("Create Fork"), tr("New Title:"), QLineEdit::Normal, m_title + " (Fork)", &ok);
+                    if (ok && !newTitle.isEmpty()) {
+                        int folderId = 0;
+                        for (const auto& doc : originals) {
+                            if (doc.id == parentId) {
+                                folderId = doc.folderId;
+                                break;
+                            }
+                        }
+                        if (targetType == "note") {
+                            auto notes = m_db->getNotes(-1);
+                            for (const auto& n : notes) {
+                                if (n.id == parentId) {
+                                    folderId = n.folderId;
+                                    break;
+                                }
+                            }
+                            m_db->addNote(folderId, newTitle, m_editor->toPlainText());
+                        } else if (targetType == "document") {
+                            m_db->addDocument(folderId, newTitle, m_editor->toPlainText());
+                        } else if (targetType == "template") {
+                            m_db->addTemplate(folderId, newTitle, m_editor->toPlainText());
+                        }
+                        m_db->deleteDraft(m_documentId);
+                        emit documentModified(m_documentId);
+                        close();
+                    }
+                    return;
+                } else if (msgBox.clickedButton() == deleteDraftBtn) {
+                    m_db->deleteDraft(m_documentId);
+                    emit documentModified(m_documentId);
+                    close();
+                    return;
+                } else {
+                    return; // Cancel
+                }
+            }
+
             if (targetType == "document") {
                 m_db->updateDocument(parentId, m_title, m_editor->toPlainText());
                 QMessageBox::information(this, tr("Success"), tr("Original document replaced successfully."));
