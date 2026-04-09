@@ -319,12 +319,13 @@ void DocumentEditWindow::onSaveAsClicked() {
 void DocumentEditWindow::onSaveAsDraftClicked() {
     bool ok;
     QString newTitle = QInputDialog::getText(this, tr("Save As Draft"), tr("Draft Title:"), QLineEdit::Normal,
-                                             m_title + " (Draft)", &ok);
+                                             m_title, &ok);
     if (ok && !newTitle.isEmpty()) {
         int newId = saveToDraft(newTitle);
         if (newId > 0) {
             m_statusLabel->setText(tr("Saved to drafts"));
             emit newDocumentCreated(newId);
+            close(); // Close active window since it was saved as draft
         }
     }
 }
