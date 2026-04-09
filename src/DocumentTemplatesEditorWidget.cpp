@@ -104,7 +104,12 @@ void DocumentTemplatesEditorWidget::setTemplates(const QList<DocumentTemplate>& 
         QTableWidgetItem* nameItem = new QTableWidgetItem(tpl.name);
         nameItem->setData(Qt::UserRole, tpl.id);
         m_table->setItem(row, 0, nameItem);
-        m_table->setItem(row, 1, new QTableWidgetItem(tpl.content.split('\n').first() + "..."));
+
+        QString preview = tpl.content.section('\n', 0, 0);
+        if (tpl.content.contains('\n') || tpl.content.length() > preview.length()) {
+            preview += "...";
+        }
+        m_table->setItem(row, 1, new QTableWidgetItem(preview));
         m_table->setItem(row, 2, new QTableWidgetItem(m_level));
 
         // Store full content in hidden data
@@ -119,7 +124,11 @@ void DocumentTemplatesEditorWidget::setTemplates(const QList<DocumentTemplate>& 
         nameItem->setForeground(QBrush(Qt::gray));
         m_table->setItem(row, 0, nameItem);
 
-        QTableWidgetItem* contentItem = new QTableWidgetItem(tpl.content.split('\n').first() + "...");
+        QString preview = tpl.content.section('\n', 0, 0);
+        if (tpl.content.contains('\n') || tpl.content.length() > preview.length()) {
+            preview += "...";
+        }
+        QTableWidgetItem* contentItem = new QTableWidgetItem(preview);
         contentItem->setForeground(QBrush(Qt::gray));
         m_table->setItem(row, 1, contentItem);
 
@@ -152,7 +161,12 @@ void DocumentTemplatesEditorWidget::onAdd() {
         nameItem->setData(Qt::UserRole, tpl.id);
         nameItem->setData(Qt::UserRole + 1, tpl.content);
         m_table->setItem(row, 0, nameItem);
-        m_table->setItem(row, 1, new QTableWidgetItem(tpl.content.split('\n').first() + "..."));
+
+        QString preview = tpl.content.section('\n', 0, 0);
+        if (tpl.content.contains('\n') || tpl.content.length() > preview.length()) {
+            preview += "...";
+        }
+        m_table->setItem(row, 1, new QTableWidgetItem(preview));
         m_table->setItem(row, 2, new QTableWidgetItem(m_level));
     }
 }
@@ -172,7 +186,12 @@ void DocumentTemplatesEditorWidget::onEdit() {
         DocumentTemplate newTpl = dlg.getTemplate();
         m_table->item(row, 0)->setText(newTpl.name);
         m_table->item(row, 0)->setData(Qt::UserRole + 1, newTpl.content);
-        m_table->item(row, 1)->setText(newTpl.content.split('\n').first() + "...");
+
+        QString preview = newTpl.content.section('\n', 0, 0);
+        if (newTpl.content.contains('\n') || newTpl.content.length() > preview.length()) {
+            preview += "...";
+        }
+        m_table->item(row, 1)->setText(preview);
     }
 }
 
