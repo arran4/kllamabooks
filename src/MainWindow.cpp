@@ -3797,6 +3797,23 @@ void MainWindow::onOpenBooksSelectionChanged(const QItemSelection& selected, con
         }
         multiSelectionLayout->addWidget(listWidget);
 
+        QTextEdit* previewPane = new QTextEdit(this);
+        previewPane->setReadOnly(true);
+        previewPane->setPlaceholderText(tr("Select an item above to preview its contents..."));
+
+        connect(listWidget, &QListWidget::itemSelectionChanged, this, [this, listWidget, previewPane]() {
+            QList<QListWidgetItem*> selItems = listWidget->selectedItems();
+            if (!selItems.isEmpty()) {
+                int id = selItems.first()->data(Qt::UserRole).toInt();
+                QString type = selItems.first()->data(Qt::UserRole + 1).toString();
+                QString outTitle, outContent;
+                getDocumentContent(id, type, outTitle, outContent);
+                previewPane->setPlainText(outContent);
+            } else {
+                previewPane->clear();
+            }
+        });
+
         QPushButton* previewBtn = new QPushButton(tr("Preview Selected in New Windows"));
         connect(previewBtn, &QPushButton::clicked, this, [this, listWidget]() {
             for (int i = 0; i < listWidget->count(); ++i) {
@@ -3807,6 +3824,7 @@ void MainWindow::onOpenBooksSelectionChanged(const QItemSelection& selected, con
 
                 DocumentEditWindow* editWin = new DocumentEditWindow(currentDb, id, title, type, this);
                 editWin->setWindowModality(Qt::NonModal);
+                editWin->setReadOnly(true);
                 editWin->show();
                 connect(editWin, &DocumentEditWindow::jumpToDocumentRequested, this, [this, type](int docId) {
                     QStandardItem* item = findItemInTree(docId, type);
@@ -3821,7 +3839,12 @@ void MainWindow::onOpenBooksSelectionChanged(const QItemSelection& selected, con
             }
         });
         multiSelectionLayout->addWidget(previewBtn);
-        multiSelectionLayout->addStretch();
+
+        QPushButton* mergeBtn = new QPushButton(QIcon::fromTheme("merge"), tr("Merge Documents with AI..."));
+        connect(mergeBtn, &QPushButton::clicked, this, &MainWindow::onMergeDocumentsSelected);
+        multiSelectionLayout->addWidget(mergeBtn);
+
+        multiSelectionLayout->addWidget(previewPane);
 
         mainContentStack->setCurrentWidget(multiSelectionView);
         return;
