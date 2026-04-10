@@ -24,6 +24,7 @@ struct DocumentNode {
     QString content;
     QDateTime timestamp;
     bool isFolder;  // Deprecated, but keeping for compatibility during migration if needed
+    QString metadata;
 };
 
 struct ChatNode {

@@ -163,6 +163,8 @@ class MainWindow : public KXmlGuiWindow {
     QListWidget* bookList;             // Closed books
     QStackedWidget* mainContentStack;  // To switch between main views
     QWidget* emptyView;
+    QWidget* multiSelectionView;
+    QVBoxLayout* multiSelectionLayout;
     QListView* vfsExplorer;
     CustomItemModel* vfsModel;
     QWidget* chatWindowView;

@@ -347,7 +347,21 @@ void QueueManager::onChunk(const QString& chunk) {
     if (m_currentDb && m_currentDb->isOpen()) {
         QString currentContent;
         if (m_currentItem.targetType == "document") {
-            // For documents, we do not update the document directly.
+            if (m_currentItem.targetAction == "replace_direct") {
+                auto docs = m_currentDb->getDocuments();
+                QString title, metadata;
+                for (const auto& d : docs) {
+                    if (d.id == m_currentItem.messageId) {
+                        currentContent = d.content;
+                        if (currentContent == "*Generating merge...*") currentContent = "";
+                        title = d.title;
+                        metadata = d.metadata;
+                        break;
+                    }
+                }
+                m_currentDb->updateDocument(m_currentItem.messageId, title, currentContent + chunk, metadata);
+            }
+            // For other document actions, we do not update the document directly.
             // Just emit the chunk for the preview.
         } else {
             // Get existing content and append
@@ -373,9 +387,24 @@ void QueueManager::onComplete(const QString& response) {
     if (!m_isProcessing) return;
     if (m_currentDb && m_currentDb->isOpen()) {
         if (m_currentItem.targetType == "document") {
-            // Document results are queued for review, NOT applied immediately.
-            m_currentDb->updateQueueItemState(m_currentItem.id, "completed", response);
-            m_currentDb->addNotification(m_currentItem.id, "review_needed");
+            if (m_currentItem.targetAction == "replace_direct") {
+                // Directly replace content without review.
+                auto docs = m_currentDb->getDocuments();
+                QString title, metadata;
+                for (const auto& d : docs) {
+                    if (d.id == m_currentItem.messageId) {
+                        title = d.title;
+                        metadata = d.metadata;
+                        break;
+                    }
+                }
+                m_currentDb->updateDocument(m_currentItem.messageId, title, response, metadata);
+                m_currentDb->deleteQueueItem(m_currentItem.id);
+            } else {
+                // Document results are queued for review, NOT applied immediately.
+                m_currentDb->updateQueueItemState(m_currentItem.id, "completed", response);
+                m_currentDb->addNotification(m_currentItem.id, "review_needed");
+            }
         } else {
             m_currentDb->updateMessage(m_currentItem.messageId, response);
             m_currentDb->deleteQueueItem(m_currentItem.id);

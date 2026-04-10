@@ -213,6 +213,11 @@ void MainWindow::setupUi() {
     emptyView = new QWidget(this);
     mainContentStack->addWidget(emptyView);
 
+    multiSelectionView = new QWidget(this);
+    multiSelectionLayout = new QVBoxLayout(multiSelectionView);
+    multiSelectionLayout->setAlignment(Qt::AlignTop);
+    mainContentStack->addWidget(multiSelectionView);
+
     vfsExplorer = new QListView(this);
     vfsModel = new CustomItemModel(this);
     vfsModel->setMainWindow(this);
@@ -2100,11 +2105,11 @@ void MainWindow::onMergeDocumentsSelected() {
             int newFolderId = currentDb->addFolder(targetFolderId, baseTitle + " (Models)", "docs_folder");
             for (const QString& model : selectedModels) {
                 int newDocId = currentDb->addDocument(newFolderId, model + " Generation", "*Generating merge...*", 0, metaStr);
-                currentDb->enqueuePrompt(newDocId, model, finalPrompt, 0, "document", 0, "replace");
+                currentDb->enqueuePrompt(newDocId, model, finalPrompt, 0, "document", 0, "replace_direct");
             }
         } else {
             int newDocId = currentDb->addDocument(targetFolderId, baseTitle, "*Generating merge...*", 0, metaStr);
-            currentDb->enqueuePrompt(newDocId, selectedModels.first(), finalPrompt, 0, "document", 0, "replace");
+            currentDb->enqueuePrompt(newDocId, selectedModels.first(), finalPrompt, 0, "document", 0, "replace_direct");
         }
 
         loadDocumentsAndNotes();
@@ -3220,6 +3225,10 @@ void MainWindow::onQueueChunk(std::shared_ptr<BookDatabase> db, int messageId, c
     if (currentDb == db) {
         if (targetType == "document" && currentDocumentId == messageId) {
             documentEditorView->blockSignals(true);
+            QString text = documentEditorView->toPlainText();
+            if (text == "*Generating merge...*") {
+                documentEditorView->setPlainText("");
+            }
             QTextCursor cursor = documentEditorView->textCursor();
             cursor.movePosition(QTextCursor::End);
             documentEditorView->setTextCursor(cursor);
@@ -3321,7 +3330,7 @@ void MainWindow::onProcessingFinished(std::shared_ptr<BookDatabase> db, int mess
                                       const QString& targetType) {
     if (currentDb == db) {
         if (targetType == "document" && currentDocumentId == messageId) {
-            statusBar->showMessage(success ? tr("AI document generation complete. Pending review.")
+            statusBar->showMessage(success ? tr("AI document generation complete.")
                                            : tr("Error generating document changes."),
                                    3000);
         } else if (targetType == "message" && currentLastNodeId == messageId) {
@@ -3755,12 +3764,70 @@ void MainWindow::refreshVfsExplorer() {
  * * This function is an integral component of the MainWindow class structure. * It ensures that side effects map
  * accurately to internal application models. */
 void MainWindow::onOpenBooksSelectionChanged(const QItemSelection& selected, const QItemSelection& deselected) {
-    if (selected.indexes().isEmpty()) {
+    if (openBooksTree->selectionModel()->selectedIndexes().isEmpty()) {
         mainContentStack->setCurrentWidget(emptyView);
         return;
     }
 
-    QModelIndex index = selected.indexes().first();
+    QModelIndexList selectedIndexes = openBooksTree->selectionModel()->selectedIndexes();
+
+    if (selectedIndexes.size() > 1) {
+        QLayoutItem* child;
+        while ((child = multiSelectionLayout->takeAt(0)) != nullptr) {
+            delete child->widget();
+            delete child;
+        }
+
+        QLabel* multiLabel = new QLabel(tr("%1 items selected").arg(selectedIndexes.size()));
+        multiLabel->setStyleSheet("font-weight: bold; font-size: 16px; margin: 10px;");
+        multiSelectionLayout->addWidget(multiLabel);
+
+        QListWidget* listWidget = new QListWidget(this);
+        for (const QModelIndex& selIndex : selectedIndexes) {
+            QStandardItem* selItem = openBooksModel->itemFromIndex(selIndex);
+            if (selItem) {
+                QString type = selItem->data(Qt::UserRole + 1).toString();
+                if (type == "document" || type == "note" || type == "template" || type == "draft") {
+                    QListWidgetItem* listItem = new QListWidgetItem(selItem->icon(), selItem->text());
+                    listItem->setData(Qt::UserRole, selItem->data(Qt::UserRole));
+                    listItem->setData(Qt::UserRole + 1, type);
+                    listWidget->addItem(listItem);
+                }
+            }
+        }
+        multiSelectionLayout->addWidget(listWidget);
+
+        QPushButton* previewBtn = new QPushButton(tr("Preview Selected in New Windows"));
+        connect(previewBtn, &QPushButton::clicked, this, [this, listWidget]() {
+            for (int i = 0; i < listWidget->count(); ++i) {
+                QListWidgetItem* item = listWidget->item(i);
+                int id = item->data(Qt::UserRole).toInt();
+                QString type = item->data(Qt::UserRole + 1).toString();
+                QString title = item->text();
+
+                DocumentEditWindow* editWin = new DocumentEditWindow(currentDb, id, title, type, this);
+                editWin->setWindowModality(Qt::NonModal);
+                editWin->show();
+                connect(editWin, &DocumentEditWindow::jumpToDocumentRequested, this, [this, type](int docId) {
+                    QStandardItem* item = findItemInTree(docId, type);
+                    if (item) {
+                        openBooksTree->selectionModel()->select(item->index(),
+                                                                QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Current);
+                        openBooksTree->scrollTo(item->index());
+                    }
+                    this->raise();
+                    this->activateWindow();
+                });
+            }
+        });
+        multiSelectionLayout->addWidget(previewBtn);
+        multiSelectionLayout->addStretch();
+
+        mainContentStack->setCurrentWidget(multiSelectionView);
+        return;
+    }
+
+    QModelIndex index = selectedIndexes.first();
     QStandardItem* item = openBooksModel->itemFromIndex(index);
     if (!item) {
         mainContentStack->setCurrentWidget(emptyView);
