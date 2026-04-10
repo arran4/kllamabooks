@@ -114,15 +114,15 @@ MergeDocumentsDialog::MergeDocumentsDialog(BookDatabase* db, const QList<int>& d
 }
 
 void MergeDocumentsDialog::loadTemplates() {
-    m_templates = AIOperationsManager::getMergedOperations(m_db);
-
-    // Check if there's any specific merge templates, for now we load all AI operations
-    // or we could filter them if they have a specific merge tag.
-    // Let's just add all and a default one.
+    QList<AIOperation> allOps = AIOperationsManager::getMergedOperations(m_db);
+    m_templates.clear();
 
     m_templateCombo->addItem(tr("Default Merge"));
-    for (const auto& op : m_templates) {
-        m_templateCombo->addItem(op.name, op.id);
+    for (const auto& op : allOps) {
+        if (op.inputType == "multiple" || op.inputType == "any") {
+            m_templates.append(op);
+            m_templateCombo->addItem(op.name, op.id);
+        }
     }
 }
 
