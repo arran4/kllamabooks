@@ -5149,7 +5149,7 @@ void MainWindow::handleNewDocumentCreation(int defaultFolderId) {
                 for (const QString& model : models) {
                     QString docTitle = title + " (" + model + ")";
                     newDocId = currentDb->addDocument(newFolderId, docTitle, "*Generating...*");
-                    currentDb->enqueuePrompt(newDocId, model, prompt, 0, "document", 0, "replace_direct");
+                    if (newDocId != -1) currentDb->enqueuePrompt(newDocId, model, prompt, 0, "document", 0, "replace_direct");
                 }
             } else {
                 QString model = models.isEmpty() ? "" : models.first();
