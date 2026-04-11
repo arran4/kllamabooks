@@ -4433,8 +4433,16 @@ void MainWindow::updateNotificationStatus() {
         total += notifications.size();
         for (const auto& n : notifications) {
             QString bookName = QFileInfo(db->filepath()).fileName();
-            QString typeStr =
-                (n.type == "error") ? tr("Error") : (n.type == "review_needed" ? tr("Review Needed") : tr("Finished"));
+            QString typeStr;
+            if (n.type == "error") {
+                typeStr = tr("Error");
+            } else if (n.type == "review_needed") {
+                typeStr = tr("Review Needed");
+            } else if (n.type == "finished_generation") {
+                typeStr = tr("Finished Generation");
+            } else {
+                typeStr = tr("Finished");
+            }
             QAction* action = notificationMenu->addAction(
                 QString("[%1] %2: Msg %3").arg(bookName, typeStr, QString::number(n.targetId)));
             connect(action, &QAction::triggered, this, [this, db, n, bookName]() {
@@ -4551,7 +4559,7 @@ void MainWindow::updateNotificationStatus() {
                     dialog.setWindowTitle(tr("Notification Summary"));
                     QVBoxLayout* layout = new QVBoxLayout(&dialog);
 
-                    QString typeStr = tr("Finished");
+                    QString typeStr = (n.type == "finished_generation") ? tr("Finished Generation") : tr("Finished");
                     QLabel* summary =
                         new QLabel(QString("<b>Book:</b> %1<br><b>Status:</b> %2<br><b>Target ID:</b> %3")
                                        .arg(bookName, typeStr, QString::number(n.targetId)));
@@ -5141,12 +5149,12 @@ void MainWindow::handleNewDocumentCreation(int defaultFolderId) {
                 for (const QString& model : models) {
                     QString docTitle = title + " (" + model + ")";
                     newDocId = currentDb->addDocument(newFolderId, docTitle, "*Generating...*");
-                    currentDb->enqueuePrompt(newDocId, model, prompt, 0, "document", 0, "replace");
+                    if (newDocId != -1) currentDb->enqueuePrompt(newDocId, model, prompt, 0, "document", 0, "replace_direct");
                 }
             } else {
                 QString model = models.isEmpty() ? "" : models.first();
                 newDocId = currentDb->addDocument(folderId, title, "*Generating...*");
-                currentDb->enqueuePrompt(newDocId, model, prompt, 0, "document", 0, "replace");
+                if (newDocId != -1) currentDb->enqueuePrompt(newDocId, model, prompt, 0, "document", 0, "replace_direct");
                 shouldNavigate = true;
             }
             loadDocumentsAndNotes();
