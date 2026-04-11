@@ -292,11 +292,16 @@ void MainWindow::setupUi() {
     QPushButton* docHistoryBtn = new QPushButton(QIcon::fromTheme("view-history"), "History", this);
     connect(docHistoryBtn, &QPushButton::clicked, this, &MainWindow::onDocumentHistory);
 
+    regenerateMergeBtn = new QPushButton(QIcon::fromTheme("view-refresh"), "Regenerate Merge", this);
+    connect(regenerateMergeBtn, &QPushButton::clicked, this, &MainWindow::onRegenerateMerge);
+    regenerateMergeBtn->hide();
+
     docToolbar->addWidget(backToDocsBtn);
     docToolbar->addWidget(editDocBtn);
     docToolbar->addWidget(previewDocBtn);
     docToolbar->addWidget(docHistoryBtn);
     docToolbar->addWidget(aiOperationsBtn);
+    docToolbar->addWidget(regenerateMergeBtn);
     docLayout->addWidget(docToolbar);
 
     documentStack = new QStackedWidget(this);
@@ -3998,6 +4003,7 @@ void MainWindow::onOpenBooksSelectionChanged(const QItemSelection& selected, con
         if (type == "document" || type == "template" || type == "draft") {
             currentDocumentId = nodeId;
             isCreatingNewDoc = (nodeId == 0);
+            regenerateMergeBtn->hide();
             if (isCreatingNewDoc) {
                 documentEditorView->clear();
                 mainContentStack->setCurrentWidget(docContainer);
@@ -4013,6 +4019,20 @@ void MainWindow::onOpenBooksSelectionChanged(const QItemSelection& selected, con
                     if (doc.id == currentDocumentId) {
                         documentEditorView->setPlainText(doc.content);
                         mainContentStack->setCurrentWidget(docContainer);
+
+                        // Check if it's a merge document to show regenerate button
+                        if (type == "document") {
+                            QJsonDocument docMeta = QJsonDocument::fromJson(doc.metadata.toUtf8());
+                            if (!docMeta.isNull() && docMeta.isObject()) {
+                                QJsonObject obj = docMeta.object();
+                                if (obj.value("type").toString() == "merge") {
+                                    if (!doc.content.contains("*Generating merge...*")) {
+                                        regenerateMergeBtn->show();
+                                    }
+                                }
+                            }
+                        }
+
                         break;
                     }
                 }
@@ -4567,9 +4587,47 @@ void MainWindow::updateNotificationStatus() {
                     layout->addWidget(summary);
 
                     QHBoxLayout* btnLayout = new QHBoxLayout();
+                    QPushButton* tryAgainBtn = nullptr;
+
+                    if (n.type == "finished_generation" && n.targetType == "document") {
+                        auto docs = db->getDocuments();
+                        DocumentNode docNode;
+                        docNode.id = -1;
+                        for (const auto& d : docs) {
+                            if (d.id == n.targetId) {
+                                docNode = d;
+                                break;
+                            }
+                        }
+                        if (docNode.id != -1) {
+                            QJsonDocument docMeta = QJsonDocument::fromJson(docNode.metadata.toUtf8());
+                            if (!docMeta.isNull() && docMeta.isObject()) {
+                                QJsonObject obj = docMeta.object();
+                                if (obj.value("type").toString() == "merge") {
+                                    tryAgainBtn = new QPushButton(tr("Try Again"), &dialog);
+                                }
+                            }
+                        }
+                    }
+
                     QPushButton* gotoBtn = new QPushButton(tr("Goto Item"), &dialog);
                     QPushButton* dismissBtn = new QPushButton(tr("Dismiss"), &dialog);
                     QPushButton* closeBtn = new QPushButton(tr("Close"), &dialog);
+
+                    if (tryAgainBtn) {
+                        btnLayout->addWidget(tryAgainBtn);
+                        int tId = n.targetId;
+                        int nId = n.id;
+                        connect(tryAgainBtn, &QPushButton::clicked, [this, db, tId, nId, &dialog]() {
+                            // First, navigate to the item so the UI state is synchronized
+                            onQueueItemClicked(db, tId, "document");
+                            // Then trigger the regeneration
+                            onRegenerateMerge();
+                            db->dismissNotification(nId);
+                            updateNotificationStatus();
+                            dialog.accept();
+                        });
+                    }
 
                     btnLayout->addWidget(gotoBtn);
                     btnLayout->addWidget(dismissBtn);
@@ -5028,6 +5086,56 @@ void MainWindow::onDocumentAIOperations() {
     }
 }
 
+void MainWindow::onRegenerateMerge() {
+    if (!currentDb || currentDocumentId == 0) return;
+
+    auto docs = currentDb->getDocuments();
+    DocumentNode doc;
+    doc.id = -1;
+    for (const auto& d : docs) {
+        if (d.id == currentDocumentId) {
+            doc = d;
+            break;
+        }
+    }
+    if (doc.id == -1) return;
+
+    QJsonDocument docMeta = QJsonDocument::fromJson(doc.metadata.toUtf8());
+    if (docMeta.isNull() || !docMeta.isObject()) return;
+
+    QJsonObject metaObj = docMeta.object();
+    if (metaObj.value("type").toString() != "merge") return;
+
+    QString prompt = metaObj.value("prompt").toString();
+    if (prompt.isEmpty()) return;
+
+    QString model = currentDb->getSetting("document", currentDocumentId, "model");
+    if (model.isEmpty()) {
+        if (!m_selectedModels.isEmpty()) {
+            model = m_selectedModels.first();
+        } else {
+            model = "llama3:latest"; // Fallback
+        }
+    }
+
+    // Save previous version in history
+    currentDb->addDocumentHistory(currentDocumentId, "replace_pre", doc.content);
+
+    // Set generating text
+    currentDb->updateDocument(currentDocumentId, doc.title, "*Generating merge...*", doc.metadata);
+
+    if (documentEditorView && mainContentStack->currentWidget() == docContainer) {
+        documentEditorView->blockSignals(true);
+        documentEditorView->setPlainText("*Generating merge...*");
+        documentEditorView->blockSignals(false);
+    }
+
+    regenerateMergeBtn->hide();
+
+    // Enqueue the job again
+    currentDb->enqueuePrompt(currentDocumentId, model, prompt, 0, "document", 0, "replace_direct");
+}
+
 void MainWindow::onDocumentHistory() {
     if (!currentDb || currentDocumentId == 0) return;
     DocumentHistoryDialog dialog(currentDb, currentDocumentId, this);
@@ -5066,11 +5174,24 @@ void MainWindow::onOpenBooksTreeDoubleClicked(const QModelIndex& index) {
         else if (type == "draft")
             docs = currentDb->getDrafts();
 
+        regenerateMergeBtn->hide();
         for (const auto& doc : docs) {
             if (doc.id == docId) {
                 currentDocumentId = docId;
                 documentEditorView->setPlainText(doc.content);
                 mainContentStack->setCurrentWidget(docContainer);
+
+                if (type == "document") {
+                    QJsonDocument docMeta = QJsonDocument::fromJson(doc.metadata.toUtf8());
+                    if (!docMeta.isNull() && docMeta.isObject()) {
+                        QJsonObject obj = docMeta.object();
+                        if (obj.value("type").toString() == "merge") {
+                            if (!doc.content.contains("*Generating merge...*")) {
+                                regenerateMergeBtn->show();
+                            }
+                        }
+                    }
+                }
                 break;
             }
         }
