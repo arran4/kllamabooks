@@ -120,7 +120,7 @@ class MainWindow : public KXmlGuiWindow {
     void showNotificationMenu();
     void showQueueWindow();
     void showSpyWindow();
-    void onQueueItemClicked(std::shared_ptr<BookDatabase> db, int messageId);
+    void onQueueItemClicked(std::shared_ptr<BookDatabase> db, int targetId, const QString& targetType);
     void updateTreeMarkersRecursive(QStandardItem* parent, const QMap<QPair<QString, int>, int>& activeNotifications);
     void updateVfsMarkers(const QMap<QPair<QString, int>, int>& activeNotifications);
     bool moveItemToFolder(QStandardItem* draggedItem, QStandardItem* targetItem, bool isCopy = false);
@@ -143,6 +143,7 @@ class MainWindow : public KXmlGuiWindow {
                              BookDatabase* db);
     void populateMessageForks(QStandardItem* parentItem, int parentId, const QList<MessageNode>& allMessages);
     void populateDocumentFolders(QStandardItem* parentItem, int folderId, const QString& type, BookDatabase* db);
+    void populateDraftsFolders(QStandardItem* parentItem, int folderId, const QString& underlyingType, BookDatabase* db);
     void addPhantomItem(QStandardItem* folderItem, const QString& type);
     void updateLinearChatView(int tailNodeId, const QList<MessageNode>& allMessages);
     void getPathToRoot(int nodeId, const QList<MessageNode>& allMessages, QList<MessageNode>& path);

@@ -54,7 +54,9 @@
 #include "DocumentEditWindow.h"
 #include "DocumentHistoryDialog.h"
 #include "DocumentReviewDialog.h"
+#include "DraftSelectionDialog.h"
 #include "ModelSelectionDialog.h"
+#include "DocumentTemplatesManager.h"
 #include "NewDocumentDialog.h"
 #include "NotificationDelegate.h"
 #include "QueueManager.h"
@@ -188,6 +190,34 @@ void MainWindow::setupUi() {
     connect(openBooksTree, &QWidget::customContextMenuRequested, this, &MainWindow::showOpenBookContextMenu);
 
     connect(openBooksTree, &QTreeView::doubleClicked, this, &MainWindow::onOpenBooksTreeDoubleClicked);
+
+    connect(openBooksTree, &QTreeView::expanded, this, [this](const QModelIndex& index) {
+        if (!currentDb) return;
+        QStandardItem* item = openBooksModel->itemFromIndex(index);
+        if (item) {
+            int id = item->data(Qt::UserRole).toInt();
+            QString type = item->data(Qt::UserRole + 1).toString();
+            if (type.endsWith("_folder")) {
+                currentDb->setFolderExpanded(id, true);
+            } else if (type == "chat_node") {
+                currentDb->setMessageExpanded(id, true);
+            }
+        }
+    });
+
+    connect(openBooksTree, &QTreeView::collapsed, this, [this](const QModelIndex& index) {
+        if (!currentDb) return;
+        QStandardItem* item = openBooksModel->itemFromIndex(index);
+        if (item) {
+            int id = item->data(Qt::UserRole).toInt();
+            QString type = item->data(Qt::UserRole + 1).toString();
+            if (type.endsWith("_folder")) {
+                currentDb->setFolderExpanded(id, false);
+            } else if (type == "chat_node") {
+                currentDb->setMessageExpanded(id, false);
+            }
+        }
+    });
 
     bookList = new QListWidget(this);
     bookList->setMinimumSize(0, 0);
@@ -936,11 +966,13 @@ void MainWindow::updateEndpointsList() {
         // Fallback for old setting
         endpointComboBox->addItem("Default Ollama", settings.value("ollamaUrl", "http://localhost:11434").toString());
         endpointComboBox->setItemData(0, "", Qt::UserRole + 1);  // Auth Key
+        endpointComboBox->setItemData(0, 1, Qt::UserRole + 2);   // Max Concurrent
     } else {
         for (int i = 0; i < connections.size(); ++i) {
             QVariantMap map = connections[i].toMap();
             endpointComboBox->addItem(map["name"].toString(), map["url"].toString());
             endpointComboBox->setItemData(i, map["authKey"].toString(), Qt::UserRole + 1);
+            endpointComboBox->setItemData(i, map.value("maxConcurrent", 1).toInt(), Qt::UserRole + 2);
         }
     }
 
@@ -963,10 +995,14 @@ void MainWindow::onActiveEndpointChanged(int index) {
 
     QString url = endpointComboBox->itemData(index, Qt::UserRole).toString();
     QString authKey = endpointComboBox->itemData(index, Qt::UserRole + 1).toString();
+    int maxConcurrent = endpointComboBox->itemData(index, Qt::UserRole + 2).toInt();
+    if (maxConcurrent < 1) maxConcurrent = 1;
 
     ollamaClient.setBaseUrl(url);
     ollamaClient.setAuthKey(authKey);
     ollamaClient.fetchModels();  // Test connection and fetch
+
+    QueueManager::instance().setMaxConcurrent(maxConcurrent);
 
     QSettings settings;
     settings.setValue("lastEndpointIndex", index);
@@ -1406,8 +1442,8 @@ void MainWindow::updateInputBehavior() {
                 } else if (!m_availableModels.isEmpty()) {
                     m_selectedModels = QStringList() << m_availableModels.first();
                 }
-                if (modelLabel) modelLabel->setText(tr("Model: %1 (System Selected)").arg(m_selectedModels.first()));
-                if (modelSelectButton) modelSelectButton->setText(m_selectedModels.first());
+                if (modelLabel && !m_selectedModels.isEmpty()) modelLabel->setText(tr("Model: %1 (System Selected)").arg(m_selectedModels.first()));
+                if (modelSelectButton && !m_selectedModels.isEmpty()) modelSelectButton->setText(m_selectedModels.first());
             }
         }
 
@@ -1665,7 +1701,7 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
                         } else if (!m_availableModels.isEmpty()) {
                             m_selectedModels = QStringList() << m_availableModels.first();
                         }
-                        modelLabel->setText(tr("Model: %1 (System Selected)").arg(m_selectedModels.first()));
+                        if (!m_selectedModels.isEmpty()) modelLabel->setText(tr("Model: %1 (System Selected)").arg(m_selectedModels.first()));
                     }
                     if (currentLastNodeId != 0 && mainContentStack->currentWidget() == chatWindowView) {
                         updateLinearChatView(currentLastNodeId, currentDb->getMessages());
@@ -1880,7 +1916,10 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
         QAction* discardAction = nullptr;
         QAction* deleteAction = nullptr;
 
+        QAction* gotoOriginalAction = nullptr;
+
         if (type == "draft") {
+            gotoOriginalAction = menu.addAction(QIcon::fromTheme("go-jump"), "Goto Original");
             discardAction = dangerMenu->addAction(QIcon::fromTheme("edit-delete"), "Discard Draft");
         } else if (type == "document") {
             deleteAction = dangerMenu->addAction(QIcon::fromTheme("edit-delete"), "Delete Document");
@@ -1901,6 +1940,26 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
             } else if (type == "note") {
                 mainContentStack->setCurrentWidget(noteContainer);
                 noteEditorView->setFocus();
+            }
+        } else if (gotoOriginalAction && selectedAction == gotoOriginalAction) {
+            int docId = item->data(Qt::UserRole).toInt();
+            if (currentDb) {
+                QList<DocumentNode> drafts = currentDb->getDrafts();
+                for (const auto& d : drafts) {
+                    if (d.id == docId) {
+                        QStandardItem* originalItem = findItemInTree(d.parentId, d.targetType);
+                        if (originalItem) {
+                            openBooksTree->setCurrentIndex(originalItem->index());
+                            openBooksTree->selectionModel()->select(originalItem->index(),
+                                                                    QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Current);
+                            openBooksTree->scrollTo(originalItem->index());
+                            onOpenBooksTreeDoubleClicked(originalItem->index());
+                        } else {
+                            statusBar->showMessage(tr("Original document not found."), 3000);
+                        }
+                        break;
+                    }
+                }
             }
         } else if (historyAction && selectedAction == historyAction) {
             onDocumentHistory();
@@ -2180,15 +2239,6 @@ void MainWindow::onBookSelected(const QModelIndex& index) {
     draftsItem->setData("drafts_folder", Qt::UserRole + 1);
 
     // Populate actual chats from database directly into the tree
-    auto dbPtr = currentDb;  // Keep shared_ptr to avoid issues during iteration
-    QList<MessageNode> msgs = currentDb->getMessages();
-    populateChatFolders(chatsItem, 0, msgs, dbPtr.get());
-
-    populateDocumentFolders(docsItem, 0, "documents", dbPtr.get());
-    populateDocumentFolders(templatesItem, 0, "templates", dbPtr.get());
-    populateDocumentFolders(draftsItem, 0, "drafts", dbPtr.get());
-    populateDocumentFolders(notesItem, 0, "notes", dbPtr.get());
-
     bookItem->appendRow(chatsItem);
     bookItem->appendRow(docsItem);
     bookItem->appendRow(notesItem);
@@ -2196,7 +2246,33 @@ void MainWindow::onBookSelected(const QModelIndex& index) {
     bookItem->appendRow(draftsItem);
 
     openBooksModel->appendRow(bookItem);
-    openBooksTree->expandAll();
+
+    auto dbPtr = currentDb;  // Keep shared_ptr to avoid issues during iteration
+    QList<MessageNode> msgs = currentDb->getMessages();
+    populateChatFolders(chatsItem, 0, msgs, dbPtr.get());
+
+    populateDocumentFolders(docsItem, 0, "documents", dbPtr.get());
+    populateDocumentFolders(templatesItem, 0, "templates", dbPtr.get());
+
+    // Populate Drafts Folders recursively by type
+    QStringList types = {"documents", "templates", "notes"};
+    for (const QString& tType : types) {
+        QString fName = tType;
+        fName = fName.left(1).toUpper() + fName.mid(1);
+        QStandardItem* tItem = new QStandardItem(QIcon::fromTheme("folder-open"), fName);
+        tItem->setData("drafts_folder", Qt::UserRole + 1);
+        tItem->setData(0, Qt::UserRole);
+        populateDraftsFolders(tItem, 0, tType, dbPtr.get());
+        draftsItem->appendRow(tItem);
+    }
+
+    populateDocumentFolders(notesItem, 0, "notes", dbPtr.get());
+
+    // Always expand the book root and its primary categories
+    openBooksTree->setExpanded(bookItem->index(), true);
+    for (int i = 0; i < bookItem->rowCount(); ++i) {
+        openBooksTree->setExpanded(bookItem->child(i)->index(), true);
+    }
 
     // Remove from closed books list
     delete bookList->takeItem(index.row());
@@ -2204,6 +2280,36 @@ void MainWindow::onBookSelected(const QModelIndex& index) {
     loadSession(0);  // For now, load all as one session
 
     openBooksTree->setCurrentIndex(bookItem->index());
+}
+
+void MainWindow::populateDraftsFolders(QStandardItem* parentItem, int folderId, const QString& underlyingType,
+                                       BookDatabase* db) {
+    if (!db) return;
+
+    // First, add subfolders of the underlying type
+    QList<FolderNode> folders = db->getFolders(underlyingType);
+    for (const auto& folder : folders) {
+        if (folder.parentId == folderId) {
+            QStandardItem* item = new QStandardItem(QIcon::fromTheme("folder-open"), folder.name);
+            item->setData(folder.id, Qt::UserRole);
+            item->setData("drafts_folder", Qt::UserRole + 1);
+
+            parentItem->appendRow(item);
+            populateDraftsFolders(item, folder.id, underlyingType, db);
+        }
+    }
+
+    // Now, add any drafts whose parentId corresponds to an item in this folder.
+    QList<DocumentNode> allDrafts = db->getDrafts(folderId);
+    for (const auto& doc : allDrafts) {
+        // DocumentNode targetType now works
+        if (doc.targetType == underlyingType || doc.targetType == underlyingType.left(underlyingType.length() - 1)) {
+            QStandardItem* docItem = new QStandardItem(QIcon::fromTheme("text-plain"), doc.title);
+            docItem->setData(doc.id, Qt::UserRole);
+            docItem->setData("draft", Qt::UserRole + 1);
+            parentItem->appendRow(docItem);
+        }
+    }
 }
 
 void MainWindow::populateDocumentFolders(QStandardItem* parentItem, int folderId, const QString& type,
@@ -2228,6 +2334,9 @@ void MainWindow::populateDocumentFolders(QStandardItem* parentItem, int folderId
 
             parentItem->appendRow(item);
             populateDocumentFolders(item, folder.id, type, db);
+            if (folder.isExpanded) {
+                openBooksTree->setExpanded(item->index(), true);
+            }
         }
     }
 
@@ -2312,7 +2421,6 @@ void MainWindow::loadSession(int rootId) {
     QList<MessageNode> msgs = currentDb->getMessages();
     QStandardItem* rootItem = chatModel->invisibleRootItem();
     populateChatFolders(rootItem, 0, msgs, currentDb.get());
-    chatTree->expandAll();
 
     if (!msgs.isEmpty()) {
         currentLastNodeId = msgs.last().id;
@@ -2411,6 +2519,10 @@ void MainWindow::populateChatFolders(QStandardItem* parentItem, int folderId, co
 
             // Recurse into subfolders
             populateChatFolders(folderItem, folder.id, allMessages, db);
+
+            if (folder.isExpanded) {
+                openBooksTree->setExpanded(folderItem->index(), true);
+            }
         }
     }
 
@@ -2440,6 +2552,10 @@ void MainWindow::populateChatFolders(QStandardItem* parentItem, int folderId, co
 
             // Populate the rest of the branch under this root message
             populateMessageForks(item, endNodeId, allMessages);
+
+            if (msg.isExpanded) {
+                openBooksTree->setExpanded(item->index(), true);
+            }
         }
     }
 }
@@ -2470,8 +2586,13 @@ void MainWindow::populateMessageForks(QStandardItem* parentItem, int parentId, c
             item->setData(endNodeId, Qt::UserRole);
             item->setData("chat_node", Qt::UserRole + 1);
             parentItem->appendRow(item);
+
             // Recursively populate under this item.
             populateMessageForks(item, endNodeId, allMessages);
+
+            if (msg.isExpanded) {
+                openBooksTree->setExpanded(item->index(), true);
+            }
         }
     }
 }
@@ -2501,7 +2622,7 @@ void MainWindow::updateLinearChatView(int tailNodeId, const QList<MessageNode>& 
     }
 
     if (currentDb) {
-        currentDb->dismissNotificationByMessageId(tailNodeId);
+        currentDb->dismissNotificationByTarget(tailNodeId, "message");
         updateNotificationStatus();
     }
     chatTextArea->blockSignals(true);
@@ -3301,11 +3422,13 @@ void MainWindow::onProcessingStarted(std::shared_ptr<BookDatabase> db, int messa
 
 void MainWindow::updateGenerationUI() {
     bool isGeneratingCurrentChat = false;
-    if (QueueManager::instance().isProcessing() && currentDb &&
-        currentDb == QueueManager::instance().currentProcessingDb()) {
-        auto item = QueueManager::instance().currentProcessingItem();
-        if (item.targetType == "message" && item.messageId == currentLastNodeId) {
-            isGeneratingCurrentChat = true;
+    if (QueueManager::instance().isProcessing() && currentDb) {
+        auto items = QueueManager::instance().currentProcessingItems();
+        for (const auto& mergedItem : items) {
+            if (mergedItem.db == currentDb && mergedItem.item.targetType == "message" && mergedItem.item.messageId == currentLastNodeId) {
+                isGeneratingCurrentChat = true;
+                break;
+            }
         }
     }
 
@@ -3319,9 +3442,14 @@ void MainWindow::updateGenerationUI() {
 }
 
 void MainWindow::onCancelActiveGeneration() {
-    if (QueueManager::instance().isProcessing() && currentDb == QueueManager::instance().currentProcessingDb()) {
-        int queueId = QueueManager::instance().currentProcessingItem().id;
-        QueueManager::instance().cancelItem(currentDb, queueId);
+    if (QueueManager::instance().isProcessing() && currentDb) {
+        auto items = QueueManager::instance().currentProcessingItems();
+        for (const auto& mergedItem : items) {
+            if (mergedItem.db == currentDb && mergedItem.item.targetType == "message" && mergedItem.item.messageId == currentLastNodeId) {
+                QueueManager::instance().cancelItem(currentDb, mergedItem.item.id);
+                break; // Assuming only one active generation per chat node
+            }
+        }
         updateGenerationUI();
     }
 }
@@ -3875,7 +4003,7 @@ void MainWindow::onOpenBooksSelectionChanged(const QItemSelection& selected, con
                 mainContentStack->setCurrentWidget(docContainer);
             } else if (currentDb) {
                 // If it was marked as updated via AI notification modifications, dismiss it
-                currentDb->dismissNotificationByMessageIdAndType(currentDocumentId, "updated");
+                currentDb->dismissNotificationByTargetAndType(currentDocumentId, "document", "updated");
                 updateNotificationStatus();
 
                 QList<DocumentNode> docs =
@@ -3928,33 +4056,6 @@ void MainWindow::onOpenBooksSelectionChanged(const QItemSelection& selected, con
     updateBreadcrumbs();
 }
 
-namespace {
-void saveExpandedState(QTreeView* tree, QStandardItem* item, QSet<QString>& expanded) {
-    if (!item) return;
-    if (tree->isExpanded(item->index())) {
-        QString path = item->text();
-        QStandardItem* p = item->parent();
-        while (p) {
-            path = p->text() + "/" + path;
-            p = p->parent();
-        }
-        expanded.insert(path);
-    }
-    for (int i = 0; i < item->rowCount(); ++i) saveExpandedState(tree, item->child(i), expanded);
-}
-void restoreExpandedState(QTreeView* tree, QStandardItem* item, const QSet<QString>& expanded) {
-    if (!item) return;
-    QString path = item->text();
-    QStandardItem* p = item->parent();
-    while (p) {
-        path = p->text() + "/" + path;
-        p = p->parent();
-    }
-    if (expanded.contains(path)) tree->setExpanded(item->index(), true);
-    for (int i = 0; i < item->rowCount(); ++i) restoreExpandedState(tree, item->child(i), expanded);
-}
-}  // namespace
-
 /** * @brief Reloads the primary side-pane `openBooksTree` showing all folders, documents, and chat records. *  * This
  * function is an integral component of the MainWindow class structure. * It ensures that side effects map accurately to
  * internal application models. */
@@ -3970,11 +4071,6 @@ void MainWindow::loadDocumentsAndNotes() {
             currId = currItem->data(Qt::UserRole).toInt();
             currType = currItem->data(Qt::UserRole + 1).toString();
         }
-    }
-
-    QSet<QString> expanded;
-    for (int i = 0; i < openBooksModel->rowCount(); ++i) {
-        saveExpandedState(openBooksTree, openBooksModel->item(i), expanded);
     }
 
     for (int i = 0; i < openBooksModel->rowCount(); ++i) {
@@ -4022,10 +4118,6 @@ void MainWindow::loadDocumentsAndNotes() {
             chatsFolder->removeRows(0, chatsFolder->rowCount());
             populateChatFolders(chatsFolder, 0, currentDb->getMessages(), db.get());
         }
-    }
-
-    for (int i = 0; i < openBooksModel->rowCount(); ++i) {
-        restoreExpandedState(openBooksTree, openBooksModel->item(i), expanded);
     }
 
     if (currId != 0 || !currType.isEmpty()) {
@@ -4344,13 +4436,26 @@ void MainWindow::updateNotificationStatus() {
             QString typeStr =
                 (n.type == "error") ? tr("Error") : (n.type == "review_needed" ? tr("Review Needed") : tr("Finished"));
             QAction* action = notificationMenu->addAction(
-                QString("[%1] %2: Msg %3").arg(bookName, typeStr, QString::number(n.messageId)));
+                QString("[%1] %2: Msg %3").arg(bookName, typeStr, QString::number(n.targetId)));
             connect(action, &QAction::triggered, this, [this, db, n, bookName]() {
                 if (n.type == "review_needed") {
-                    DocumentReviewDialog reviewDlg(db, n.messageId, this);
-                    if (reviewDlg.exec() == QDialog::Accepted) {
-                        db->dismissNotification(n.id);
-                        updateNotificationStatus();
+                    // For document review, n.targetId is the document ID.
+                    // DocumentReviewDialog expects the queueItemId. We need to find the matching completed queue item.
+                    int queueItemId = -1;
+                    auto qList = db->getQueue();
+                    for (const auto& qi : qList) {
+                        if (qi.messageId == n.targetId && qi.targetType == "document" && qi.state == "completed") {
+                            queueItemId = qi.id;
+                            break;
+                        }
+                    }
+
+                    if (queueItemId != -1) {
+                        DocumentReviewDialog reviewDlg(db, queueItemId, this);
+                        if (reviewDlg.exec() == QDialog::Accepted) {
+                            db->dismissNotification(n.id);
+                            updateNotificationStatus();
+                        }
                     }
 
                     if (currentDb == db && currentDocumentId != 0) {
@@ -4367,8 +4472,8 @@ void MainWindow::updateNotificationStatus() {
                     dialog.setWindowTitle(tr("Error: Modify and Retry"));
                     QVBoxLayout* layout = new QVBoxLayout(&dialog);
 
-                    QLabel* summary = new QLabel(QString("<b>Book:</b> %1<br><b>Message ID:</b> %2")
-                                                     .arg(bookName, QString::number(n.messageId)));
+                    QLabel* summary = new QLabel(QString("<b>Book:</b> %1<br><b>Target ID:</b> %2")
+                                                     .arg(bookName, QString::number(n.targetId)));
                     summary->setWordWrap(true);
                     layout->addWidget(summary);
 
@@ -4376,7 +4481,7 @@ void MainWindow::updateNotificationStatus() {
                     int queueId = -1;
                     auto qList = db->getQueue();
                     for (const auto& qi : qList) {
-                        if (qi.messageId == n.messageId && qi.state == "error") {
+                        if (qi.messageId == n.targetId && qi.targetType == n.targetType && qi.state == "error") {
                             errorMsg = qi.lastError;
                             prompt = qi.prompt;
                             model = qi.model;
@@ -4428,7 +4533,7 @@ void MainWindow::updateNotificationStatus() {
                     });
 
                     connect(gotoBtn, &QPushButton::clicked, [&]() {
-                        onQueueItemClicked(db, n.messageId);
+                        onQueueItemClicked(db, n.targetId, n.targetType);
                         dialog.accept();
                     });
 
@@ -4448,8 +4553,8 @@ void MainWindow::updateNotificationStatus() {
 
                     QString typeStr = tr("Finished");
                     QLabel* summary =
-                        new QLabel(QString("<b>Book:</b> %1<br><b>Status:</b> %2<br><b>Message ID:</b> %3")
-                                       .arg(bookName, typeStr, QString::number(n.messageId)));
+                        new QLabel(QString("<b>Book:</b> %1<br><b>Status:</b> %2<br><b>Target ID:</b> %3")
+                                       .arg(bookName, typeStr, QString::number(n.targetId)));
                     summary->setWordWrap(true);
                     layout->addWidget(summary);
 
@@ -4464,7 +4569,7 @@ void MainWindow::updateNotificationStatus() {
                     layout->addLayout(btnLayout);
 
                     connect(gotoBtn, &QPushButton::clicked, [&]() {
-                        onQueueItemClicked(db, n.messageId);
+                        onQueueItemClicked(db, n.targetId, n.targetType);
                         dialog.accept();
                     });
 
@@ -4502,16 +4607,13 @@ void MainWindow::updateNotificationStatus() {
             for (const auto& n : notifications) {
                 if (n.isDismissed) continue;
                 if (n.type == "review_needed") {
-                    for (const auto& q : queueItems) {
-                        if (q.id == n.messageId && q.targetType == "document") {
-                            activeNotifications[{"document", q.messageId}] = 1;
-                            break;
-                        }
-                    }
+                    // review_needed notifications store targetId = Document ID.
+                    activeNotifications[{n.targetType, n.targetId}] = 1;
                 } else if (n.type == "updated") {
-                    activeNotifications[{"document", n.messageId}] = 1;
+                    activeNotifications[{n.targetType, n.targetId}] = 1;
                 } else {
-                    activeNotifications[{"chat_node", n.messageId}] = (n.type == "error") ? 2 : 1;
+                    QString treeType = (n.targetType == "message") ? "chat_node" : n.targetType;
+                    activeNotifications[{treeType, n.targetId}] = (n.type == "error") ? 2 : 1;
                 }
             }
 
@@ -4613,7 +4715,7 @@ void MainWindow::showSpyWindow() {
 /** * @brief Executes logic for onQueueItemClicked. This function manages component initialization and handles state
  * transitions for the UI. *  * This function is an integral component of the MainWindow class structure. * It ensures
  * that side effects map accurately to internal application models. */
-void MainWindow::onQueueItemClicked(std::shared_ptr<BookDatabase> db, int messageId) {
+void MainWindow::onQueueItemClicked(std::shared_ptr<BookDatabase> db, int targetId, const QString& targetType) {
     if (!db) return;
 
     // Check if this is a document queue item that is completed.
@@ -4621,25 +4723,27 @@ void MainWindow::onQueueItemClicked(std::shared_ptr<BookDatabase> db, int messag
     // or the target document ID. Let's find the queue item to be safe.
     // Wait, the signal sends messageId. Let's look up if there's a queue item with this messageId that is completed.
     bool openedReview = false;
-    for (const auto& item : db->getQueue()) {
-        if (item.messageId == messageId && item.targetType == "document" && item.state == "completed") {
-            DocumentReviewDialog reviewDlg(db, item.id, this);
-            if (reviewDlg.exec() == QDialog::Accepted) {
-                db->dismissNotificationByMessageId(item.id);
-                updateNotificationStatus();
-            }
-            openedReview = true;
+    if (targetType == "document") {
+        for (const auto& item : db->getQueue()) {
+            if (item.messageId == targetId && item.targetType == "document" && item.state == "completed") {
+                DocumentReviewDialog reviewDlg(db, item.id, this);
+                if (reviewDlg.exec() == QDialog::Accepted) {
+                    db->dismissNotificationByTarget(item.messageId, item.targetType);
+                    updateNotificationStatus();
+                }
+                openedReview = true;
 
-            // Reload document editor view just in case the dialog made edits (replace/append)
-            // or to revert a live preview if the user discarded.
-            if (currentDocumentId == messageId) {
-                QString outTitle, outContent;
-                getDocumentContent(currentDocumentId, "document", outTitle, outContent);
-                documentEditorView->blockSignals(true);
-                documentEditorView->setPlainText(outContent);
-                documentEditorView->blockSignals(false);
+                // Reload document editor view just in case the dialog made edits (replace/append)
+                // or to revert a live preview if the user discarded.
+                if (currentDocumentId == targetId) {
+                    QString outTitle, outContent;
+                    getDocumentContent(currentDocumentId, "document", outTitle, outContent);
+                    documentEditorView->blockSignals(true);
+                    documentEditorView->setPlainText(outContent);
+                    documentEditorView->blockSignals(false);
+                }
+                break;
             }
-            break;
         }
     }
 
@@ -4654,26 +4758,22 @@ void MainWindow::onQueueItemClicked(std::shared_ptr<BookDatabase> db, int messag
         }
     }
 
-    QStringList types = {"chat_node", "document", "note", "template", "draft"};
-    QStandardItem* foundItem = nullptr;
-    for (const QString& type : types) {
-        foundItem = findItemInTree(messageId, type);
-        if (foundItem) break;
-    }
+    QString treeType = (targetType == "message") ? "chat_node" : targetType;
+    QStandardItem* foundItem = findItemInTree(targetId, treeType);
 
     if (foundItem) {
         openBooksTree->setCurrentIndex(foundItem->index());
         openBooksTree->selectionModel()->select(foundItem->index(),
                                                 QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Current);
         openBooksTree->scrollTo(foundItem->index());
-    } else if (!openedReview) {
+    } else if (!openedReview && targetType == "message") {
         // Fallback to chat node logic just in case it wasn't rendered yet
-        currentLastNodeId = messageId;
+        currentLastNodeId = targetId;
         updateLinearChatView(currentLastNodeId, currentDb->getMessages());
         mainContentStack->setCurrentWidget(chatWindowView);
     }
 
-    db->dismissNotificationByMessageId(messageId);
+    db->dismissNotificationByTarget(targetId, targetType);
     updateNotificationStatus();
 }
 
@@ -4947,7 +5047,7 @@ void MainWindow::onOpenBooksTreeDoubleClicked(const QModelIndex& index) {
     if (type == "document" || type == "template" || type == "draft") {
         int docId = item->data(Qt::UserRole).toInt();
 
-        currentDb->dismissNotificationByMessageIdAndType(docId, "updated");
+        currentDb->dismissNotificationByTargetAndType(docId, "document", "updated");
         updateNotificationStatus();
 
         QList<DocumentNode> docs;
@@ -5028,11 +5128,7 @@ void MainWindow::handleNewDocumentCreation(int defaultFolderId) {
         int newDocId = -1;
         bool shouldNavigate = false;
 
-        if (dialog.getDocumentType() == NewDocumentDialog::Empty) {
-            newDocId = currentDb->addDocument(folderId, title, "");
-            shouldNavigate = true;
-            loadDocumentsAndNotes();
-        } else if (dialog.getDocumentType() == NewDocumentDialog::FromPrompt) {
+        if (dialog.getDocumentType() == NewDocumentDialog::FromPrompt) {
             QString prompt = dialog.getPrompt();
 
             QStringList models = m_selectedModels;
@@ -5055,10 +5151,10 @@ void MainWindow::handleNewDocumentCreation(int defaultFolderId) {
             }
             loadDocumentsAndNotes();
         } else if (dialog.getDocumentType() == NewDocumentDialog::FromTemplate) {
-            int tplId = dialog.getSelectedTemplateId();
+            QString tplId = dialog.getSelectedTemplateId();
             QString content = "";
-            if (tplId != -1) {
-                QList<DocumentNode> templates = currentDb->getTemplates(-1);
+            if (!tplId.isEmpty()) {
+                QList<DocumentTemplate> templates = DocumentTemplatesManager::getMergedTemplates(currentDb.get());
                 for (const auto& t : templates) {
                     if (t.id == tplId) {
                         content = t.content;
@@ -5152,7 +5248,47 @@ void MainWindow::onEditDocument() {
         }
     }
 
-    DocumentEditWindow* editWin = new DocumentEditWindow(currentDb, currentDocumentId, currentTitle, type);
+    QString initialContent = "";
+    QString targetTypeStr = type;
+
+    // Check for associated drafts only if we are NOT currently editing a draft
+    if (targetTypeStr != "draft") {
+        QList<DocumentNode> allDrafts = currentDb->getDrafts();
+        QList<DocumentNode> associatedDrafts;
+        for (const auto& d : allDrafts) {
+            if (d.parentId == currentDocumentId) {
+                associatedDrafts.append(d);
+            }
+        }
+
+        if (!associatedDrafts.isEmpty()) {
+            DraftSelectionDialog dialog(currentDb, currentDocumentId, associatedDrafts, targetTypeStr, this);
+            int res = dialog.exec();
+            if (res == QDialog::Accepted && dialog.didSelectDraft()) {
+                initialContent = dialog.getSelectedDraftContent();
+            } else if (res == QDialog::Rejected) {
+                return;
+            } else if (res == QDialog::Accepted + 10) {
+                // Navigate to original
+                QStandardItem* originalItem = findItemInTree(associatedDrafts.first().parentId, associatedDrafts.first().targetType);
+                if (originalItem) {
+                    openBooksTree->setCurrentIndex(originalItem->index());
+                    openBooksTree->selectionModel()->select(originalItem->index(),
+                                                            QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Current);
+                    openBooksTree->scrollTo(originalItem->index());
+                    onOpenBooksTreeDoubleClicked(originalItem->index());
+                } else {
+                    statusBar->showMessage(tr("Original document not found."), 3000);
+                }
+                return;
+            }
+        }
+    }
+
+    DocumentEditWindow* editWin = new DocumentEditWindow(currentDb, currentDocumentId, currentTitle, targetTypeStr);
+    if (!initialContent.isEmpty()) {
+        editWin->setInitialContent(initialContent);
+    }
     m_openDocEditors.insert(editorKey, editWin);
 
     connect(editWin, &DocumentEditWindow::documentModified, this, [this, type](int docId) {
@@ -5171,11 +5307,24 @@ void MainWindow::onEditDocument() {
     });
 
     connect(editWin, &DocumentEditWindow::jumpToDocumentRequested, this, [this, type](int docId) {
+        // Find by type but try finding the original target type if it fails
         QStandardItem* item = findItemInTree(docId, type);
+        if (!item && type == "draft" && currentDb) {
+            QList<DocumentNode> drafts = currentDb->getDrafts();
+            for (const auto& d : drafts) {
+                if (d.id == currentDocumentId) {
+                    item = findItemInTree(d.parentId, d.targetType);
+                    break;
+                }
+            }
+        }
+
         if (item) {
+            openBooksTree->setCurrentIndex(item->index());
             openBooksTree->selectionModel()->select(item->index(),
                                                     QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Current);
             openBooksTree->scrollTo(item->index());
+            onOpenBooksTreeDoubleClicked(item->index());
         }
         this->raise();
         this->activateWindow();

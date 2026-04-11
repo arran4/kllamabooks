@@ -14,6 +14,7 @@ struct MessageNode {
     QString role;  // "user" or "assistant"
     QDateTime timestamp;
     QList<MessageNode*> children;
+    bool isExpanded = false;
 };
 
 struct DocumentNode {
@@ -25,6 +26,7 @@ struct DocumentNode {
     QDateTime timestamp;
     bool isFolder;  // Deprecated, but keeping for compatibility during migration if needed
     QString metadata;
+    QString targetType; // Optional, e.g., 'document', 'note', 'template'
 };
 
 struct ChatNode {
@@ -54,6 +56,7 @@ struct FolderNode {
     QString type;  // "documents", "notes", "templates", "drafts"
     QDateTime timestamp;
     int position;
+    bool isExpanded = false;
 };
 
 struct QueueItem {
@@ -82,7 +85,8 @@ struct CommentNode {
 
 struct Notification {
     int id;
-    int messageId;
+    int targetId;
+    QString targetType; // "document", "message"
     QString type;  // "responded_to", "error"
     bool isDismissed;
     QDateTime timestamp;
@@ -141,7 +145,7 @@ class BookDatabase {
     bool deleteTemplate(int id);
 
     // Drafts
-    int addDraft(int folderId, const QString& title, const QString& content);
+    int addDraft(int folderId, const QString& title, const QString& content, int parentId = 0, const QString& targetType = "document");
     bool updateDraft(int id, const QString& newTitle, const QString& newContent);
     QList<DocumentNode> getDrafts(int folderId = -1) const;
     bool deleteDraft(int id);
@@ -156,6 +160,8 @@ class BookDatabase {
     int addFolder(int parentId, const QString& name, const QString& type);
     bool updateFolder(int id, const QString& newName);
     bool deleteFolder(int id);
+    void setFolderExpanded(int id, bool expanded);
+    void setMessageExpanded(int id, bool expanded);
     QList<FolderNode> getFolders(const QString& type) const;
     bool moveItem(const QString& table, int id, int newFolderId);
     bool moveFolder(int id, int newParentId);
@@ -179,11 +185,11 @@ class BookDatabase {
     bool deleteComment(int id);
 
     // Notifications
-    int addNotification(int messageId, const QString& type);
+    int addNotification(int targetId, const QString& targetType, const QString& type);
     QList<Notification> getNotifications(bool includeDismissed = false) const;
     bool dismissNotification(int id);
-    bool dismissNotificationByMessageId(int messageId);
-    bool dismissNotificationByMessageIdAndType(int messageId, const QString& type);
+    bool dismissNotificationByTarget(int targetId, const QString& targetType);
+    bool dismissNotificationByTargetAndType(int targetId, const QString& targetType, const QString& type);
 
     QString getDatabaseDebugInfo() const;
 

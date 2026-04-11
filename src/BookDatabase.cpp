@@ -474,6 +474,30 @@ bool BookDatabase::initSchema() {
         userVersion = 14;
     }
 
+    if (userVersion < 15) {
+        sqlite3_exec((sqlite3*)m_db, "ALTER TABLE notifications RENAME COLUMN message_id TO target_id;", nullptr, nullptr, nullptr);
+        sqlite3_exec((sqlite3*)m_db, "ALTER TABLE notifications ADD COLUMN target_type TEXT DEFAULT 'message';", nullptr, nullptr, nullptr);
+        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (15);", nullptr, nullptr, nullptr);
+        sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 15;", nullptr, nullptr, nullptr);
+        userVersion = 15;
+    }
+
+    if (userVersion < 16) {
+        sqlite3_exec((sqlite3*)m_db, "ALTER TABLE drafts ADD COLUMN parent_id INTEGER DEFAULT 0;", nullptr, nullptr, nullptr);
+        sqlite3_exec((sqlite3*)m_db, "ALTER TABLE drafts ADD COLUMN target_type TEXT DEFAULT 'document';", nullptr, nullptr, nullptr);
+        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (16);", nullptr, nullptr, nullptr);
+        sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 16;", nullptr, nullptr, nullptr);
+        userVersion = 16;
+    }
+
+    if (userVersion < 17) {
+        sqlite3_exec((sqlite3*)m_db, "ALTER TABLE folders ADD COLUMN is_expanded BOOLEAN DEFAULT 0;", nullptr, nullptr, nullptr);
+        sqlite3_exec((sqlite3*)m_db, "ALTER TABLE messages ADD COLUMN is_expanded BOOLEAN DEFAULT 0;", nullptr, nullptr, nullptr);
+        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (17);", nullptr, nullptr, nullptr);
+        sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 17;", nullptr, nullptr, nullptr);
+        userVersion = 17;
+    }
+
     if (userVersion < 18) {
         const char* sql_alter_documents = "ALTER TABLE documents ADD COLUMN metadata TEXT DEFAULT '';";
         sqlite3_exec((sqlite3*)m_db, sql_alter_documents, nullptr, nullptr, nullptr);
@@ -737,7 +761,7 @@ QList<MessageNode> BookDatabase::getMessages() const {
     QList<MessageNode> nodes;
     if (!m_isOpen) return nodes;
 
-    const char* sql = "SELECT id, parent_id, folder_id, role, content, timestamp FROM messages ORDER BY id;";
+    const char* sql = "SELECT id, parent_id, folder_id, role, content, timestamp, is_expanded FROM messages ORDER BY id;";
     sqlite3_stmt* stmt;
     int rc = sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return nodes;
@@ -751,6 +775,7 @@ QList<MessageNode> BookDatabase::getMessages() const {
         node.content = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 4));
         QString ts = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 5));
         node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
+        node.isExpanded = sqlite3_column_int(stmt, 6) != 0;
         nodes.append(node);
     }
     sqlite3_finalize(stmt);
@@ -989,10 +1014,10 @@ QList<DocumentNode> BookDatabase::getTemplates(int folderId) const {
     return nodes;
 }
 
-int BookDatabase::addDraft(int folderId, const QString& title, const QString& content) {
+int BookDatabase::addDraft(int folderId, const QString& title, const QString& content, int parentId, const QString& targetType) {
     if (!m_isOpen) return -1;
 
-    const char* sql = "INSERT INTO drafts (folder_id, title, content) VALUES (?, ?, ?);";
+    const char* sql = "INSERT INTO drafts (folder_id, title, content, parent_id, target_type) VALUES (?, ?, ?, ?, ?);";
     sqlite3_stmt* stmt;
     int rc = sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return -1;
@@ -1000,6 +1025,8 @@ int BookDatabase::addDraft(int folderId, const QString& title, const QString& co
     sqlite3_bind_int(stmt, 1, folderId);
     sqlite3_bind_text(stmt, 2, title.toUtf8().constData(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 3, content.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 4, parentId);
+    sqlite3_bind_text(stmt, 5, targetType.toUtf8().constData(), -1, SQLITE_TRANSIENT);
 
     rc = sqlite3_step(stmt);
     if (rc != SQLITE_DONE) {
@@ -1033,7 +1060,7 @@ QList<DocumentNode> BookDatabase::getDrafts(int folderId) const {
     QList<DocumentNode> nodes;
     if (!m_isOpen) return nodes;
 
-    QString sqlStr = "SELECT id, folder_id, title, content, timestamp FROM drafts";
+    QString sqlStr = "SELECT id, folder_id, title, content, timestamp, parent_id, target_type FROM drafts";
     if (folderId != -1) sqlStr += " WHERE folder_id = ?";
     sqlStr += " ORDER BY timestamp ASC;";
 
@@ -1051,6 +1078,8 @@ QList<DocumentNode> BookDatabase::getDrafts(int folderId) const {
         node.content = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 3));
         QString ts = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 4));
         node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
+        node.parentId = sqlite3_column_int(stmt, 5);
+        node.targetType = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 6));
         node.isFolder = false;
         nodes.append(node);
     }
@@ -1123,12 +1152,34 @@ bool BookDatabase::deleteFolder(int id) {
     return rc == SQLITE_DONE;
 }
 
+void BookDatabase::setFolderExpanded(int id, bool expanded) {
+    if (!m_isOpen) return;
+    const char* sql = "UPDATE folders SET is_expanded = ? WHERE id = ?;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return;
+    sqlite3_bind_int(stmt, 1, expanded ? 1 : 0);
+    sqlite3_bind_int(stmt, 2, id);
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+}
+
+void BookDatabase::setMessageExpanded(int id, bool expanded) {
+    if (!m_isOpen) return;
+    const char* sql = "UPDATE messages SET is_expanded = ? WHERE id = ?;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return;
+    sqlite3_bind_int(stmt, 1, expanded ? 1 : 0);
+    sqlite3_bind_int(stmt, 2, id);
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+}
+
 QList<FolderNode> BookDatabase::getFolders(const QString& type) const {
     QList<FolderNode> folderNodes;
     if (!m_isOpen) return folderNodes;
 
     const char* sql =
-        "SELECT id, parent_id, name, type, timestamp, position FROM folders WHERE type = ? ORDER BY position ASC, name "
+        "SELECT id, parent_id, name, type, timestamp, position, is_expanded FROM folders WHERE type = ? ORDER BY position ASC, name "
         "ASC;";
     sqlite3_stmt* stmt;
     int rc = sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr);
@@ -1145,6 +1196,7 @@ QList<FolderNode> BookDatabase::getFolders(const QString& type) const {
         QString ts = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 4));
         node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
         node.position = sqlite3_column_int(stmt, 5);
+        node.isExpanded = sqlite3_column_int(stmt, 6) != 0;
         folderNodes.append(node);
     }
     sqlite3_finalize(stmt);
@@ -1309,13 +1361,14 @@ bool BookDatabase::deleteQueueItem(int id) {
     return rc == SQLITE_DONE;
 }
 
-int BookDatabase::addNotification(int messageId, const QString& type) {
+int BookDatabase::addNotification(int targetId, const QString& targetType, const QString& type) {
     if (!m_isOpen) return -1;
-    const char* sql = "INSERT INTO notifications (message_id, type) VALUES (?, ?);";
+    const char* sql = "INSERT INTO notifications (target_id, target_type, type) VALUES (?, ?, ?);";
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return -1;
-    sqlite3_bind_int(stmt, 1, messageId);
-    sqlite3_bind_text(stmt, 2, type.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 1, targetId);
+    sqlite3_bind_text(stmt, 2, targetType.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 3, type.toUtf8().constData(), -1, SQLITE_TRANSIENT);
     int rc = sqlite3_step(stmt);
     if (rc != SQLITE_DONE) {
         sqlite3_finalize(stmt);
@@ -1329,7 +1382,7 @@ int BookDatabase::addNotification(int messageId, const QString& type) {
 QList<Notification> BookDatabase::getNotifications(bool includeDismissed) const {
     QList<Notification> notifications;
     if (!m_isOpen) return notifications;
-    QString sql = "SELECT id, message_id, type, is_dismissed, created_at FROM notifications";
+    QString sql = "SELECT id, target_id, target_type, type, is_dismissed, created_at FROM notifications";
     if (!includeDismissed) sql += " WHERE is_dismissed = 0";
     sql += " ORDER BY created_at DESC;";
     sqlite3_stmt* stmt;
@@ -1338,10 +1391,11 @@ QList<Notification> BookDatabase::getNotifications(bool includeDismissed) const 
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         Notification n;
         n.id = sqlite3_column_int(stmt, 0);
-        n.messageId = sqlite3_column_int(stmt, 1);
-        n.type = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 2));
-        n.isDismissed = sqlite3_column_int(stmt, 3) != 0;
-        n.timestamp = QDateTime::fromString(QString::fromUtf8((const char*)sqlite3_column_text(stmt, 4)), Qt::ISODate);
+        n.targetId = sqlite3_column_int(stmt, 1);
+        n.targetType = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 2));
+        n.type = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 3));
+        n.isDismissed = sqlite3_column_int(stmt, 4) != 0;
+        n.timestamp = QDateTime::fromString(QString::fromUtf8((const char*)sqlite3_column_text(stmt, 5)), Qt::ISODate);
         notifications.append(n);
     }
     sqlite3_finalize(stmt);
@@ -1359,24 +1413,26 @@ bool BookDatabase::dismissNotification(int id) {
     return rc == SQLITE_DONE;
 }
 
-bool BookDatabase::dismissNotificationByMessageId(int messageId) {
+bool BookDatabase::dismissNotificationByTarget(int targetId, const QString& targetType) {
     if (!m_isOpen) return false;
-    const char* sql = "UPDATE notifications SET is_dismissed = 1 WHERE message_id = ?;";
+    const char* sql = "UPDATE notifications SET is_dismissed = 1 WHERE target_id = ? AND target_type = ?;";
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
-    sqlite3_bind_int(stmt, 1, messageId);
+    sqlite3_bind_int(stmt, 1, targetId);
+    sqlite3_bind_text(stmt, 2, targetType.toUtf8().constData(), -1, SQLITE_TRANSIENT);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
     return rc == SQLITE_DONE;
 }
 
-bool BookDatabase::dismissNotificationByMessageIdAndType(int messageId, const QString& type) {
+bool BookDatabase::dismissNotificationByTargetAndType(int targetId, const QString& targetType, const QString& type) {
     if (!m_isOpen) return false;
-    const char* sql = "UPDATE notifications SET is_dismissed = 1 WHERE message_id = ? AND type = ?;";
+    const char* sql = "UPDATE notifications SET is_dismissed = 1 WHERE target_id = ? AND target_type = ? AND type = ?;";
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
-    sqlite3_bind_int(stmt, 1, messageId);
-    sqlite3_bind_text(stmt, 2, type.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 1, targetId);
+    sqlite3_bind_text(stmt, 2, targetType.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 3, type.toUtf8().constData(), -1, SQLITE_TRANSIENT);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
     return rc == SQLITE_DONE;
