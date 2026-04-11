@@ -458,6 +458,7 @@ void QueueManager::processNext() {
                             }
                             act.db->updateDocument(act.item.messageId, title, response, metadata);
                             act.db->deleteQueueItem(act.item.id);
+                            act.db->addNotification(act.item.messageId, act.item.targetType, "finished_generation");
                         } else {
                             act.db->updateQueueItemState(act.item.id, "completed", response);
                             act.db->addNotification(act.item.messageId, act.item.targetType, "review_needed");
