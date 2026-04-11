@@ -5154,7 +5154,7 @@ void MainWindow::handleNewDocumentCreation(int defaultFolderId) {
             } else {
                 QString model = models.isEmpty() ? "" : models.first();
                 newDocId = currentDb->addDocument(folderId, title, "*Generating...*");
-                currentDb->enqueuePrompt(newDocId, model, prompt, 0, "document", 0, "replace_direct");
+                if (newDocId != -1) currentDb->enqueuePrompt(newDocId, model, prompt, 0, "document", 0, "replace_direct");
                 shouldNavigate = true;
             }
             loadDocumentsAndNotes();
