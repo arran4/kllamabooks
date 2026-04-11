@@ -25,6 +25,7 @@ struct DocumentNode {
     QString content;
     QDateTime timestamp;
     bool isFolder;  // Deprecated, but keeping for compatibility during migration if needed
+    QString metadata;
     QString targetType; // Optional, e.g., 'document', 'note', 'template'
 };
 
@@ -123,8 +124,8 @@ class BookDatabase {
                        const QString& defaultValue = QString()) const;
 
     // Documents
-    int addDocument(int folderId, const QString& title, const QString& content, int parentId = 0);
-    bool updateDocument(int id, const QString& newTitle, const QString& newContent);
+    int addDocument(int folderId, const QString& title, const QString& content, int parentId = 0, const QString& metadata = "");
+    bool updateDocument(int id, const QString& newTitle, const QString& newContent, const QString& metadata = "");
     QList<DocumentNode> getDocuments(int folderId = -1) const;  // -1 for all, 0 for root
     bool deleteDocument(int id);
     bool addDocumentHistory(int documentId, const QString& actionType, const QString& content);

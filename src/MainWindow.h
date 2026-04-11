@@ -103,6 +103,7 @@ class MainWindow : public KXmlGuiWindow {
     void showItemContextMenu(QStandardItem* item, const QPoint& globalPos);
     void showOpenBookContextMenu(const QPoint& pos);
     void showVfsContextMenu(const QPoint& pos);
+    void onMergeDocumentsSelected();
     void showInputSettingsMenu();
     void showChatSettingsDialog(int messageId);
     void updateInputBehavior();
@@ -163,6 +164,8 @@ class MainWindow : public KXmlGuiWindow {
     QListWidget* bookList;             // Closed books
     QStackedWidget* mainContentStack;  // To switch between main views
     QWidget* emptyView;
+    QWidget* multiSelectionView;
+    QVBoxLayout* multiSelectionLayout;
     QListView* vfsExplorer;
     CustomItemModel* vfsModel;
     QWidget* chatWindowView;

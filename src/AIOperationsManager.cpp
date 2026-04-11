@@ -4,15 +4,18 @@ QList<AIOperation> AIOperationsManager::getBuiltInOperations() {
     QList<AIOperation> ops;
     ops.append({"complete", "Complete this text",
                 "Complete the following text naturally. Only output the continuation.\n\nText:\n{context}",
-                "built-in"});
+                "built-in", "single"});
     ops.append({"replace", "Replace entirely",
                 "Rewrite the following document according to your instructions. Only output the rewritten document, "
                 "nothing else.\n\nInstructions: {textarea}\n\nDocument:\n{context}",
-                "built-in"});
+                "built-in", "single"});
     ops.append({"replace_in_place", "Replace in place",
                 "Rewrite the following text according to your instructions. Only output the rewritten text, nothing "
                 "else.\n\nInstructions: {textarea}\n\nText:\n{context}",
-                "built-in"});
+                "built-in", "single"});
+    ops.append({"merge", "Merge Documents",
+                "Merge the following documents into one coherent document:\n\n{foreach contexts}\nDocument:\n{context}\n{between}\n---\n{end}",
+                "built-in", "multiple"});
     return ops;
 }
 
@@ -22,7 +25,8 @@ QList<AIOperation> AIOperationsManager::getGlobalOperations() {
     QVariantList list = settings.value("globalAIOperations").toList();
     for (const QVariant& v : list) {
         QVariantMap map = v.toMap();
-        ops.append({map["id"].toString(), map["name"].toString(), map["prompt"].toString(), "global"});
+        QString inputType = map.contains("inputType") ? map["inputType"].toString() : "single";
+        ops.append({map["id"].toString(), map["name"].toString(), map["prompt"].toString(), "global", inputType});
     }
     return ops;
 }
@@ -35,6 +39,7 @@ void AIOperationsManager::setGlobalOperations(const QList<AIOperation>& ops) {
         map["id"] = op.id;
         map["name"] = op.name;
         map["prompt"] = op.prompt;
+        map["inputType"] = op.inputType;
         list.append(map);
     }
     settings.setValue("globalAIOperations", list);
@@ -48,7 +53,8 @@ QList<AIOperation> AIOperationsManager::getDatabaseOperations(BookDatabase* db) 
     QJsonArray arr = doc.array();
     for (int i = 0; i < arr.size(); ++i) {
         QJsonObject obj = arr[i].toObject();
-        ops.append({obj["id"].toString(), obj["name"].toString(), obj["prompt"].toString(), "database"});
+        QString inputType = obj.contains("inputType") ? obj["inputType"].toString() : "single";
+        ops.append({obj["id"].toString(), obj["name"].toString(), obj["prompt"].toString(), "database", inputType});
     }
     return ops;
 }
@@ -61,6 +67,7 @@ void AIOperationsManager::setDatabaseOperations(BookDatabase* db, const QList<AI
         obj["id"] = op.id;
         obj["name"] = op.name;
         obj["prompt"] = op.prompt;
+        obj["inputType"] = op.inputType;
         arr.append(obj);
     }
     QJsonDocument doc(arr);

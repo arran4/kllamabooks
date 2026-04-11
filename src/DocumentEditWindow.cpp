@@ -33,6 +33,19 @@ DocumentEditWindow::DocumentEditWindow(std::shared_ptr<BookDatabase> db, int doc
 
 DocumentEditWindow::~DocumentEditWindow() {}
 
+void DocumentEditWindow::setReadOnly(bool readOnly) {
+    m_isReadOnly = readOnly;
+    m_editor->setReadOnly(readOnly);
+    for (QAction* action : m_editActions) {
+        action->setVisible(!readOnly);
+    }
+    if (readOnly) {
+        setWindowTitle(tr("Preview: %1").arg(m_title));
+    } else {
+        setWindowTitle(tr("Editing: %1").arg(m_title));
+    }
+}
+
 void DocumentEditWindow::setupWindow() {
     QWidget* centralWidget = new QWidget(this);
     QVBoxLayout* layout = new QVBoxLayout(centralWidget);
@@ -238,6 +251,8 @@ void DocumentEditWindow::setupWindow() {
 
     QAction* saveAsTemplateAction = new QAction(QIcon::fromTheme("document-save-as"), tr("Save as Template"), this);
     connect(saveAsTemplateAction, &QAction::triggered, this, &DocumentEditWindow::onSaveAsTemplateClicked);
+
+    m_editActions << saveAction << saveAsAction << saveAsDraftAction << renameAction;
 
     QAction* jumpAction = new QAction(QIcon::fromTheme("go-jump"), tr("Jump to Item"), this);
     connect(jumpAction, &QAction::triggered, this, &DocumentEditWindow::onJumpClicked);
@@ -619,7 +634,7 @@ bool DocumentEditWindow::saveToDb() {
 }
 
 void DocumentEditWindow::closeEvent(QCloseEvent* event) {
-    if (m_editor->toPlainText() != m_initialContent) {
+    if (!m_isReadOnly && m_editor->toPlainText() != m_initialContent) {
         QMessageBox msgBox(this);
         msgBox.setWindowTitle(tr("Unsaved Changes"));
 

@@ -422,7 +422,21 @@ void QueueManager::processNext() {
                     if (!m_activeItems.contains(procId)) return;
                     auto act = m_activeItems[procId];
                     if (act.db && act.db->isOpen()) {
-                        // For documents, we do not update the document directly.
+                        if (act.item.targetType == "document" && act.item.targetAction == "replace_direct") {
+                            auto docs = act.db->getDocuments();
+                            QString currentContent, title, metadata;
+                            for (const auto& d : docs) {
+                                if (d.id == act.item.messageId) {
+                                    currentContent = d.content;
+                                    if (currentContent == "*Generating merge...*") currentContent = "";
+                                    title = d.title;
+                                    metadata = d.metadata;
+                                    break;
+                                }
+                            }
+                            act.db->updateDocument(act.item.messageId, title, currentContent + chunk, metadata);
+                        }
+                        // For other document actions, we do not update the document directly.
                         // Just emit the chunk for the preview.
                         emit processingChunk(act.db, act.item.messageId, chunk, act.item.targetType);
                     }
@@ -431,8 +445,23 @@ void QueueManager::processNext() {
                     if (!m_activeItems.contains(procId)) return;
                     auto act = m_activeItems[procId];
                     if (act.db && act.db->isOpen()) {
-                        act.db->updateQueueItemState(act.item.id, "completed", response);
-                        act.db->addNotification(act.item.messageId, act.item.targetType, "review_needed");
+                        if (act.item.targetType == "document" && act.item.targetAction == "replace_direct") {
+                            // Directly replace content without review.
+                            auto docs = act.db->getDocuments();
+                            QString title, metadata;
+                            for (const auto& d : docs) {
+                                if (d.id == act.item.messageId) {
+                                    title = d.title;
+                                    metadata = d.metadata;
+                                    break;
+                                }
+                            }
+                            act.db->updateDocument(act.item.messageId, title, response, metadata);
+                            act.db->deleteQueueItem(act.item.id);
+                        } else {
+                            act.db->updateQueueItemState(act.item.id, "completed", response);
+                            act.db->addNotification(act.item.messageId, act.item.targetType, "review_needed");
+                        }
 
                         act.db->setSetting(act.item.targetType, act.item.messageId, "model", act.item.model);
 

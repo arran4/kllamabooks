@@ -20,6 +20,8 @@ class DocumentEditWindow : public KXmlGuiWindow {
 
     void setInitialContent(const QString& content);
 
+    void setReadOnly(bool readOnly);
+
    signals:
     void documentModified(int documentId);
     void newDocumentCreated(int newDocumentId);
@@ -48,6 +50,9 @@ class DocumentEditWindow : public KXmlGuiWindow {
     QTextEdit* m_editor;
     QLabel* m_statusLabel;
     QLabel* m_wordCountLabel;
+
+    bool m_isReadOnly = false;
+    QList<QAction*> m_editActions;
 
     void setupWindow();
     void updateStatusBar();

@@ -49,6 +49,7 @@
 #include "AIOperationsDialog.h"
 #include "AiActionDialog.h"
 #include "ChatSettingsDialog.h"
+#include "MergeDocumentsDialog.h"
 #include "DatabaseSettingsDialog.h"
 #include "DocumentEditWindow.h"
 #include "DocumentHistoryDialog.h"
@@ -181,6 +182,7 @@ void MainWindow::setupUi() {
     openBooksTree->setDragDropMode(QAbstractItemView::DragDrop);
     openBooksTree->setDefaultDropAction(Qt::MoveAction);
     openBooksTree->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    openBooksTree->setSelectionMode(QAbstractItemView::ExtendedSelection);
     openBooksTree->setDropIndicatorShown(true);
     openBooksTree->installEventFilter(this);
     openBooksTree->viewport()->installEventFilter(this);
@@ -241,6 +243,11 @@ void MainWindow::setupUi() {
     emptyView = new QWidget(this);
     mainContentStack->addWidget(emptyView);
 
+    multiSelectionView = new QWidget(this);
+    multiSelectionLayout = new QVBoxLayout(multiSelectionView);
+    multiSelectionLayout->setAlignment(Qt::AlignTop);
+    mainContentStack->addWidget(multiSelectionView);
+
     vfsExplorer = new QListView(this);
     vfsModel = new CustomItemModel(this);
     vfsModel->setMainWindow(this);
@@ -253,6 +260,7 @@ void MainWindow::setupUi() {
     vfsExplorer->setDragDropMode(QAbstractItemView::DragDrop);
     vfsExplorer->setDefaultDropAction(Qt::MoveAction);
     vfsExplorer->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    vfsExplorer->setSelectionMode(QAbstractItemView::ExtendedSelection);
     vfsExplorer->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(vfsExplorer, &QWidget::customContextMenuRequested, this, &MainWindow::showVfsContextMenu);
     vfsExplorer->installEventFilter(this);
@@ -2087,6 +2095,86 @@ void MainWindow::showVfsContextMenu(const QPoint& pos) {
     }
 }
 
+void MainWindow::onMergeDocumentsSelected() {
+    if (!currentDb) return;
+
+    QList<int> sourceDocumentIds;
+    QStringList sourceTitles;
+
+    // Check vfsExplorer first
+    QModelIndexList selectedIndexes = vfsExplorer->selectionModel()->selectedIndexes();
+    for (const QModelIndex& selIndex : selectedIndexes) {
+        QStandardItem* selItem = vfsModel->itemFromIndex(selIndex);
+        if (selItem && selItem->data(Qt::UserRole + 1).toString() == "document") {
+            int id = selItem->data(Qt::UserRole).toInt();
+            if (!sourceDocumentIds.contains(id)) {
+                sourceDocumentIds.append(id);
+                sourceTitles.append(selItem->text());
+            }
+        }
+    }
+
+    // Check openBooksTree if not enough documents found in vfsExplorer
+    if (sourceDocumentIds.size() < 2) {
+        sourceDocumentIds.clear();
+        sourceTitles.clear();
+        selectedIndexes = openBooksTree->selectionModel()->selectedIndexes();
+        for (const QModelIndex& selIndex : selectedIndexes) {
+            QStandardItem* selItem = openBooksModel->itemFromIndex(selIndex);
+            if (selItem && selItem->data(Qt::UserRole + 1).toString() == "document") {
+                int id = selItem->data(Qt::UserRole).toInt();
+                if (!sourceDocumentIds.contains(id)) {
+                    sourceDocumentIds.append(id);
+                    sourceTitles.append(selItem->text());
+                }
+            }
+        }
+    }
+
+    if (sourceDocumentIds.size() < 2) return;
+
+    QModelIndex parentIndex = openBooksTree->currentIndex();
+    int targetFolderId = 0;
+    if (parentIndex.isValid() && openBooksModel) {
+        QStandardItem* parentItem = openBooksModel->itemFromIndex(parentIndex);
+        if (parentItem && parentItem->data(Qt::UserRole + 1).toString() == "docs_folder") {
+            targetFolderId = parentItem->data(Qt::UserRole).toInt();
+        }
+    }
+
+    MergeDocumentsDialog dlg(currentDb.get(), sourceDocumentIds, m_availableModelInfos, m_availableModels, this);
+    if (dlg.exec() == QDialog::Accepted) {
+        QString finalPrompt = dlg.getFinalPrompt();
+        QStringList selectedModels = dlg.getSelectedModels();
+        if (selectedModels.isEmpty() || finalPrompt.isEmpty()) return;
+
+        // Build metadata
+        QJsonObject metaObj;
+        metaObj["type"] = "merge";
+        QJsonArray sourcesArr;
+        for (int id : sourceDocumentIds) sourcesArr.append(id);
+        metaObj["source_documents"] = sourcesArr;
+        metaObj["prompt"] = finalPrompt;
+        QString metaStr = QString::fromUtf8(QJsonDocument(metaObj).toJson(QJsonDocument::Compact));
+
+        QString baseTitle = "Merged: " + sourceTitles.join(", ");
+        if (baseTitle.length() > 50) baseTitle = baseTitle.left(47) + "...";
+
+        if (selectedModels.size() > 1) {
+            int newFolderId = currentDb->addFolder(targetFolderId, baseTitle + " (Models)", "docs_folder");
+            for (const QString& model : selectedModels) {
+                int newDocId = currentDb->addDocument(newFolderId, model + " Generation", "*Generating merge...*", 0, metaStr);
+                currentDb->enqueuePrompt(newDocId, model, finalPrompt, 0, "document", 0, "replace_direct");
+            }
+        } else {
+            int newDocId = currentDb->addDocument(targetFolderId, baseTitle, "*Generating merge...*", 0, metaStr);
+            currentDb->enqueuePrompt(newDocId, selectedModels.first(), finalPrompt, 0, "document", 0, "replace_direct");
+        }
+
+        loadDocumentsAndNotes();
+    }
+}
+
 /** * @brief Handles loading a database file when double-clicked in the books list view. *  * This function is an
  * integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal
  * application models. */
@@ -3258,6 +3346,10 @@ void MainWindow::onQueueChunk(std::shared_ptr<BookDatabase> db, int messageId, c
     if (currentDb == db) {
         if (targetType == "document" && currentDocumentId == messageId) {
             documentEditorView->blockSignals(true);
+            QString text = documentEditorView->toPlainText();
+            if (text == "*Generating merge...*") {
+                documentEditorView->setPlainText("");
+            }
             QTextCursor cursor = documentEditorView->textCursor();
             cursor.movePosition(QTextCursor::End);
             documentEditorView->setTextCursor(cursor);
@@ -3366,7 +3458,7 @@ void MainWindow::onProcessingFinished(std::shared_ptr<BookDatabase> db, int mess
                                       const QString& targetType) {
     if (currentDb == db) {
         if (targetType == "document" && currentDocumentId == messageId) {
-            statusBar->showMessage(success ? tr("AI document generation complete. Pending review.")
+            statusBar->showMessage(success ? tr("AI document generation complete.")
                                            : tr("Error generating document changes."),
                                    3000);
         } else if (targetType == "message" && currentLastNodeId == messageId) {
@@ -3800,12 +3892,93 @@ void MainWindow::refreshVfsExplorer() {
  * * This function is an integral component of the MainWindow class structure. * It ensures that side effects map
  * accurately to internal application models. */
 void MainWindow::onOpenBooksSelectionChanged(const QItemSelection& selected, const QItemSelection& deselected) {
-    if (selected.indexes().isEmpty()) {
+    if (openBooksTree->selectionModel()->selectedIndexes().isEmpty()) {
         mainContentStack->setCurrentWidget(emptyView);
         return;
     }
 
-    QModelIndex index = selected.indexes().first();
+    QModelIndexList selectedIndexes = openBooksTree->selectionModel()->selectedIndexes();
+
+    if (selectedIndexes.size() > 1) {
+        QLayoutItem* child;
+        while ((child = multiSelectionLayout->takeAt(0)) != nullptr) {
+            delete child->widget();
+            delete child;
+        }
+
+        QLabel* multiLabel = new QLabel(tr("%1 items selected").arg(selectedIndexes.size()));
+        multiLabel->setStyleSheet("font-weight: bold; font-size: 16px; margin: 10px;");
+        multiSelectionLayout->addWidget(multiLabel);
+
+        QListWidget* listWidget = new QListWidget(this);
+        for (const QModelIndex& selIndex : selectedIndexes) {
+            QStandardItem* selItem = openBooksModel->itemFromIndex(selIndex);
+            if (selItem) {
+                QString type = selItem->data(Qt::UserRole + 1).toString();
+                if (type == "document" || type == "note" || type == "template" || type == "draft") {
+                    QListWidgetItem* listItem = new QListWidgetItem(selItem->icon(), selItem->text());
+                    listItem->setData(Qt::UserRole, selItem->data(Qt::UserRole));
+                    listItem->setData(Qt::UserRole + 1, type);
+                    listWidget->addItem(listItem);
+                }
+            }
+        }
+        multiSelectionLayout->addWidget(listWidget);
+
+        QTextEdit* previewPane = new QTextEdit(this);
+        previewPane->setReadOnly(true);
+        previewPane->setPlaceholderText(tr("Select an item above to preview its contents..."));
+
+        connect(listWidget, &QListWidget::itemSelectionChanged, this, [this, listWidget, previewPane]() {
+            QList<QListWidgetItem*> selItems = listWidget->selectedItems();
+            if (!selItems.isEmpty()) {
+                int id = selItems.first()->data(Qt::UserRole).toInt();
+                QString type = selItems.first()->data(Qt::UserRole + 1).toString();
+                QString outTitle, outContent;
+                getDocumentContent(id, type, outTitle, outContent);
+                previewPane->setPlainText(outContent);
+            } else {
+                previewPane->clear();
+            }
+        });
+
+        QPushButton* previewBtn = new QPushButton(tr("Preview Selected in New Windows"));
+        connect(previewBtn, &QPushButton::clicked, this, [this, listWidget]() {
+            for (int i = 0; i < listWidget->count(); ++i) {
+                QListWidgetItem* item = listWidget->item(i);
+                int id = item->data(Qt::UserRole).toInt();
+                QString type = item->data(Qt::UserRole + 1).toString();
+                QString title = item->text();
+
+                DocumentEditWindow* editWin = new DocumentEditWindow(currentDb, id, title, type, this);
+                editWin->setWindowModality(Qt::NonModal);
+                editWin->setReadOnly(true);
+                editWin->show();
+                connect(editWin, &DocumentEditWindow::jumpToDocumentRequested, this, [this, type](int docId) {
+                    QStandardItem* item = findItemInTree(docId, type);
+                    if (item) {
+                        openBooksTree->selectionModel()->select(item->index(),
+                                                                QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Current);
+                        openBooksTree->scrollTo(item->index());
+                    }
+                    this->raise();
+                    this->activateWindow();
+                });
+            }
+        });
+        multiSelectionLayout->addWidget(previewBtn);
+
+        QPushButton* mergeBtn = new QPushButton(QIcon::fromTheme("merge"), tr("Merge Documents with AI..."));
+        connect(mergeBtn, &QPushButton::clicked, this, &MainWindow::onMergeDocumentsSelected);
+        multiSelectionLayout->addWidget(mergeBtn);
+
+        multiSelectionLayout->addWidget(previewPane);
+
+        mainContentStack->setCurrentWidget(multiSelectionView);
+        return;
+    }
+
+    QModelIndex index = selectedIndexes.first();
     QStandardItem* item = openBooksModel->itemFromIndex(index);
     if (!item) {
         mainContentStack->setCurrentWidget(emptyView);
@@ -4000,6 +4173,26 @@ void MainWindow::loadDocumentsAndNotes() {
  * @param pos The coordinate position to spawn the menu.
  */
 void MainWindow::showOpenBookContextMenu(const QPoint& pos) {
+    // Handle multi-selection for merge
+    QModelIndexList selectedIndexes = openBooksTree->selectionModel()->selectedIndexes();
+    int documentCount = 0;
+    for (const QModelIndex& selIndex : selectedIndexes) {
+        QStandardItem* selItem = openBooksModel->itemFromIndex(selIndex);
+        if (selItem && selItem->data(Qt::UserRole + 1).toString() == "document") {
+            documentCount++;
+        }
+    }
+
+    if (documentCount >= 2) {
+        QMenu menu(this);
+        QAction* mergeAction = menu.addAction(QIcon::fromTheme("merge"), "Merge Documents with AI...");
+        QAction* selectedAction = menu.exec(openBooksTree->viewport()->mapToGlobal(pos));
+        if (selectedAction == mergeAction) {
+            onMergeDocumentsSelected();
+        }
+        return; // Don't show regular single-item context menu
+    }
+
     QModelIndex index = openBooksTree->indexAt(pos);
     if (!index.isValid()) return;
 
