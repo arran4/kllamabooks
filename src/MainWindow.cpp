@@ -291,12 +291,12 @@ void MainWindow::setupUi() {
     QPushButton* aiOperationsBtn = new QPushButton(QIcon::fromTheme("tools-wizard"), "AI Operations", this);
     connect(aiOperationsBtn, &QPushButton::clicked, this, &MainWindow::onDocumentAIOperations);
 
-    QPushButton* docHistoryBtn = new QPushButton(QIcon::fromTheme("view-history"), "History", this);
-    connect(docHistoryBtn, &QPushButton::clicked, this, &MainWindow::onDocumentHistory);
-
-    regenerateMergeBtn = new QPushButton(QIcon::fromTheme("view-refresh"), tr("Regenerate Merge"), this);
+    regenerateMergeBtn = new QPushButton(QIcon::fromTheme("view-refresh"), tr("Regenerate"), this);
     connect(regenerateMergeBtn, &QPushButton::clicked, this, &MainWindow::onRegenerateMerge);
     regenerateMergeBtn->hide();
+
+    QPushButton* docHistoryBtn = new QPushButton(QIcon::fromTheme("view-history"), "History", this);
+    connect(docHistoryBtn, &QPushButton::clicked, this, &MainWindow::onDocumentHistory);
 
     viewMergeSourcesBtn = new QPushButton(QIcon::fromTheme("document-multiple"), "View Merge Sources", this);
     connect(viewMergeSourcesBtn, &QPushButton::clicked, this, &MainWindow::onViewMergeSources);
