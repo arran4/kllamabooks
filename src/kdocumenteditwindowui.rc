@@ -8,8 +8,8 @@
     <MenuBar>
         <Menu name="file">
             <text>&amp;File</text>
-            <Action name="document_save" />
-            <Action name="document_save_as" />
+            <Action name="file_save" />
+            <Action name="file_save_as" />
             <Action name="document_save_as_draft" />
             <Action name="replace_original" />
             <Action name="view_original" />
@@ -25,8 +25,8 @@
     </MenuBar>
     <ToolBar name="mainToolBar">
         <text>Main Toolbar</text>
-        <Action name="document_save" />
-        <Action name="document_save_as" />
+        <Action name="file_save" />
+        <Action name="file_save_as" />
         <Action name="document_save_as_draft" />
         <Action name="replace_original" />
         <Action name="view_original" />

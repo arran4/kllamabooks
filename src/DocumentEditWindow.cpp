@@ -60,10 +60,10 @@ void DocumentEditWindow::setupWindow() {
     // Toolbar actions
     QAction* saveAction = KStandardAction::save(this, &DocumentEditWindow::onSaveClicked, actionCollection());
     if (m_targetType == "draft") saveAction->setText(tr("Update Draft"));
-    actionCollection()->addAction(QStringLiteral("document_save"), saveAction);
+    actionCollection()->addAction(QStringLiteral("file_save"), saveAction);
 
     QAction* saveAsAction = KStandardAction::saveAs(this, &DocumentEditWindow::onSaveAsClicked, actionCollection());
-    actionCollection()->addAction(QStringLiteral("document_save_as"), saveAsAction);
+    actionCollection()->addAction(QStringLiteral("file_save_as"), saveAsAction);
 
     QAction* saveAsDraftAction = new QAction(QIcon::fromTheme("document-new"), tr("Save as Draft"), this);
     actionCollection()->addAction(QStringLiteral("document_save_as_draft"), saveAsDraftAction);
