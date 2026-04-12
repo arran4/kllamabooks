@@ -637,31 +637,30 @@ void MainWindow::setupUi() {
     splitter->setStretchFactor(0, 0);
     splitter->setStretchFactor(1, 1);
 
-    bool hasSys = !QStandardPaths::findExecutable("systemctl").isEmpty();
-    bool hasPk = !QStandardPaths::findExecutable("pkexec").isEmpty();
+    const QString systemctlPath = QStandardPaths::findExecutable(QStringLiteral("systemctl"));
+    const QString pkexecPath = QStandardPaths::findExecutable(QStringLiteral("pkexec"));
     bool ollamaExists = false;
-    if (hasSys) {
+    if (!systemctlPath.isEmpty()) {
         QProcess process;
-        process.start("systemctl", QStringList() << "list-unit-files" << "ollama.service");
-        process.waitForFinished();
-        if (process.exitCode() == 0 && process.exitStatus() == QProcess::NormalExit) {
-            ollamaExists = true;
+        process.start(systemctlPath, QStringList() << QStringLiteral("list-unit-files") << QStringLiteral("ollama.service"));
+        if (process.waitForFinished(1000)) {
+            ollamaExists = process.readAllStandardOutput().contains("ollama.service");
         }
     }
-    bool showOllamaActions = hasSys && hasPk && ollamaExists;
+    const bool showOllamaActions = !systemctlPath.isEmpty() && !pkexecPath.isEmpty() && ollamaExists;
 
     QAction* startOllamaAction = new QAction(QIcon::fromTheme("media-playback-start"), tr("Start Ollama"), this);
     actionCollection()->addAction(QStringLiteral("start_ollama"), startOllamaAction);
     startOllamaAction->setVisible(showOllamaActions);
-    connect(startOllamaAction, &QAction::triggered, this, []() {
-        QProcess::startDetached("pkexec", QStringList() << "systemctl" << "start" << "ollama.service");
+    connect(startOllamaAction, &QAction::triggered, this, [pkexecPath, systemctlPath]() {
+        QProcess::startDetached(pkexecPath, QStringList() << systemctlPath << QStringLiteral("start") << QStringLiteral("ollama.service"));
     });
 
     QAction* stopOllamaAction = new QAction(QIcon::fromTheme("media-playback-stop"), tr("Stop Ollama"), this);
     actionCollection()->addAction(QStringLiteral("stop_ollama"), stopOllamaAction);
     stopOllamaAction->setVisible(showOllamaActions);
-    connect(stopOllamaAction, &QAction::triggered, this, []() {
-        QProcess::startDetached("pkexec", QStringList() << "systemctl" << "stop" << "ollama.service");
+    connect(stopOllamaAction, &QAction::triggered, this, [pkexecPath, systemctlPath]() {
+        QProcess::startDetached(pkexecPath, QStringList() << systemctlPath << QStringLiteral("stop") << QStringLiteral("ollama.service"));
     });
 
     QAction* zoomInAction = new QAction(QIcon::fromTheme("zoom-in"), tr("Zoom In"), this);
