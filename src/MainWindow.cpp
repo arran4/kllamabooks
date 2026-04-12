@@ -5348,21 +5348,28 @@ void MainWindow::handleNewDocumentCreation(int defaultFolderId) {
 }
 
 void MainWindow::updateRegenerateButtonVisibility(const DocumentNode& doc, const QString& type) {
-    if (type == "document" && currentDb) {
-        if (currentDb->getDocumentMerge(doc.id).has_value()) {
-            if (!doc.content.contains(GENERATING_MERGE_TEXT)) {
-                regenerateMergeBtn->show();
-            } else {
-                regenerateMergeBtn->hide();
-            }
-            viewMergeSourcesBtn->show();
-        } else {
-            regenerateMergeBtn->hide();
-            viewMergeSourcesBtn->hide();
+    regenerateMergeBtn->hide();
+    viewMergeSourcesBtn->hide();
+
+    if (type != "document" || !currentDb) return;
+
+    if (!currentDb->getDocumentMerge(doc.id).has_value()) return;
+
+    viewMergeSourcesBtn->show();
+
+    // Check if the document is currently regenerating
+    bool isGenerating = false;
+    for (const auto& qi : currentDb->getQueue()) {
+        if (qi.messageId == doc.id && qi.targetType == "document" &&
+            qi.targetAction == "replace_direct" &&
+            (qi.state == "pending" || qi.state == "processing")) {
+            isGenerating = true;
+            break;
         }
-    } else {
-        regenerateMergeBtn->hide();
-        viewMergeSourcesBtn->hide();
+    }
+
+    if (!isGenerating && !doc.content.contains(GENERATING_MERGE_TEXT)) {
+        regenerateMergeBtn->show();
     }
 }
 
