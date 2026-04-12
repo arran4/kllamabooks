@@ -58,15 +58,12 @@ void DocumentEditWindow::setupWindow() {
     connect(m_editor, &QTextEdit::textChanged, this, &DocumentEditWindow::onContentChanged);
 
     // Toolbar actions
-    QAction* saveAction = new QAction(QIcon::fromTheme("document-save"), m_targetType == "draft" ? tr("Update Draft") : tr("Save"), this);
+    QAction* saveAction = KStandardAction::save(this, &DocumentEditWindow::onSaveClicked, actionCollection());
+    if (m_targetType == "draft") saveAction->setText(tr("Update Draft"));
     actionCollection()->addAction(QStringLiteral("document_save"), saveAction);
-    actionCollection()->setDefaultShortcut(saveAction, QKeySequence::Save);
-    connect(saveAction, &QAction::triggered, this, &DocumentEditWindow::onSaveClicked);
 
-    QAction* saveAsAction = new QAction(QIcon::fromTheme("document-save-as"), tr("Save As..."), this);
+    QAction* saveAsAction = KStandardAction::saveAs(this, &DocumentEditWindow::onSaveAsClicked, actionCollection());
     actionCollection()->addAction(QStringLiteral("document_save_as"), saveAsAction);
-    actionCollection()->setDefaultShortcut(saveAsAction, QKeySequence::SaveAs);
-    connect(saveAsAction, &QAction::triggered, this, &DocumentEditWindow::onSaveAsClicked);
 
     QAction* saveAsDraftAction = new QAction(QIcon::fromTheme("document-new"), tr("Save as Draft"), this);
     actionCollection()->addAction(QStringLiteral("document_save_as_draft"), saveAsDraftAction);
@@ -287,10 +284,8 @@ void DocumentEditWindow::setupWindow() {
         });
     }
 
-    QAction* closeAction = new QAction(QIcon::fromTheme("window-close"), tr("Close"), this);
+    QAction* closeAction = KStandardAction::close(this, &QWidget::close, actionCollection());
     actionCollection()->addAction(QStringLiteral("file_close"), closeAction);
-    actionCollection()->setDefaultShortcut(closeAction, QKeySequence::Close);
-    connect(closeAction, &QAction::triggered, this, &QWidget::close);
 
     setupGUI(Default, ":/kdocumenteditwindowui.rc");
 

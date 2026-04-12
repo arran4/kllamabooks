@@ -652,19 +652,17 @@ void MainWindow::setupUi() {
     actionCollection()->setDefaultShortcut(resetZoomAction, QKeySequence(Qt::CTRL | Qt::Key_0));
     connect(resetZoomAction, &QAction::triggered, this, &MainWindow::resetZoom);
 
-    QAction* newBookAction = new QAction(QIcon::fromTheme("document-new"), tr("New Book"), this);
+    QAction* newBookAction = KStandardAction::openNew(this, &MainWindow::onCreateBook, actionCollection());
+    newBookAction->setText(tr("New Book"));
     actionCollection()->addAction(QStringLiteral("new_book"), newBookAction);
-    actionCollection()->setDefaultShortcut(newBookAction, QKeySequence::New);
 
-    QAction* openBookAction = new QAction(QIcon::fromTheme("document-open"), tr("Open Book"), this);
+    QAction* openBookAction = KStandardAction::open(this, &MainWindow::onOpenBook, actionCollection());
+    openBookAction->setText(tr("Open Book"));
     actionCollection()->addAction(QStringLiteral("open_book"), openBookAction);
-    actionCollection()->setDefaultShortcut(openBookAction, QKeySequence::Open);
-    connect(openBookAction, &QAction::triggered, this, &MainWindow::onOpenBook);
 
-    QAction* closeBookAction = new QAction(QIcon::fromTheme("document-close"), tr("Close Current Book"), this);
+    QAction* closeBookAction = KStandardAction::close(this, &MainWindow::onCloseBook, actionCollection());
+    closeBookAction->setText(tr("Close Current Book"));
     actionCollection()->addAction(QStringLiteral("close_book"), closeBookAction);
-    actionCollection()->setDefaultShortcut(closeBookAction, QKeySequence::Close);
-    connect(closeBookAction, &QAction::triggered, this, &MainWindow::onCloseBook);
 
     QAction* openBookLocationAction = new QAction(QIcon::fromTheme("folder-open"), tr("Open Book Location"), this);
     actionCollection()->addAction(QStringLiteral("open_book_location"), openBookLocationAction);
@@ -744,7 +742,7 @@ void MainWindow::setupUi() {
     connect(&ollamaClient, &OllamaClient::connectionStatusChanged, this, &MainWindow::onConnectionStatusChanged);
     connect(&ollamaClient, &OllamaClient::generationMetrics, this, &MainWindow::onGenerationMetrics);
 
-    connect(newBookAction, &QAction::triggered, this, &MainWindow::onCreateBook);
+    // connect removed, KStandardAction handles it
     connect(bookList, &QListWidget::doubleClicked, this,
             &MainWindow::onBookSelected);  // Open book from list via double click
     connect(sendButton, &QPushButton::clicked, this, &MainWindow::onSendMessage);
