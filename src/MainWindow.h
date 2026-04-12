@@ -100,6 +100,7 @@ class MainWindow : public KXmlGuiWindow {
     void onDocumentHistory();
     void onEditDocument();
     void onRegenerateMerge();
+    void updateRegenerateButtonVisibility(const DocumentNode& doc, const QString& type);
     void handleNewDocumentCreation(int defaultFolderId = 0);
     void showItemContextMenu(QStandardItem* item, const QPoint& globalPos);
     void showOpenBookContextMenu(const QPoint& pos);

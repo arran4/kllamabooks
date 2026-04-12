@@ -63,6 +63,8 @@
 #include "QueueWindow.h"
 #include "WalletManager.h"
 
+static const QString GENERATING_MERGE_TEXT = QStringLiteral("*Generating merge...*");
+
 CustomItemModel::CustomItemModel(QObject* parent) : QStandardItemModel(parent), m_mainWindow(nullptr) {}
 
 /** * @brief Executes logic for mimeTypes. This function manages component initialization and handles state transitions
@@ -2168,11 +2170,11 @@ void MainWindow::onMergeDocumentsSelected() {
         if (selectedModels.size() > 1) {
             int newFolderId = currentDb->addFolder(targetFolderId, baseTitle + " (Models)", "docs_folder");
             for (const QString& model : selectedModels) {
-                int newDocId = currentDb->addDocument(newFolderId, model + " Generation", "*Generating merge...*", 0, metaStr);
+                int newDocId = currentDb->addDocument(newFolderId, model + " Generation", GENERATING_MERGE_TEXT, 0, metaStr);
                 currentDb->enqueuePrompt(newDocId, model, finalPrompt, 0, "document", 0, "replace_direct");
             }
         } else {
-            int newDocId = currentDb->addDocument(targetFolderId, baseTitle, "*Generating merge...*", 0, metaStr);
+            int newDocId = currentDb->addDocument(targetFolderId, baseTitle, GENERATING_MERGE_TEXT, 0, metaStr);
             currentDb->enqueuePrompt(newDocId, selectedModels.first(), finalPrompt, 0, "document", 0, "replace_direct");
         }
 
@@ -3352,7 +3354,7 @@ void MainWindow::onQueueChunk(std::shared_ptr<BookDatabase> db, int messageId, c
         if (targetType == "document" && currentDocumentId == messageId) {
             documentEditorView->blockSignals(true);
             QString text = documentEditorView->toPlainText();
-            if (text == "*Generating merge...*") {
+            if (text == GENERATING_MERGE_TEXT) {
                 documentEditorView->setPlainText("");
             }
             QTextCursor cursor = documentEditorView->textCursor();
@@ -4020,18 +4022,7 @@ void MainWindow::onOpenBooksSelectionChanged(const QItemSelection& selected, con
                         documentEditorView->setPlainText(doc.content);
                         mainContentStack->setCurrentWidget(docContainer);
 
-                        // Check if it's a merge document to show regenerate button
-                        if (type == "document") {
-                            QJsonDocument docMeta = QJsonDocument::fromJson(doc.metadata.toUtf8());
-                            if (!docMeta.isNull() && docMeta.isObject()) {
-                                QJsonObject obj = docMeta.object();
-                                if (obj.value("type").toString() == "merge") {
-                                    if (!doc.content.contains("*Generating merge...*")) {
-                                        regenerateMergeBtn->show();
-                                    }
-                                }
-                            }
-                        }
+                        updateRegenerateButtonVisibility(doc, type);
 
                         break;
                     }
@@ -5122,11 +5113,11 @@ void MainWindow::onRegenerateMerge() {
     currentDb->addDocumentHistory(currentDocumentId, "replace_pre", doc.content);
 
     // Set generating text
-    currentDb->updateDocument(currentDocumentId, doc.title, "*Generating merge...*", doc.metadata);
+    currentDb->updateDocument(currentDocumentId, doc.title, GENERATING_MERGE_TEXT, doc.metadata);
 
     if (documentEditorView && mainContentStack->currentWidget() == docContainer) {
         documentEditorView->blockSignals(true);
-        documentEditorView->setPlainText("*Generating merge...*");
+        documentEditorView->setPlainText(GENERATING_MERGE_TEXT);
         documentEditorView->blockSignals(false);
     }
 
@@ -5181,17 +5172,7 @@ void MainWindow::onOpenBooksTreeDoubleClicked(const QModelIndex& index) {
                 documentEditorView->setPlainText(doc.content);
                 mainContentStack->setCurrentWidget(docContainer);
 
-                if (type == "document") {
-                    QJsonDocument docMeta = QJsonDocument::fromJson(doc.metadata.toUtf8());
-                    if (!docMeta.isNull() && docMeta.isObject()) {
-                        QJsonObject obj = docMeta.object();
-                        if (obj.value("type").toString() == "merge") {
-                            if (!doc.content.contains("*Generating merge...*")) {
-                                regenerateMergeBtn->show();
-                            }
-                        }
-                    }
-                }
+                updateRegenerateButtonVisibility(doc, type);
                 break;
             }
         }
@@ -5349,6 +5330,20 @@ void MainWindow::handleNewDocumentCreation(int defaultFolderId) {
 
                 if (dialog.getDocumentType() == NewDocumentDialog::ResumeDraft) {
                     onEditDocument();
+                }
+            }
+        }
+    }
+}
+
+void MainWindow::updateRegenerateButtonVisibility(const DocumentNode& doc, const QString& type) {
+    if (type == "document") {
+        QJsonDocument docMeta = QJsonDocument::fromJson(doc.metadata.toUtf8());
+        if (!docMeta.isNull() && docMeta.isObject()) {
+            QJsonObject obj = docMeta.object();
+            if (obj.value("type").toString() == "merge") {
+                if (!doc.content.contains(GENERATING_MERGE_TEXT)) {
+                    regenerateMergeBtn->show();
                 }
             }
         }

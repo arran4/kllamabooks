@@ -127,6 +127,7 @@ class BookDatabase {
     int addDocument(int folderId, const QString& title, const QString& content, int parentId = 0, const QString& metadata = "");
     bool updateDocument(int id, const QString& newTitle, const QString& newContent, const QString& metadata = "");
     QList<DocumentNode> getDocuments(int folderId = -1) const;  // -1 for all, 0 for root
+    std::optional<DocumentNode> getDocument(int id) const;
     bool deleteDocument(int id);
     bool addDocumentHistory(int documentId, const QString& actionType, const QString& content);
 
