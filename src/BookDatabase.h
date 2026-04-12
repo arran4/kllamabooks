@@ -138,6 +138,21 @@ class BookDatabase {
         QString timestamp;
     };
     QList<DocumentHistoryEntry> getDocumentHistory(int documentId) const;
+    int addDocumentHistoryReturningId(int documentId, const QString& actionType, const QString& content);
+
+    // Merges
+    struct DocumentMergeEntry {
+        int id;
+        int documentId;
+        QString sourceDocumentIds; // comma separated or JSON array
+        QString prompt;
+        QString model;
+        QString timestamp;
+        int versionHistoryId;
+    };
+    int addDocumentMerge(int documentId, const QString& sourceDocumentIds, const QString& prompt, const QString& model, int versionHistoryId = 0);
+    std::optional<DocumentMergeEntry> getDocumentMerge(int documentId) const;
+    bool updateDocumentMergeVersion(int mergeId, int versionHistoryId);
 
     // Templates
     int addTemplate(int folderId, const QString& title, const QString& content);
