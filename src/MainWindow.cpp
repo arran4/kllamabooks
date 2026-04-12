@@ -294,7 +294,7 @@ void MainWindow::setupUi() {
     QPushButton* docHistoryBtn = new QPushButton(QIcon::fromTheme("view-history"), "History", this);
     connect(docHistoryBtn, &QPushButton::clicked, this, &MainWindow::onDocumentHistory);
 
-    regenerateMergeBtn = new QPushButton(QIcon::fromTheme("view-refresh"), "Regenerate Merge", this);
+    regenerateMergeBtn = new QPushButton(QIcon::fromTheme("view-refresh"), tr("Regenerate Merge"), this);
     connect(regenerateMergeBtn, &QPushButton::clicked, this, &MainWindow::onRegenerateMerge);
     regenerateMergeBtn->hide();
 
@@ -4610,7 +4610,7 @@ void MainWindow::updateNotificationStatus() {
 
                     if (n.type == "finished_generation" && n.targetType == "document") {
                         if (db->getDocumentMerge(n.targetId).has_value()) {
-                            tryAgainBtn = new QPushButton(tr("Try Again"), &dialog);
+                            tryAgainBtn = new QPushButton(tr("Regenerate"), &dialog);
                         }
                     }
 
