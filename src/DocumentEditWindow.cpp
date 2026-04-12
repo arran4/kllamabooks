@@ -59,12 +59,17 @@ void DocumentEditWindow::setupWindow() {
 
     // Toolbar actions
     QAction* saveAction = new QAction(QIcon::fromTheme("document-save"), m_targetType == "draft" ? tr("Update Draft") : tr("Save"), this);
+    actionCollection()->addAction(QStringLiteral("document_save"), saveAction);
+    actionCollection()->setDefaultShortcut(saveAction, QKeySequence::Save);
     connect(saveAction, &QAction::triggered, this, &DocumentEditWindow::onSaveClicked);
 
     QAction* saveAsAction = new QAction(QIcon::fromTheme("document-save-as"), tr("Save As..."), this);
+    actionCollection()->addAction(QStringLiteral("document_save_as"), saveAsAction);
+    actionCollection()->setDefaultShortcut(saveAsAction, QKeySequence::SaveAs);
     connect(saveAsAction, &QAction::triggered, this, &DocumentEditWindow::onSaveAsClicked);
 
     QAction* saveAsDraftAction = new QAction(QIcon::fromTheme("document-new"), tr("Save as Draft"), this);
+    actionCollection()->addAction(QStringLiteral("document_save_as_draft"), saveAsDraftAction);
     connect(saveAsDraftAction, &QAction::triggered, this, &DocumentEditWindow::onSaveAsDraftClicked);
 
     QAction* replaceOriginalAction = nullptr;
@@ -73,6 +78,7 @@ void DocumentEditWindow::setupWindow() {
         saveAsDraftAction->setVisible(false); // Hide "Save as Draft" if it is already a draft.
 
         replaceOriginalAction = new QAction(QIcon::fromTheme("document-export"), tr("Replace Original Document"), this);
+        actionCollection()->addAction(QStringLiteral("replace_original"), replaceOriginalAction);
         connect(replaceOriginalAction, &QAction::triggered, this, [this]() {
             if (!m_db || !m_db->isOpen()) return;
 
@@ -190,6 +196,7 @@ void DocumentEditWindow::setupWindow() {
         });
 
         viewOriginalAction = new QAction(QIcon::fromTheme("view-preview"), tr("View Original Document"), this);
+        actionCollection()->addAction(QStringLiteral("view_original"), viewOriginalAction);
         connect(viewOriginalAction, &QAction::triggered, this, [this]() {
             if (!m_db || !m_db->isOpen()) return;
 
@@ -216,6 +223,7 @@ void DocumentEditWindow::setupWindow() {
     QAction* addCommentAction = nullptr;
     if (m_targetType == "draft") {
         addCommentAction = new QAction(QIcon::fromTheme("view-pim-notes"), tr("Edit Draft Description"), this);
+        actionCollection()->addAction(QStringLiteral("add_comment"), addCommentAction);
         connect(addCommentAction, &QAction::triggered, this, [this]() {
             if (!m_db || !m_db->isOpen()) return;
 
@@ -247,19 +255,23 @@ void DocumentEditWindow::setupWindow() {
     }
 
     QAction* renameAction = new QAction(QIcon::fromTheme("edit-rename"), tr("Rename"), this);
+    actionCollection()->addAction(QStringLiteral("rename_document"), renameAction);
     connect(renameAction, &QAction::triggered, this, &DocumentEditWindow::onRenameClicked);
 
     QAction* saveAsTemplateAction = new QAction(QIcon::fromTheme("document-save-as"), tr("Save as Template"), this);
+    actionCollection()->addAction(QStringLiteral("document_save_as_template"), saveAsTemplateAction);
     connect(saveAsTemplateAction, &QAction::triggered, this, &DocumentEditWindow::onSaveAsTemplateClicked);
 
     m_editActions << saveAction << saveAsAction << saveAsDraftAction << renameAction;
 
     QAction* jumpAction = new QAction(QIcon::fromTheme("go-jump"), tr("Jump to Item"), this);
+    actionCollection()->addAction(QStringLiteral("jump_to_item"), jumpAction);
     connect(jumpAction, &QAction::triggered, this, &DocumentEditWindow::onJumpClicked);
 
     QAction* dismissDraftAction = nullptr;
     if (m_targetType == "draft") {
         dismissDraftAction = new QAction(QIcon::fromTheme("edit-delete"), tr("Dismiss Draft"), this);
+        actionCollection()->addAction(QStringLiteral("dismiss_draft"), dismissDraftAction);
         connect(dismissDraftAction, &QAction::triggered, this, [this]() {
             if (!m_db || !m_db->isOpen()) return;
 
@@ -276,43 +288,11 @@ void DocumentEditWindow::setupWindow() {
     }
 
     QAction* closeAction = new QAction(QIcon::fromTheme("window-close"), tr("Close"), this);
+    actionCollection()->addAction(QStringLiteral("file_close"), closeAction);
+    actionCollection()->setDefaultShortcut(closeAction, QKeySequence::Close);
     connect(closeAction, &QAction::triggered, this, &QWidget::close);
 
-    KToolBar* mainToolBar = new KToolBar("mainToolBar", this);
-    mainToolBar->addAction(saveAction);
-    mainToolBar->addAction(saveAsAction);
-    if (m_targetType != "draft") {
-    mainToolBar->addAction(saveAsDraftAction);
-    } else {
-        if (replaceOriginalAction) mainToolBar->addAction(replaceOriginalAction);
-        if (viewOriginalAction) mainToolBar->addAction(viewOriginalAction);
-        if (dismissDraftAction) mainToolBar->addAction(dismissDraftAction);
-        if (addCommentAction) mainToolBar->addAction(addCommentAction);
-    }
-    mainToolBar->addAction(saveAsTemplateAction);
-    mainToolBar->addAction(renameAction);
-    mainToolBar->addAction(jumpAction);
-    mainToolBar->addAction(closeAction);
-    addToolBar(mainToolBar);
-
-    QMenu* fileMenu = new QMenu(tr("File"), this);
-    fileMenu->addAction(saveAction);
-    fileMenu->addAction(saveAsAction);
-    if (m_targetType != "draft") {
-        fileMenu->addAction(saveAsDraftAction);
-    } else {
-        if (replaceOriginalAction) fileMenu->addAction(replaceOriginalAction);
-        if (viewOriginalAction) fileMenu->addAction(viewOriginalAction);
-        if (dismissDraftAction) fileMenu->addAction(dismissDraftAction);
-        if (addCommentAction) fileMenu->addAction(addCommentAction);
-    }
-    fileMenu->addAction(saveAsTemplateAction);
-    fileMenu->addSeparator();
-    fileMenu->addAction(renameAction);
-    fileMenu->addAction(jumpAction);
-    fileMenu->addSeparator();
-    fileMenu->addAction(closeAction);
-    menuBar()->addMenu(fileMenu);
+    setupGUI(Default, ":/kdocumenteditwindowui.rc");
 
     // Status bar
     QStatusBar* sbar = statusBar();

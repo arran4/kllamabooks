@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gui name="kdocumenteditwindow"
+     version="1"
+     xmlns="http://www.kde.org/standards/kxmlgui/1.0"
+     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+     xsi:schemaLocation="http://www.kde.org/standards/kxmlgui/1.0
+                         http://www.kde.org/standards/kxmlgui/1.0/kxmlgui.xsd">
+    <MenuBar>
+        <Menu name="file">
+            <text>&amp;File</text>
+            <Action name="document_save" />
+            <Action name="document_save_as" />
+            <Action name="document_save_as_draft" />
+            <Action name="replace_original" />
+            <Action name="view_original" />
+            <Action name="dismiss_draft" />
+            <Action name="add_comment" />
+            <Action name="document_save_as_template" />
+            <Separator />
+            <Action name="rename_document" />
+            <Action name="jump_to_item" />
+            <Separator />
+            <Action name="file_close" />
+        </Menu>
+    </MenuBar>
+    <ToolBar name="mainToolBar">
+        <text>Main Toolbar</text>
+        <Action name="document_save" />
+        <Action name="document_save_as" />
+        <Action name="document_save_as_draft" />
+        <Action name="replace_original" />
+        <Action name="view_original" />
+        <Action name="dismiss_draft" />
+        <Action name="add_comment" />
+        <Action name="document_save_as_template" />
+        <Separator />
+        <Action name="rename_document" />
+        <Action name="jump_to_item" />
+        <Separator />
+        <Action name="file_close" />
+    </ToolBar>
+</gui>

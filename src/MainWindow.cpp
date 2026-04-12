@@ -654,13 +654,16 @@ void MainWindow::setupUi() {
 
     QAction* newBookAction = new QAction(QIcon::fromTheme("document-new"), tr("New Book"), this);
     actionCollection()->addAction(QStringLiteral("new_book"), newBookAction);
+    actionCollection()->setDefaultShortcut(newBookAction, QKeySequence::New);
 
     QAction* openBookAction = new QAction(QIcon::fromTheme("document-open"), tr("Open Book"), this);
     actionCollection()->addAction(QStringLiteral("open_book"), openBookAction);
+    actionCollection()->setDefaultShortcut(openBookAction, QKeySequence::Open);
     connect(openBookAction, &QAction::triggered, this, &MainWindow::onOpenBook);
 
     QAction* closeBookAction = new QAction(QIcon::fromTheme("document-close"), tr("Close Current Book"), this);
     actionCollection()->addAction(QStringLiteral("close_book"), closeBookAction);
+    actionCollection()->setDefaultShortcut(closeBookAction, QKeySequence::Close);
     connect(closeBookAction, &QAction::triggered, this, &MainWindow::onCloseBook);
 
     QAction* openBookLocationAction = new QAction(QIcon::fromTheme("folder-open"), tr("Open Book Location"), this);
