@@ -5352,9 +5352,17 @@ void MainWindow::updateRegenerateButtonVisibility(const DocumentNode& doc, const
         if (currentDb->getDocumentMerge(doc.id).has_value()) {
             if (!doc.content.contains(GENERATING_MERGE_TEXT)) {
                 regenerateMergeBtn->show();
+            } else {
+                regenerateMergeBtn->hide();
             }
             viewMergeSourcesBtn->show();
+        } else {
+            regenerateMergeBtn->hide();
+            viewMergeSourcesBtn->hide();
         }
+    } else {
+        regenerateMergeBtn->hide();
+        viewMergeSourcesBtn->hide();
     }
 }
 
