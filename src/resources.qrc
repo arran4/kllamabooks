@@ -4,6 +4,7 @@
         <file>assets/icon.png</file>
         <file>assets/icon-dotted.png</file>
         <file>kllamabooksui.rc</file>
+        <file>kdocumenteditwindowui.rc</file>
         <file>kllamabooks.desktop</file>
     </qresource>
     <qresource prefix="/knotifications6">

@@ -131,6 +131,10 @@ install(FILES src/kllamabooksui.rc
     DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/kxmlgui6/kllamabooks
 )
 
+install(FILES src/kdocumenteditwindowui.rc
+    DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/kxmlgui6/kllamabooks
+)
+
 install(FILES src/com.arran4.kllamabooks.metainfo.xml
     DESTINATION ${CMAKE_INSTALL_DATADIR}/metainfo
 )
