@@ -4032,8 +4032,8 @@ void MainWindow::onOpenBooksSelectionChanged(const QItemSelection& selected, con
         if (type == "document" || type == "template" || type == "draft") {
             currentDocumentId = nodeId;
             isCreatingNewDoc = (nodeId == 0);
-            regenerateMergeBtn->hide();
-            viewMergeSourcesBtn->hide();
+            regenerateMergeBtn->setVisible(false);
+            viewMergeSourcesBtn->setVisible(false);
             if (isCreatingNewDoc) {
                 documentEditorView->clear();
                 mainContentStack->setCurrentWidget(docContainer);
@@ -5175,8 +5175,8 @@ void MainWindow::onOpenBooksTreeDoubleClicked(const QModelIndex& index) {
         else if (type == "draft")
             docs = currentDb->getDrafts();
 
-        regenerateMergeBtn->hide();
-        viewMergeSourcesBtn->hide();
+        regenerateMergeBtn->setVisible(false);
+        viewMergeSourcesBtn->setVisible(false);
         for (const auto& doc : docs) {
             if (doc.id == docId) {
                 currentDocumentId = docId;
@@ -5348,21 +5348,21 @@ void MainWindow::handleNewDocumentCreation(int defaultFolderId) {
 }
 
 void MainWindow::updateRegenerateButtonVisibility(const DocumentNode& doc, const QString& type) {
-    regenerateMergeBtn->hide();
-    viewMergeSourcesBtn->hide();
+    bool showRegenerate = false;
+    bool showSources = false;
 
-    if (type != "document" || !currentDb) return;
-
-    if (!currentDb->getDocumentMerge(doc.id).has_value()) return;
-
-    viewMergeSourcesBtn->show();
-
-    // Check if the document is currently regenerating
-    bool isGenerating = currentDb->isGenerating(doc.id, "document", "replace_direct");
-
-    if (!isGenerating && !doc.content.contains(GENERATING_MERGE_TEXT)) {
-        regenerateMergeBtn->show();
+    if (type == "document" && currentDb) {
+        if (currentDb->getDocumentMerge(doc.id).has_value()) {
+            showSources = true;
+            bool isGenerating = currentDb->isGenerating(doc.id, "document", "replace_direct");
+            if (!isGenerating && !doc.content.contains(GENERATING_MERGE_TEXT)) {
+                showRegenerate = true;
+            }
+        }
     }
+
+    regenerateMergeBtn->setVisible(showRegenerate);
+    viewMergeSourcesBtn->setVisible(showSources);
 }
 
 void MainWindow::onViewMergeSources() {
