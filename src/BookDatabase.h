@@ -187,6 +187,7 @@ class BookDatabase {
     int enqueuePrompt(int messageId, const QString& model, const QString& prompt, int priority = 0,
                       const QString& targetType = "message", int parentId = 0, const QString& targetAction = "");
     QList<QueueItem> getQueue() const;
+    bool isGenerating(int targetId, const QString& targetType, const QString& targetAction) const;
     bool updateQueueProcessingId(int id, int processingId);
     bool updateQueueError(int id, const QString& error);
     bool updateQueueItemPrompt(int id, const QString& prompt);

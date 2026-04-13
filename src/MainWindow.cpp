@@ -5358,15 +5358,7 @@ void MainWindow::updateRegenerateButtonVisibility(const DocumentNode& doc, const
     viewMergeSourcesBtn->show();
 
     // Check if the document is currently regenerating
-    bool isGenerating = false;
-    for (const auto& qi : currentDb->getQueue()) {
-        if (qi.messageId == doc.id && qi.targetType == "document" &&
-            qi.targetAction == "replace_direct" &&
-            (qi.state == "pending" || qi.state == "processing")) {
-            isGenerating = true;
-            break;
-        }
-    }
+    bool isGenerating = currentDb->isGenerating(doc.id, "document", "replace_direct");
 
     if (!isGenerating && !doc.content.contains(GENERATING_MERGE_TEXT)) {
         regenerateMergeBtn->show();
