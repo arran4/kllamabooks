@@ -19,6 +19,8 @@
 #include <QStatusBar>
 #include <QTextEdit>
 #include <QVBoxLayout>
+#include <KActionCollection>
+#include <KStandardAction>
 
 DocumentEditWindow::DocumentEditWindow(std::shared_ptr<BookDatabase> db, int documentId, const QString& title,
                                        const QString& targetType, QWidget* parent)
