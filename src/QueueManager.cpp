@@ -428,7 +428,7 @@ void QueueManager::processNext() {
                             for (const auto& d : docs) {
                                 if (d.id == act.item.messageId) {
                                     currentContent = d.content;
-                                    if (currentContent == "*Generating merge...*") currentContent = "";
+                                    if (currentContent == QStringLiteral("*Generating merge...*")) currentContent = "";
                                     title = d.title;
                                     metadata = d.metadata;
                                     break;

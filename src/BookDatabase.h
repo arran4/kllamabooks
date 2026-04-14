@@ -127,6 +127,7 @@ class BookDatabase {
     int addDocument(int folderId, const QString& title, const QString& content, int parentId = 0, const QString& metadata = "");
     bool updateDocument(int id, const QString& newTitle, const QString& newContent, const QString& metadata = "");
     QList<DocumentNode> getDocuments(int folderId = -1) const;  // -1 for all, 0 for root
+    std::optional<DocumentNode> getDocument(int id) const;
     bool deleteDocument(int id);
     bool addDocumentHistory(int documentId, const QString& actionType, const QString& content);
 
@@ -137,6 +138,21 @@ class BookDatabase {
         QString timestamp;
     };
     QList<DocumentHistoryEntry> getDocumentHistory(int documentId) const;
+    int addDocumentHistoryReturningId(int documentId, const QString& actionType, const QString& content);
+
+    // Merges
+    struct DocumentMergeEntry {
+        int id;
+        int documentId;
+        QString sourceDocumentIds; // comma separated or JSON array
+        QString prompt;
+        QString model;
+        QString timestamp;
+        int versionHistoryId;
+    };
+    int addDocumentMerge(int documentId, const QString& sourceDocumentIds, const QString& prompt, const QString& model, int versionHistoryId = 0);
+    std::optional<DocumentMergeEntry> getDocumentMerge(int documentId) const;
+    bool updateDocumentMergeVersion(int mergeId, int versionHistoryId);
 
     // Templates
     int addTemplate(int folderId, const QString& title, const QString& content);
@@ -171,6 +187,7 @@ class BookDatabase {
     int enqueuePrompt(int messageId, const QString& model, const QString& prompt, int priority = 0,
                       const QString& targetType = "message", int parentId = 0, const QString& targetAction = "");
     QList<QueueItem> getQueue() const;
+    bool isGenerating(int targetId, const QString& targetType, const QString& targetAction) const;
     bool updateQueueProcessingId(int id, int processingId);
     bool updateQueueError(int id, const QString& error);
     bool updateQueueItemPrompt(int id, const QString& prompt);

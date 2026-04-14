@@ -99,6 +99,9 @@ class MainWindow : public KXmlGuiWindow {
     void onDocumentAIOperations();
     void onDocumentHistory();
     void onEditDocument();
+    void onRegenerateMerge();
+    void onViewMergeSources();
+    void updateRegenerateButtonVisibility(const DocumentNode& doc, const QString& type);
     void handleNewDocumentCreation(int defaultFolderId = 0);
     void showItemContextMenu(QStandardItem* item, const QPoint& globalPos);
     void showOpenBookContextMenu(const QPoint& pos);
@@ -182,6 +185,8 @@ class MainWindow : public KXmlGuiWindow {
     QPushButton* saveDocBtn;
     QPushButton* previewDocBtn;
     QPushButton* editDocBtn;
+    QPushButton* regenerateMergeBtn;
+    QPushButton* viewMergeSourcesBtn;
 
     QWidget* noteContainer;
     QTextEdit* noteEditorView;
