@@ -162,6 +162,27 @@ QStringList MergeDocumentsDialog::getSelectedModels() const {
     return m_selectedModels;
 }
 
+QString MergeDocumentsDialog::getRawPrompt() const {
+    return m_instructionEdit->toPlainText();
+}
+
+void MergeDocumentsDialog::setInitialPrompt(const QString& prompt) {
+    if (!prompt.isEmpty()) {
+        m_instructionEdit->setPlainText(prompt);
+    }
+}
+
+void MergeDocumentsDialog::setInitialModels(const QStringList& models) {
+    if (!models.isEmpty()) {
+        m_selectedModels = models;
+        if (m_selectedModels.size() == 1) {
+            m_selectModelsBtn->setText(m_selectedModels.first());
+        } else {
+            m_selectModelsBtn->setText(tr("%1 Models Selected").arg(m_selectedModels.size()));
+        }
+    }
+}
+
 void MergeDocumentsDialog::onSelectModelsClicked() {
     ModelSelectionDialog dlg(m_modelInfos, m_fallbackModels, this);
     if (dlg.exec() == QDialog::Accepted) {

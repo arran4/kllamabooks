@@ -2172,6 +2172,7 @@ void MainWindow::onMergeDocumentsSelected() {
     MergeDocumentsDialog dlg(currentDb.get(), sourceDocumentIds, m_availableModelInfos, m_availableModels, this);
     if (dlg.exec() == QDialog::Accepted) {
         QString finalPrompt = dlg.getFinalPrompt();
+        QString rawPrompt = dlg.getRawPrompt();
         QStringList selectedModels = dlg.getSelectedModels();
         if (selectedModels.isEmpty() || finalPrompt.isEmpty()) return;
 
@@ -2186,6 +2187,7 @@ void MainWindow::onMergeDocumentsSelected() {
         }
         metaObj["source_documents"] = sourcesArr;
         metaObj["prompt"] = finalPrompt;
+        metaObj["raw_prompt"] = rawPrompt;
         QString metaStr = QString::fromUtf8(QJsonDocument(metaObj).toJson(QJsonDocument::Compact));
         QString sourceIdsStr = sourceIdsStrs.join(",");
 
@@ -5102,40 +5104,88 @@ void MainWindow::onRegenerateMerge() {
     if (!mergeOpt) return;
     const auto& merge = *mergeOpt;
 
-    QString prompt = merge.prompt;
-    if (prompt.isEmpty()) return;
+    QString rawPrompt;
+    QJsonDocument metaDoc = QJsonDocument::fromJson(doc.metadata.toUtf8());
+    QJsonObject metaObj = metaDoc.object();
+    if (metaObj.contains("raw_prompt")) {
+        rawPrompt = metaObj["raw_prompt"].toString();
+    }
 
-    QString model = merge.model;
-    if (model.isEmpty()) {
-        if (!m_selectedModels.isEmpty()) {
-            model = m_selectedModels.first();
-        } else {
-            model = "llama3:latest"; // Fallback
+    QList<int> sourceIds;
+    QStringList idStrs = merge.sourceDocumentIds.split(",", Qt::SkipEmptyParts);
+    for (const QString& idStr : idStrs) {
+        sourceIds.append(idStr.toInt());
+    }
+
+    MergeDocumentsDialog dlg(currentDb.get(), sourceIds, m_availableModelInfos, m_availableModels, this);
+    if (!rawPrompt.isEmpty()) {
+        dlg.setInitialPrompt(rawPrompt);
+    } else {
+        dlg.setInitialPrompt(merge.prompt);
+    }
+
+    QStringList initialModels;
+    if (!merge.model.isEmpty()) {
+        initialModels << merge.model;
+    }
+    dlg.setInitialModels(initialModels);
+
+    if (dlg.exec() == QDialog::Accepted) {
+        QString finalPrompt = dlg.getFinalPrompt();
+        QString newRawPrompt = dlg.getRawPrompt();
+        QStringList selectedModels = dlg.getSelectedModels();
+        if (selectedModels.isEmpty() || finalPrompt.isEmpty()) return;
+
+        // Update metadata for the current document
+        metaObj["prompt"] = finalPrompt;
+        metaObj["raw_prompt"] = newRawPrompt;
+        QString metaStr = QString::fromUtf8(QJsonDocument(metaObj).toJson(QJsonDocument::Compact));
+
+        QString firstModel = selectedModels.first();
+
+        // Save previous version in history and get the history ID
+        int historyId = currentDb->addDocumentHistoryReturningId(currentDocumentId, "replace_pre", doc.content);
+
+        // Update the existing merge row to point to this history ID
+        currentDb->updateDocumentMergeVersion(merge.id, historyId);
+
+        // Add a new row for the new generation
+        currentDb->addDocumentMerge(currentDocumentId, merge.sourceDocumentIds, finalPrompt, firstModel, 0);
+
+        // Set generating text and metadata
+        currentDb->updateDocument(currentDocumentId, doc.title, GENERATING_MERGE_TEXT, metaStr);
+
+        if (documentEditorView && mainContentStack->currentWidget() == docContainer) {
+            documentEditorView->blockSignals(true);
+            documentEditorView->setPlainText(GENERATING_MERGE_TEXT);
+            documentEditorView->blockSignals(false);
         }
+
+        regenerateMergeBtn->hide();
+
+        // Enqueue the job again for the first model on the current document
+        currentDb->enqueuePrompt(currentDocumentId, firstModel, finalPrompt, 0, "document", 0, "replace_direct");
+
+        // If there are additional models selected, create new documents for them
+        if (selectedModels.size() > 1) {
+            int targetFolderId = doc.parentId;
+            QString baseTitle = doc.title;
+
+            // Remove "(Models)" suffix if we are duplicating an already grouped title
+            if (baseTitle.endsWith(" (Models)")) {
+                baseTitle.chop(9); // length of " (Models)"
+            }
+
+            for (int i = 1; i < selectedModels.size(); ++i) {
+                QString model = selectedModels[i];
+                int newDocId = currentDb->addDocument(targetFolderId, baseTitle + " - " + model, GENERATING_MERGE_TEXT, 0, metaStr);
+                currentDb->addDocumentMerge(newDocId, merge.sourceDocumentIds, finalPrompt, model, 0);
+                currentDb->enqueuePrompt(newDocId, model, finalPrompt, 0, "document", 0, "replace_direct");
+            }
+        }
+
+        loadDocumentsAndNotes();
     }
-
-    // Save previous version in history and get the history ID
-    int historyId = currentDb->addDocumentHistoryReturningId(currentDocumentId, "replace_pre", doc.content);
-
-    // Update the existing merge row to point to this history ID
-    currentDb->updateDocumentMergeVersion(merge.id, historyId);
-
-    // Add a new row for the new generation
-    currentDb->addDocumentMerge(currentDocumentId, merge.sourceDocumentIds, prompt, model, 0);
-
-    // Set generating text
-    currentDb->updateDocument(currentDocumentId, doc.title, GENERATING_MERGE_TEXT, doc.metadata);
-
-    if (documentEditorView && mainContentStack->currentWidget() == docContainer) {
-        documentEditorView->blockSignals(true);
-        documentEditorView->setPlainText(GENERATING_MERGE_TEXT);
-        documentEditorView->blockSignals(false);
-    }
-
-    regenerateMergeBtn->hide();
-
-    // Enqueue the job again
-    currentDb->enqueuePrompt(currentDocumentId, model, prompt, 0, "document", 0, "replace_direct");
 }
 
 void MainWindow::onDocumentHistory() {

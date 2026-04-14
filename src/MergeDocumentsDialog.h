@@ -23,6 +23,9 @@ class MergeDocumentsDialog : public QDialog {
 
     QString getFinalPrompt() const;
     QStringList getSelectedModels() const;
+    QString getRawPrompt() const;
+    void setInitialPrompt(const QString& prompt);
+    void setInitialModels(const QStringList& models);
 
    public slots:
     void accept() override;
