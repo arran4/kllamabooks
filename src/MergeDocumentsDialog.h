@@ -6,6 +6,7 @@
 #include <QList>
 #include <QString>
 #include <QTextEdit>
+#include <QLineEdit>
 #include <memory>
 #include "BookDatabase.h"
 #include "AIOperationsManager.h"
@@ -27,6 +28,10 @@ class MergeDocumentsDialog : public QDialog {
     void setInitialPrompt(const QString& prompt);
     void setInitialModels(const QStringList& models);
 
+    QString getTitle() const;
+    void setTitle(const QString& title);
+    void setDefaultTitleSuffix(const QString& suffix);
+
    public slots:
     void accept() override;
 
@@ -35,6 +40,8 @@ class MergeDocumentsDialog : public QDialog {
     void onSelectModelsClicked();
     void onTemplateChanged(int index);
     void onHelpClicked();
+    void onPreviewClicked();
+    void onSaveTemplateClicked();
 
    private:
     void loadTemplates();
@@ -45,9 +52,15 @@ class MergeDocumentsDialog : public QDialog {
     QStringList m_fallbackModels;
     QStringList m_selectedModels;
 
+    QString buildPreviewPrompt() const;
+
     QComboBox* m_templateCombo;
     QTextEdit* m_instructionEdit;
     QPushButton* m_selectModelsBtn;
+    QLineEdit* m_titleEdit;
+
+    QString m_defaultTitleSuffix;
+    bool m_titleManuallyEdited = false;
 
     QString m_finalPrompt;
     QFormLayout* m_dynamicInputsLayout;

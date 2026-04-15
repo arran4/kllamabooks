@@ -2170,14 +2170,19 @@ void MainWindow::onMergeDocumentsSelected() {
     }
 
     MergeDocumentsDialog dlg(currentDb.get(), sourceDocumentIds, m_availableModelInfos, m_availableModels, this);
+    dlg.setDefaultTitleSuffix(sourceTitles.join(", "));
+
     if (dlg.exec() == QDialog::Accepted) {
         QString finalPrompt = dlg.getFinalPrompt();
         QString rawPrompt = dlg.getRawPrompt();
         QStringList selectedModels = dlg.getSelectedModels();
         if (selectedModels.isEmpty() || finalPrompt.isEmpty()) return;
 
-        QString baseTitle = "Merged: " + sourceTitles.join(", ");
-        if (baseTitle.length() > 50) baseTitle = baseTitle.left(47) + "...";
+        QString baseTitle = dlg.getTitle();
+        if (baseTitle.isEmpty()) {
+            baseTitle = "Merged: " + sourceTitles.join(", ");
+            if (baseTitle.length() > 50) baseTitle = baseTitle.left(47) + "...";
+        }
 
         processMergeGeneration(finalPrompt, rawPrompt, selectedModels, sourceDocumentIds, baseTitle, targetFolderId);
     }
@@ -5169,15 +5174,21 @@ void MainWindow::onRegenerateMerge() {
     }
     dlg.setInitialModels(initialModels);
 
+    QString currentBaseTitle = doc.title;
+    if (currentBaseTitle.endsWith(" (Models)")) {
+        currentBaseTitle.chop(9); // length of " (Models)"
+    }
+    dlg.setTitle(currentBaseTitle);
+
     if (dlg.exec() == QDialog::Accepted) {
         QString finalPrompt = dlg.getFinalPrompt();
         QString newRawPrompt = dlg.getRawPrompt();
         QStringList selectedModels = dlg.getSelectedModels();
         if (selectedModels.isEmpty() || finalPrompt.isEmpty()) return;
 
-        QString baseTitle = doc.title;
-        if (baseTitle.endsWith(" (Models)")) {
-            baseTitle.chop(9); // length of " (Models)"
+        QString baseTitle = dlg.getTitle();
+        if (baseTitle.isEmpty()) {
+            baseTitle = currentBaseTitle;
         }
 
         processMergeGeneration(finalPrompt, newRawPrompt, selectedModels, sourceIds, baseTitle, doc.parentId, currentDocumentId);

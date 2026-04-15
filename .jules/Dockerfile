@@ -1,4 +1,4 @@
-FROM docker.io/library/debian:testing
+FROM public.ecr.aws/docker/library/debian:testing
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y \
