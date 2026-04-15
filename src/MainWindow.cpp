@@ -667,6 +667,7 @@ void MainWindow::setupUi() {
     QAction* newBookAction = KStandardAction::openNew(this, &MainWindow::onCreateBook, actionCollection());
     newBookAction->setText(tr("New Book"));
     actionCollection()->addAction(QStringLiteral("new_book"), newBookAction);
+    actionCollection()->setDefaultShortcut(newBookAction, QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_N));
 
     QAction* openBookAction = KStandardAction::open(this, &MainWindow::onOpenBook, actionCollection());
     openBookAction->setText(tr("Open Book"));
@@ -700,6 +701,63 @@ void MainWindow::setupUi() {
     QAction* newDraftMenuAction = new QAction(QIcon::fromTheme("document-new"), tr("New Draft"), this);
     actionCollection()->addAction(QStringLiteral("new_draft"), newDraftMenuAction);
     connect(newDraftMenuAction, &QAction::triggered, this, [this]() { addPhantomItem(nullptr, "drafts_folder"); });
+
+    QAction* newContextItemAction = new QAction(tr("New Context Item"), this);
+    actionCollection()->addAction(QStringLiteral("new_context_item"), newContextItemAction);
+    actionCollection()->setDefaultShortcut(newContextItemAction, QKeySequence::New);
+    connect(newContextItemAction, &QAction::triggered, this, [this]() {
+        QModelIndex index = openBooksTree->currentIndex();
+        QStandardItem* item = index.isValid() ? openBooksModel->itemFromIndex(index) : nullptr;
+
+        QString baseType = "docs_folder";
+        if (item) {
+            QString itemType = item->data(Qt::UserRole + 1).toString();
+            if (itemType.contains("chat")) {
+                baseType = "chats_folder";
+            } else if (itemType.contains("note")) {
+                baseType = "notes_folder";
+            } else if (itemType.contains("template")) {
+                baseType = "templates_folder";
+            } else if (itemType.contains("draft")) {
+                baseType = "drafts_folder";
+            }
+        }
+
+        QStandardItem* folderItem = item;
+        QStandardItem* currentBook = nullptr;
+        while (folderItem) {
+            if (folderItem->data(Qt::UserRole + 1).toString() == "book") {
+                currentBook = folderItem;
+                folderItem = nullptr;
+                break;
+            }
+            if (folderItem->data(Qt::UserRole + 1).toString().contains("_folder")) {
+                break;
+            }
+            folderItem = folderItem->parent();
+        }
+
+        if (!folderItem) {
+            if (!currentBook && openBooksModel && openBooksModel->rowCount() > 0) {
+                currentBook = openBooksModel->item(0);
+            }
+            if (currentBook) {
+                for (int i = 0; i < currentBook->rowCount(); ++i) {
+                    if (currentBook->child(i)->data(Qt::UserRole + 1).toString() == baseType) {
+                        folderItem = currentBook->child(i);
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (baseType == "docs_folder") {
+            int folderId = folderItem ? folderItem->data(Qt::UserRole).toInt() : 0;
+            handleNewDocumentCreation(folderId);
+        } else {
+            addPhantomItem(folderItem, baseType);
+        }
+    });
 
     QAction* createFolderMenuAction = new QAction(QIcon::fromTheme("folder-new"), tr("Create Folder"), this);
     actionCollection()->addAction(QStringLiteral("create_folder_menu"), createFolderMenuAction);
