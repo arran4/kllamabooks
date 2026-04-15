@@ -11,6 +11,9 @@
 #include <QMessageBox>
 #include <QSettings>
 
+#include <QUuid>
+#include <QInputDialog>
+
 #include "ModelSelectionDialog.h"
 #include "TemplateParser.h"
 
@@ -33,16 +36,36 @@ MergeDocumentsDialog::MergeDocumentsDialog(BookDatabase* db, const QList<int>& d
 
     QVBoxLayout* layout = new QVBoxLayout(this);
 
+    // Title input
+    QHBoxLayout* titleLayout = new QHBoxLayout();
+    titleLayout->addWidget(new QLabel(tr("Title:"), this));
+    m_titleEdit = new QLineEdit(this);
+    titleLayout->addWidget(m_titleEdit);
+    layout->addLayout(titleLayout);
+
+    connect(m_titleEdit, &QLineEdit::textEdited, this, [this](const QString&) {
+        m_titleManuallyEdited = true;
+    });
+
     // Templates selection
     QHBoxLayout* topLayout = new QHBoxLayout();
     topLayout->addWidget(new QLabel(tr("Merge Template:"), this));
     m_templateCombo = new QComboBox(this);
     topLayout->addWidget(m_templateCombo);
+
+    QPushButton* saveTemplateBtn = new QPushButton(tr("Save as Template"), this);
+    topLayout->addWidget(saveTemplateBtn);
     layout->addLayout(topLayout);
+
+    connect(saveTemplateBtn, &QPushButton::clicked, this, &MergeDocumentsDialog::onSaveTemplateClicked);
 
     QHBoxLayout* instructionLayout = new QHBoxLayout();
     QLabel* instructionLabel = new QLabel(tr("Prompt Configuration:"), this);
     instructionLayout->addWidget(instructionLabel);
+
+    QPushButton* previewBtn = new QPushButton(tr("Preview"), this);
+    instructionLayout->addWidget(previewBtn);
+    connect(previewBtn, &QPushButton::clicked, this, &MergeDocumentsDialog::onPreviewClicked);
 
     QPushButton* helpBtn = new QPushButton("?", this);
     helpBtn->setFixedWidth(30);
@@ -147,10 +170,22 @@ void MergeDocumentsDialog::onHelpClicked() {
 }
 
 void MergeDocumentsDialog::onTemplateChanged(int index) {
+    QString templateName;
     if (index == 0) {
         m_instructionEdit->setPlainText(tr("Merge the following documents into one coherent document:\n\n{foreach contexts}\nDocument:\n{context}\n{between}\n---\n{end}"));
+        templateName = tr("Default Merge");
     } else if (index > 0 && index - 1 < m_templates.size()) {
         m_instructionEdit->setPlainText(m_templates[index - 1].prompt);
+        templateName = m_templates[index - 1].name;
+    }
+
+    if (!m_titleManuallyEdited) {
+        QString titleStr = templateName;
+        if (!m_defaultTitleSuffix.isEmpty()) {
+            titleStr += ": " + m_defaultTitleSuffix;
+        }
+        if (titleStr.length() > 50) titleStr = titleStr.left(47) + "...";
+        m_titleEdit->setText(titleStr);
     }
 }
 
@@ -179,6 +214,99 @@ void MergeDocumentsDialog::setInitialModels(const QStringList& models) {
             m_selectModelsBtn->setText(m_selectedModels.first());
         } else {
             m_selectModelsBtn->setText(tr("%1 Models Selected").arg(m_selectedModels.size()));
+        }
+    }
+}
+
+QString MergeDocumentsDialog::getTitle() const {
+    return m_titleEdit->text();
+}
+
+void MergeDocumentsDialog::setTitle(const QString& title) {
+    m_titleEdit->setText(title);
+    m_titleManuallyEdited = true;
+}
+
+void MergeDocumentsDialog::setDefaultTitleSuffix(const QString& suffix) {
+    m_defaultTitleSuffix = suffix;
+    if (!m_titleManuallyEdited) {
+        onTemplateChanged(m_templateCombo->currentIndex());
+    }
+}
+
+QString MergeDocumentsDialog::buildPreviewPrompt() const {
+    QString prompt = m_instructionEdit->toPlainText();
+
+    // 1. Process standard dynamic inputs {input} {textarea}
+    QRegularExpression re("\\{(input|textarea)(?:\\s+\"([^\"]+)\")?\\}");
+    QRegularExpressionMatchIterator i = re.globalMatch(prompt);
+
+    struct MatchInfo {
+        int start;
+        int length;
+    };
+    QList<MatchInfo> matchInfos;
+    while (i.hasNext()) {
+        QRegularExpressionMatch match = i.next();
+        matchInfos.append({static_cast<int>(match.capturedStart(0)), static_cast<int>(match.capturedLength(0))});
+    }
+
+    if (matchInfos.size() == m_currentDynamicInputs.size()) {
+        for (int j = matchInfos.size() - 1; j >= 0; --j) {
+            const MatchInfo& minfo = matchInfos[j];
+            const AiDynamicInputInfo& dinfo = m_currentDynamicInputs[j];
+
+            QString val;
+            if (QLineEdit* le = qobject_cast<QLineEdit*>(dinfo.widget)) {
+                val = le->text();
+            } else if (QTextEdit* te = qobject_cast<QTextEdit*>(dinfo.widget)) {
+                val = te->toPlainText();
+            }
+            prompt.replace(minfo.start, minfo.length, val);
+        }
+    }
+
+    return TemplateParser::parseMergeTemplate(prompt, m_documentContents);
+}
+
+void MergeDocumentsDialog::onPreviewClicked() {
+    QString prompt = buildPreviewPrompt();
+    QMessageBox::information(this, tr("Prompt Preview"), prompt);
+}
+
+void MergeDocumentsDialog::onSaveTemplateClicked() {
+    bool ok;
+    QString name = QInputDialog::getText(this, tr("Save Template"), tr("Template Name:"), QLineEdit::Normal, "", &ok);
+    if (!ok || name.isEmpty()) return;
+
+    QMessageBox::StandardButton reply = QMessageBox::question(this, tr("Save Location"), tr("Save this template globally so it is available in all books?"), QMessageBox::Yes | QMessageBox::No | QMessageBox::Cancel);
+    if (reply == QMessageBox::Cancel) return;
+
+    AIOperation op;
+    op.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    op.name = name;
+    op.prompt = getRawPrompt();
+    op.source = (reply == QMessageBox::Yes) ? "global" : "database";
+    op.inputType = "multiple";
+
+    if (reply == QMessageBox::Yes) {
+        QList<AIOperation> ops = AIOperationsManager::getGlobalOperations();
+        ops.append(op);
+        AIOperationsManager::setGlobalOperations(ops);
+    } else {
+        QList<AIOperation> ops = AIOperationsManager::getDatabaseOperations(m_db);
+        ops.append(op);
+        AIOperationsManager::setDatabaseOperations(m_db, ops);
+    }
+
+    // Refresh combo
+    loadTemplates();
+
+    // Select the new template
+    for (int j = 0; j < m_templateCombo->count(); ++j) {
+        if (m_templateCombo->itemData(j).toString() == op.id) {
+            m_templateCombo->setCurrentIndex(j);
+            break;
         }
     }
 }
@@ -282,39 +410,6 @@ void MergeDocumentsDialog::updateDynamicInputs() {
 }
 
 void MergeDocumentsDialog::accept() {
-    QString prompt = m_instructionEdit->toPlainText();
-
-    // 1. Process standard dynamic inputs {input} {textarea}
-    QRegularExpression re("\\{(input|textarea)(?:\\s+\"([^\"]+)\")?\\}");
-    QRegularExpressionMatchIterator i = re.globalMatch(prompt);
-
-    struct MatchInfo {
-        int start;
-        int length;
-    };
-    QList<MatchInfo> matchInfos;
-    while (i.hasNext()) {
-        QRegularExpressionMatch match = i.next();
-        matchInfos.append({static_cast<int>(match.capturedStart(0)), static_cast<int>(match.capturedLength(0))});
-    }
-
-    if (matchInfos.size() == m_currentDynamicInputs.size()) {
-        for (int j = matchInfos.size() - 1; j >= 0; --j) {
-            const MatchInfo& minfo = matchInfos[j];
-            const AiDynamicInputInfo& dinfo = m_currentDynamicInputs[j];
-
-            QString val;
-            if (QLineEdit* le = qobject_cast<QLineEdit*>(dinfo.widget)) {
-                val = le->text();
-            } else if (QTextEdit* te = qobject_cast<QTextEdit*>(dinfo.widget)) {
-                val = te->toPlainText();
-            }
-            prompt.replace(minfo.start, minfo.length, val);
-        }
-    }
-
-    prompt = TemplateParser::parseMergeTemplate(prompt, m_documentContents);
-
-    m_finalPrompt = prompt;
+    m_finalPrompt = buildPreviewPrompt();
     QDialog::accept();
 }

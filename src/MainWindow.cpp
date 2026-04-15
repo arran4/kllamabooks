@@ -667,6 +667,7 @@ void MainWindow::setupUi() {
     QAction* newBookAction = KStandardAction::openNew(this, &MainWindow::onCreateBook, actionCollection());
     newBookAction->setText(tr("New Book"));
     actionCollection()->addAction(QStringLiteral("new_book"), newBookAction);
+    actionCollection()->setDefaultShortcut(newBookAction, QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_N));
 
     QAction* openBookAction = KStandardAction::open(this, &MainWindow::onOpenBook, actionCollection());
     openBookAction->setText(tr("Open Book"));
@@ -700,6 +701,11 @@ void MainWindow::setupUi() {
     QAction* newDraftMenuAction = new QAction(QIcon::fromTheme("document-new"), tr("New Draft"), this);
     actionCollection()->addAction(QStringLiteral("new_draft"), newDraftMenuAction);
     connect(newDraftMenuAction, &QAction::triggered, this, [this]() { addPhantomItem(nullptr, "drafts_folder"); });
+
+    QAction* newContextItemAction = new QAction(QIcon::fromTheme("document-new"), tr("New Context Item"), this);
+    actionCollection()->addAction(QStringLiteral("new_context_item"), newContextItemAction);
+    actionCollection()->setDefaultShortcut(newContextItemAction, QKeySequence::New);
+    connect(newContextItemAction, &QAction::triggered, this, &MainWindow::onNewContextItemTriggered);
 
     QAction* createFolderMenuAction = new QAction(QIcon::fromTheme("folder-new"), tr("Create Folder"), this);
     actionCollection()->addAction(QStringLiteral("create_folder_menu"), createFolderMenuAction);
@@ -2170,14 +2176,19 @@ void MainWindow::onMergeDocumentsSelected() {
     }
 
     MergeDocumentsDialog dlg(currentDb.get(), sourceDocumentIds, m_availableModelInfos, m_availableModels, this);
+    dlg.setDefaultTitleSuffix(sourceTitles.join(", "));
+
     if (dlg.exec() == QDialog::Accepted) {
         QString finalPrompt = dlg.getFinalPrompt();
         QString rawPrompt = dlg.getRawPrompt();
         QStringList selectedModels = dlg.getSelectedModels();
         if (selectedModels.isEmpty() || finalPrompt.isEmpty()) return;
 
-        QString baseTitle = "Merged: " + sourceTitles.join(", ");
-        if (baseTitle.length() > 50) baseTitle = baseTitle.left(47) + "...";
+        QString baseTitle = dlg.getTitle();
+        if (baseTitle.isEmpty()) {
+            baseTitle = "Merged: " + sourceTitles.join(", ");
+            if (baseTitle.length() > 50) baseTitle = baseTitle.left(47) + "...";
+        }
 
         processMergeGeneration(finalPrompt, rawPrompt, selectedModels, sourceDocumentIds, baseTitle, targetFolderId);
     }
@@ -4440,6 +4451,12 @@ void MainWindow::updateQueueStatus() {
 void MainWindow::updateNotificationStatus() {
     int total = 0;
     notificationMenu->clear();
+    struct NotificationSnapshot {
+        std::shared_ptr<BookDatabase> db;
+        int id;
+        QString description;
+    };
+    QList<NotificationSnapshot> snapshot;
     for (auto db : QueueManager::instance().databases()) {
         if (!db || !db->isOpen()) continue;
         auto notifications = db->getNotifications();
@@ -4456,9 +4473,30 @@ void MainWindow::updateNotificationStatus() {
             } else {
                 typeStr = tr("Finished");
             }
-            QAction* action = notificationMenu->addAction(
-                QString("[%1] %2: Msg %3").arg(bookName, typeStr, QString::number(n.targetId)));
-            connect(action, &QAction::triggered, this, [this, db, n, bookName]() {
+
+            QString targetTitle;
+            QString displayTargetType;
+            if (n.targetType == "document") {
+                displayTargetType = tr("Document");
+                auto doc = db->getDocument(n.targetId);
+                if (doc.has_value()) {
+                    targetTitle = doc->title;
+                }
+            } else if (n.targetType == "message") {
+                displayTargetType = tr("Message");
+                auto chat = db->getChat(n.targetId);
+                targetTitle = chat.title;
+            } else {
+                displayTargetType = n.targetType;
+            }
+            if (targetTitle.isEmpty()) {
+                targetTitle = tr("Unknown");
+            }
+
+            QString menuText = QString("[%1] %2: %3 '%4' (%5)").arg(bookName, typeStr, displayTargetType, targetTitle, QString::number(n.targetId));
+            QAction* action = notificationMenu->addAction(menuText);
+            snapshot.append({db, n.id, action->text()});
+            connect(action, &QAction::triggered, this, [this, db, n, bookName, displayTargetType, targetTitle]() {
                 if (n.type == "review_needed") {
                     // For document review, n.targetId is the document ID.
                     // DocumentReviewDialog expects the queueItemId. We need to find the matching completed queue item.
@@ -4493,8 +4531,8 @@ void MainWindow::updateNotificationStatus() {
                     dialog.setWindowTitle(tr("Error: Modify and Retry"));
                     QVBoxLayout* layout = new QVBoxLayout(&dialog);
 
-                    QLabel* summary = new QLabel(QString("<b>Book:</b> %1<br><b>Target ID:</b> %2")
-                                                     .arg(bookName, QString::number(n.targetId)));
+                    QLabel* summary = new QLabel(QString("<b>Book:</b> %1<br><b>%2:</b> %3 (%4)")
+                                                     .arg(bookName, displayTargetType, targetTitle, QString::number(n.targetId)));
                     summary->setWordWrap(true);
                     layout->addWidget(summary);
 
@@ -4574,8 +4612,8 @@ void MainWindow::updateNotificationStatus() {
 
                     QString typeStr = (n.type == "finished_generation") ? tr("Finished Generation") : tr("Finished");
                     QLabel* summary =
-                        new QLabel(QString("<b>Book:</b> %1<br><b>Status:</b> %2<br><b>Target ID:</b> %3")
-                                       .arg(bookName, typeStr, QString::number(n.targetId)));
+                        new QLabel(QString("<b>Book:</b> %1<br><b>Status:</b> %2<br><b>%3:</b> %4 (%5)")
+                                       .arg(bookName, typeStr, displayTargetType, targetTitle, QString::number(n.targetId)));
                     summary->setWordWrap(true);
                     layout->addWidget(summary);
 
@@ -4630,6 +4668,47 @@ void MainWindow::updateNotificationStatus() {
             });
         }
     }
+    if (total > 0) {
+        notificationMenu->addSeparator();
+        QAction* dismissAllAction = notificationMenu->addAction(tr("Dismiss All"));
+        connect(dismissAllAction, &QAction::triggered, this, [this, snapshot]() {
+            QDialog dialog(this);
+            dialog.setWindowTitle(tr("Dismiss All Notifications"));
+            dialog.resize(400, 300);
+            QVBoxLayout* layout = new QVBoxLayout(&dialog);
+
+            QLabel* promptLabel = new QLabel(tr("Are you sure you want to dismiss the following notifications?"));
+            promptLabel->setWordWrap(true);
+            layout->addWidget(promptLabel);
+
+            QListWidget* listWidget = new QListWidget(&dialog);
+            for (const auto& item : snapshot) {
+                listWidget->addItem(item.description);
+            }
+            layout->addWidget(listWidget);
+
+            QHBoxLayout* btnLayout = new QHBoxLayout();
+            QPushButton* dismissBtn = new QPushButton(tr("Dismiss All"), &dialog);
+            QPushButton* cancelBtn = new QPushButton(tr("Cancel"), &dialog);
+            btnLayout->addWidget(dismissBtn);
+            btnLayout->addWidget(cancelBtn);
+            layout->addLayout(btnLayout);
+
+            connect(dismissBtn, &QPushButton::clicked, [&]() {
+                for (const auto& item : snapshot) {
+                    if (item.db && item.db->isOpen()) {
+                        item.db->dismissNotification(item.id);
+                    }
+                }
+                updateNotificationStatus();
+                dialog.accept();
+            });
+            connect(cancelBtn, &QPushButton::clicked, &dialog, &QDialog::reject);
+
+            dialog.exec();
+        });
+    }
+
     notificationBtn->setText(QString("🔔 %1").arg(total));
     if (total > 0) {
         notificationBtn->setStyleSheet("background-color: #f44336; color: white;");
@@ -5101,13 +5180,22 @@ void MainWindow::onRegenerateMerge() {
     }
     dlg.setInitialModels(initialModels);
 
+    QString currentBaseTitle = doc.title;
+    if (currentBaseTitle.endsWith(" (Models)")) {
+        currentBaseTitle.chop(9); // length of " (Models)"
+    }
+    dlg.setTitle(currentBaseTitle);
+
     if (dlg.exec() == QDialog::Accepted) {
         QString finalPrompt = dlg.getFinalPrompt();
         QString newRawPrompt = dlg.getRawPrompt();
         QStringList selectedModels = dlg.getSelectedModels();
         if (selectedModels.isEmpty() || finalPrompt.isEmpty()) return;
 
-        QString baseTitle = doc.title;
+        QString baseTitle = dlg.getTitle();
+        if (baseTitle.isEmpty()) {
+            baseTitle = currentBaseTitle;
+        }
 
         processMergeGeneration(finalPrompt, newRawPrompt, selectedModels, sourceIds, baseTitle, doc.parentId, currentDocumentId);
     }
@@ -5282,6 +5370,60 @@ void MainWindow::onVfsExplorerDoubleClicked(const QModelIndex& index) {
  * If the document was being auto-saved as a transient draft, the temporary draft entry is purged
  * upon successful explicit save.
  */
+void MainWindow::onNewContextItemTriggered() {
+    QModelIndex index = openBooksTree->currentIndex();
+    QStandardItem* item = index.isValid() ? openBooksModel->itemFromIndex(index) : nullptr;
+
+    QString baseType = "docs_folder";
+    if (item) {
+        QString itemType = item->data(Qt::UserRole + 1).toString();
+        if (itemType.contains("chat")) {
+            baseType = "chats_folder";
+        } else if (itemType.contains("note")) {
+            baseType = "notes_folder";
+        } else if (itemType.contains("template")) {
+            baseType = "templates_folder";
+        } else if (itemType.contains("draft")) {
+            baseType = "drafts_folder";
+        }
+    }
+
+    QStandardItem* folderItem = item;
+    QStandardItem* currentBook = nullptr;
+    while (folderItem) {
+        if (folderItem->data(Qt::UserRole + 1).toString() == "book") {
+            currentBook = folderItem;
+            folderItem = nullptr;
+            break;
+        }
+        if (folderItem->data(Qt::UserRole + 1).toString().contains("_folder")) {
+            break;
+        }
+        folderItem = folderItem->parent();
+    }
+
+    if (!folderItem) {
+        if (!currentBook && openBooksModel && openBooksModel->rowCount() > 0) {
+            currentBook = openBooksModel->item(0);
+        }
+        if (currentBook) {
+            for (int i = 0; i < currentBook->rowCount(); ++i) {
+                if (currentBook->child(i)->data(Qt::UserRole + 1).toString() == baseType) {
+                    folderItem = currentBook->child(i);
+                    break;
+                }
+            }
+        }
+    }
+
+    if (baseType == "docs_folder") {
+        int folderId = folderItem ? folderItem->data(Qt::UserRole).toInt() : 0;
+        handleNewDocumentCreation(folderId);
+    } else {
+        addPhantomItem(folderItem, baseType);
+    }
+}
+
 void MainWindow::handleNewDocumentCreation(int defaultFolderId) {
     if (!currentDb) {
         QMessageBox::warning(this, tr("No Book Open"), tr("Please open a book first to create a document."));

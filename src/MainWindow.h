@@ -61,6 +61,7 @@ class MainWindow : public KXmlGuiWindow {
 
    private slots:
 
+    void onNewContextItemTriggered();
     void onOpenBooksTreeDoubleClicked(const QModelIndex& index);
     void onVfsExplorerDoubleClicked(const QModelIndex& index);
     void onSaveDocBtnClicked();
