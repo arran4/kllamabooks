@@ -4440,6 +4440,12 @@ void MainWindow::updateQueueStatus() {
 void MainWindow::updateNotificationStatus() {
     int total = 0;
     notificationMenu->clear();
+    struct NotificationSnapshot {
+        std::shared_ptr<BookDatabase> db;
+        int id;
+        QString description;
+    };
+    QList<NotificationSnapshot> snapshot;
     for (auto db : QueueManager::instance().databases()) {
         if (!db || !db->isOpen()) continue;
         auto notifications = db->getNotifications();
@@ -4458,6 +4464,7 @@ void MainWindow::updateNotificationStatus() {
             }
             QAction* action = notificationMenu->addAction(
                 QString("[%1] %2: Msg %3").arg(bookName, typeStr, QString::number(n.targetId)));
+            snapshot.append({db, n.id, action->text()});
             connect(action, &QAction::triggered, this, [this, db, n, bookName]() {
                 if (n.type == "review_needed") {
                     // For document review, n.targetId is the document ID.
@@ -4630,6 +4637,47 @@ void MainWindow::updateNotificationStatus() {
             });
         }
     }
+    if (total > 0) {
+        notificationMenu->addSeparator();
+        QAction* dismissAllAction = notificationMenu->addAction(tr("Dismiss All"));
+        connect(dismissAllAction, &QAction::triggered, this, [this, snapshot]() {
+            QDialog dialog(this);
+            dialog.setWindowTitle(tr("Dismiss All Notifications"));
+            dialog.resize(400, 300);
+            QVBoxLayout* layout = new QVBoxLayout(&dialog);
+
+            QLabel* promptLabel = new QLabel(tr("Are you sure you want to dismiss the following notifications?"));
+            promptLabel->setWordWrap(true);
+            layout->addWidget(promptLabel);
+
+            QListWidget* listWidget = new QListWidget(&dialog);
+            for (const auto& item : snapshot) {
+                listWidget->addItem(item.description);
+            }
+            layout->addWidget(listWidget);
+
+            QHBoxLayout* btnLayout = new QHBoxLayout();
+            QPushButton* dismissBtn = new QPushButton(tr("Dismiss All"), &dialog);
+            QPushButton* cancelBtn = new QPushButton(tr("Cancel"), &dialog);
+            btnLayout->addWidget(dismissBtn);
+            btnLayout->addWidget(cancelBtn);
+            layout->addLayout(btnLayout);
+
+            connect(dismissBtn, &QPushButton::clicked, [&]() {
+                for (const auto& item : snapshot) {
+                    if (item.db && item.db->isOpen()) {
+                        item.db->dismissNotification(item.id);
+                    }
+                }
+                updateNotificationStatus();
+                dialog.accept();
+            });
+            connect(cancelBtn, &QPushButton::clicked, &dialog, &QDialog::reject);
+
+            dialog.exec();
+        });
+    }
+
     notificationBtn->setText(QString("🔔 %1").arg(total));
     if (total > 0) {
         notificationBtn->setStyleSheet("background-color: #f44336; color: white;");
