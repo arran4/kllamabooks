@@ -11,6 +11,7 @@
             <Action name="new_book" />
             <Action name="open_book" />
             <Separator />
+            <Action name="new_context_item" />
             <Menu name="new_items">
                 <text>&amp;New</text>
                 <Action name="new_chat" />
