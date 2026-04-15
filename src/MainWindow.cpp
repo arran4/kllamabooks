@@ -4025,6 +4025,7 @@ void MainWindow::onOpenBooksSelectionChanged(const QItemSelection& selected, con
             } else if (currentDb) {
                 // If it was marked as updated via AI notification modifications, dismiss it
                 currentDb->dismissNotificationByTargetAndType(currentDocumentId, "document", "updated");
+                currentDb->dismissNotificationByTargetAndType(currentDocumentId, "document", "finished_generation");
                 updateNotificationStatus();
 
                 QList<DocumentNode> docs =
@@ -5300,6 +5301,7 @@ void MainWindow::onOpenBooksTreeDoubleClicked(const QModelIndex& index) {
         int docId = item->data(Qt::UserRole).toInt();
 
         currentDb->dismissNotificationByTargetAndType(docId, "document", "updated");
+        currentDb->dismissNotificationByTargetAndType(docId, "document", "finished_generation");
         updateNotificationStatus();
 
         QList<DocumentNode> docs;
