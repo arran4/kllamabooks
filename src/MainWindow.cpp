@@ -4462,10 +4462,30 @@ void MainWindow::updateNotificationStatus() {
             } else {
                 typeStr = tr("Finished");
             }
-            QAction* action = notificationMenu->addAction(
-                QString("[%1] %2: Msg %3").arg(bookName, typeStr, QString::number(n.targetId)));
+
+            QString targetTitle;
+            QString displayTargetType;
+            if (n.targetType == "document") {
+                displayTargetType = tr("Document");
+                auto doc = db->getDocument(n.targetId);
+                if (doc.has_value()) {
+                    targetTitle = doc->title;
+                }
+            } else if (n.targetType == "message") {
+                displayTargetType = tr("Message");
+                auto chat = db->getChat(n.targetId);
+                targetTitle = chat.title;
+            } else {
+                displayTargetType = n.targetType;
+            }
+            if (targetTitle.isEmpty()) {
+                targetTitle = tr("Unknown");
+            }
+
+            QString menuText = QString("[%1] %2: %3 '%4' (%5)").arg(bookName, typeStr, displayTargetType, targetTitle, QString::number(n.targetId));
+            QAction* action = notificationMenu->addAction(menuText);
             snapshot.append({db, n.id, action->text()});
-            connect(action, &QAction::triggered, this, [this, db, n, bookName]() {
+            connect(action, &QAction::triggered, this, [this, db, n, bookName, displayTargetType, targetTitle]() {
                 if (n.type == "review_needed") {
                     // For document review, n.targetId is the document ID.
                     // DocumentReviewDialog expects the queueItemId. We need to find the matching completed queue item.
@@ -4500,8 +4520,8 @@ void MainWindow::updateNotificationStatus() {
                     dialog.setWindowTitle(tr("Error: Modify and Retry"));
                     QVBoxLayout* layout = new QVBoxLayout(&dialog);
 
-                    QLabel* summary = new QLabel(QString("<b>Book:</b> %1<br><b>Target ID:</b> %2")
-                                                     .arg(bookName, QString::number(n.targetId)));
+                    QLabel* summary = new QLabel(QString("<b>Book:</b> %1<br><b>%2:</b> %3 (%4)")
+                                                     .arg(bookName, displayTargetType, targetTitle, QString::number(n.targetId)));
                     summary->setWordWrap(true);
                     layout->addWidget(summary);
 
@@ -4581,8 +4601,8 @@ void MainWindow::updateNotificationStatus() {
 
                     QString typeStr = (n.type == "finished_generation") ? tr("Finished Generation") : tr("Finished");
                     QLabel* summary =
-                        new QLabel(QString("<b>Book:</b> %1<br><b>Status:</b> %2<br><b>Target ID:</b> %3")
-                                       .arg(bookName, typeStr, QString::number(n.targetId)));
+                        new QLabel(QString("<b>Book:</b> %1<br><b>Status:</b> %2<br><b>%3:</b> %4 (%5)")
+                                       .arg(bookName, typeStr, displayTargetType, targetTitle, QString::number(n.targetId)));
                     summary->setWordWrap(true);
                     layout->addWidget(summary);
 
