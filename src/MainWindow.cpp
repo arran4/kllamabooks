@@ -293,22 +293,22 @@ void MainWindow::setupUi() {
 
     regenerateMergeBtn = new QPushButton(QIcon::fromTheme("view-refresh"), tr("Regenerate"), this);
     connect(regenerateMergeBtn, &QPushButton::clicked, this, &MainWindow::onRegenerateMerge);
-    regenerateMergeBtn->hide();
 
     QPushButton* docHistoryBtn = new QPushButton(QIcon::fromTheme("view-history"), "History", this);
     connect(docHistoryBtn, &QPushButton::clicked, this, &MainWindow::onDocumentHistory);
 
     viewMergeSourcesBtn = new QPushButton(QIcon::fromTheme("document-multiple"), "View Merge Sources", this);
     connect(viewMergeSourcesBtn, &QPushButton::clicked, this, &MainWindow::onViewMergeSources);
-    viewMergeSourcesBtn->hide();
 
     docToolbar->addWidget(backToDocsBtn);
     docToolbar->addWidget(editDocBtn);
     docToolbar->addWidget(previewDocBtn);
     docToolbar->addWidget(docHistoryBtn);
     docToolbar->addWidget(aiOperationsBtn);
-    docToolbar->addWidget(regenerateMergeBtn);
-    docToolbar->addWidget(viewMergeSourcesBtn);
+    regenerateMergeAction = docToolbar->addWidget(regenerateMergeBtn);
+    regenerateMergeAction->setVisible(false);
+    viewMergeSourcesAction = docToolbar->addWidget(viewMergeSourcesBtn);
+    viewMergeSourcesAction->setVisible(false);
     docLayout->addWidget(docToolbar);
 
     documentStack = new QStackedWidget(this);
@@ -4017,8 +4017,8 @@ void MainWindow::onOpenBooksSelectionChanged(const QItemSelection& selected, con
         if (type == "document" || type == "template" || type == "draft") {
             currentDocumentId = nodeId;
             isCreatingNewDoc = (nodeId == 0);
-            regenerateMergeBtn->setVisible(false);
-            viewMergeSourcesBtn->setVisible(false);
+            if (regenerateMergeAction) regenerateMergeAction->setVisible(false);
+            if (viewMergeSourcesAction) viewMergeSourcesAction->setVisible(false);
             if (isCreatingNewDoc) {
                 documentEditorView->clear();
                 mainContentStack->setCurrentWidget(docContainer);
@@ -5244,8 +5244,8 @@ void MainWindow::processMergeGeneration(const QString& finalPrompt, const QStrin
                 documentEditorView->blockSignals(true);
                 documentEditorView->setPlainText(GENERATING_MERGE_TEXT);
                 documentEditorView->blockSignals(false);
-                if (regenerateMergeBtn) {
-                    regenerateMergeBtn->hide();
+                if (regenerateMergeAction) {
+                    regenerateMergeAction->setVisible(false);
                 }
             }
 
@@ -5310,8 +5310,8 @@ void MainWindow::onOpenBooksTreeDoubleClicked(const QModelIndex& index) {
         else if (type == "draft")
             docs = currentDb->getDrafts();
 
-        regenerateMergeBtn->setVisible(false);
-        viewMergeSourcesBtn->setVisible(false);
+        if (regenerateMergeAction) regenerateMergeAction->setVisible(false);
+        if (viewMergeSourcesAction) viewMergeSourcesAction->setVisible(false);
         for (const auto& doc : docs) {
             if (doc.id == docId) {
                 currentDocumentId = docId;
@@ -5550,8 +5550,8 @@ void MainWindow::updateRegenerateButtonVisibility(const DocumentNode& doc, const
         }
     }
 
-    regenerateMergeBtn->setVisible(showRegenerate);
-    viewMergeSourcesBtn->setVisible(showSources);
+    if (regenerateMergeAction) regenerateMergeAction->setVisible(showRegenerate);
+    if (viewMergeSourcesAction) viewMergeSourcesAction->setVisible(showSources);
 }
 
 void MainWindow::onViewMergeSources() {

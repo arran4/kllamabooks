@@ -188,7 +188,9 @@ class MainWindow : public KXmlGuiWindow {
     QPushButton* previewDocBtn;
     QPushButton* editDocBtn;
     QPushButton* regenerateMergeBtn;
+    QAction* regenerateMergeAction;
     QPushButton* viewMergeSourcesBtn;
+    QAction* viewMergeSourcesAction;
 
     QWidget* noteContainer;
     QTextEdit* noteEditorView;
