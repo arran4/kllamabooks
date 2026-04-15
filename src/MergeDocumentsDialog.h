@@ -20,6 +20,14 @@ class QPushButton;
 class MergeDocumentsDialog : public QDialog {
     Q_OBJECT
    public:
+    enum MergeAction {
+        ReplaceExisting,
+        NewDocument,
+        ReplaceDocA,
+        ReplaceDocB,
+        ReplaceDocAandB
+    };
+
     explicit MergeDocumentsDialog(BookDatabase* db, const QList<int>& documentIds, const QList<OllamaModelInfo>& modelInfos, const QStringList& fallbackModels, QWidget* parent = nullptr);
 
     QString getFinalPrompt() const;
@@ -31,6 +39,9 @@ class MergeDocumentsDialog : public QDialog {
     QString getTitle() const;
     void setTitle(const QString& title);
     void setDefaultTitleSuffix(const QString& suffix);
+
+    void setIsRegenerating(bool isRegenerating);
+    MergeAction getSelectedAction() const;
 
    public slots:
     void accept() override;
@@ -67,6 +78,10 @@ class MergeDocumentsDialog : public QDialog {
     QList<AiDynamicInputInfo> m_currentDynamicInputs;
     QList<AIOperation> m_templates;
     QList<QString> m_documentContents;
+    QList<QString> m_documentTitles;
+
+    QComboBox* m_actionTypeCombo;
+    bool m_isRegenerating = false;
 };
 
 #endif // MERGEDOCUMENTSDIALOG_H

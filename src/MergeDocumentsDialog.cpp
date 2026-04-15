@@ -29,12 +29,24 @@ MergeDocumentsDialog::MergeDocumentsDialog(BookDatabase* db, const QList<int>& d
         for (const auto& doc : docs) {
             if (doc.id == id) {
                 m_documentContents.append(doc.content);
+                m_documentTitles.append(doc.title);
                 break;
             }
         }
     }
 
     QVBoxLayout* layout = new QVBoxLayout(this);
+
+    // Action combo box
+    QHBoxLayout* actionLayout = new QHBoxLayout();
+    actionLayout->addWidget(new QLabel(tr("Action:"), this));
+    m_actionTypeCombo = new QComboBox(this);
+    actionLayout->addWidget(m_actionTypeCombo);
+    layout->addLayout(actionLayout);
+
+    // We populate the combo box in setIsRegenerating(),
+    // we default to false.
+    setIsRegenerating(false);
 
     // Title input
     QHBoxLayout* titleLayout = new QHBoxLayout();
@@ -216,6 +228,38 @@ void MergeDocumentsDialog::setInitialModels(const QStringList& models) {
             m_selectModelsBtn->setText(tr("%1 Models Selected").arg(m_selectedModels.size()));
         }
     }
+}
+
+void MergeDocumentsDialog::setIsRegenerating(bool isRegenerating) {
+    m_isRegenerating = isRegenerating;
+    m_actionTypeCombo->clear();
+
+    if (m_isRegenerating) {
+        m_actionTypeCombo->addItem(tr("Replace Merged Document (Add previous to version history)"), ReplaceExisting);
+    }
+
+    m_actionTypeCombo->addItem(tr("New Merged Document"), NewDocument);
+
+    if (m_documentTitles.size() == 2) {
+        m_actionTypeCombo->addItem(tr("Replace '%1' (Add to version history)").arg(m_documentTitles[0]), ReplaceDocA);
+        m_actionTypeCombo->addItem(tr("Replace '%1' (Add to version history)").arg(m_documentTitles[1]), ReplaceDocB);
+        m_actionTypeCombo->addItem(tr("Replace '%1' & '%2' (Delete both)").arg(m_documentTitles[0], m_documentTitles[1]), ReplaceDocAandB);
+    }
+
+    // Select the default action depending on regenerating status
+    if (m_isRegenerating) {
+        m_actionTypeCombo->setCurrentIndex(0); // ReplaceExisting
+    } else {
+        // Find NewDocument in the combo box
+        int index = m_actionTypeCombo->findData(NewDocument);
+        if (index != -1) {
+            m_actionTypeCombo->setCurrentIndex(index);
+        }
+    }
+}
+
+MergeDocumentsDialog::MergeAction MergeDocumentsDialog::getSelectedAction() const {
+    return static_cast<MergeAction>(m_actionTypeCombo->currentData().toInt());
 }
 
 QString MergeDocumentsDialog::getTitle() const {
