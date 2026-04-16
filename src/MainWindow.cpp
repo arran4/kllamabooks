@@ -3989,7 +3989,7 @@ void MainWindow::onOpenBooksSelectionChanged(const QItemSelection& selected, con
         multiSelectionLayout->addWidget(previewBtn);
 
         QPushButton* mergeBtn = new QPushButton(QIcon::fromTheme("merge"), tr("Merge Documents with AI..."));
-        mergeBtn->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_M));
+        mergeBtn->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_M));
         connect(mergeBtn, &QPushButton::clicked, this, &MainWindow::onMergeDocumentsSelected);
         multiSelectionLayout->addWidget(mergeBtn);
 
