@@ -4024,9 +4024,7 @@ void MainWindow::onOpenBooksSelectionChanged(const QItemSelection& selected, con
                 mainContentStack->setCurrentWidget(docContainer);
             } else if (currentDb) {
                 // If it was marked as updated via AI notification modifications, dismiss it
-                currentDb->dismissNotificationByTargetAndType(currentDocumentId, "document", "updated");
-                currentDb->dismissNotificationByTargetAndType(currentDocumentId, "document", "finished_generation");
-                updateNotificationStatus();
+                dismissDocumentNotifications(currentDocumentId);
 
                 QList<DocumentNode> docs =
                     (type == "template") ? currentDb->getTemplates()
@@ -4449,6 +4447,15 @@ void MainWindow::updateQueueStatus() {
 /** * @brief Fills the notification tray menu indicating task progress states. *  * This function is an integral
  * component of the MainWindow class structure. * It ensures that side effects map accurately to internal application
  * models. */
+void MainWindow::dismissDocumentNotifications(int docId) {
+    if (!currentDb) {
+        return;
+    }
+    currentDb->dismissNotificationByTargetAndType(docId, "document", "updated");
+    currentDb->dismissNotificationByTargetAndType(docId, "document", "finished_generation");
+    updateNotificationStatus();
+}
+
 void MainWindow::updateNotificationStatus() {
     int total = 0;
     notificationMenu->clear();
@@ -5300,9 +5307,7 @@ void MainWindow::onOpenBooksTreeDoubleClicked(const QModelIndex& index) {
     if (type == "document" || type == "template" || type == "draft") {
         int docId = item->data(Qt::UserRole).toInt();
 
-        currentDb->dismissNotificationByTargetAndType(docId, "document", "updated");
-        currentDb->dismissNotificationByTargetAndType(docId, "document", "finished_generation");
-        updateNotificationStatus();
+        dismissDocumentNotifications(docId);
 
         QList<DocumentNode> docs;
         if (type == "document")

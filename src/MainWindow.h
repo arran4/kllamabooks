@@ -122,6 +122,7 @@ class MainWindow : public KXmlGuiWindow {
     void onOpenBooksSelectionChanged(const QItemSelection& selected, const QItemSelection& deselected);
     void updateQueueStatus();
     void updateNotificationStatus();
+    void dismissDocumentNotifications(int docId);
     void showNotificationMenu();
     void showQueueWindow();
     void showSpyWindow();
