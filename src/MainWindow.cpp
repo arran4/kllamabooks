@@ -4443,21 +4443,6 @@ void MainWindow::updateQueueStatus() {
     } else {
         queueStatusBtn->setStyleSheet("");
     }
-
-    if (trayIcon) {
-        int pending = 0;
-        int processing = 0;
-        int completed = 0;
-        int error = 0;
-        auto merged = QueueManager::instance().getMergedQueue();
-        for (const auto& m : merged) {
-            if (m.item.state == "pending") pending++;
-            else if (m.item.state == "processing") processing++;
-            else if (m.item.state == "completed") completed++;
-            else if (m.item.state == "error") error++;
-        }
-        trayIcon->setToolTip(QString("KLlamaBooks\n%1 Pending / %2 Processing / %3 Error / %4 Completed").arg(pending).arg(processing).arg(error).arg(completed));
-    }
 }
 
 /** * @brief Fills the notification tray menu indicating task progress states. *  * This function is an integral
