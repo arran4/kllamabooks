@@ -2425,6 +2425,7 @@ void MainWindow::addPhantomItem(QStandardItem* folderItem, const QString& type) 
 
     openBooksTree->setExpanded(folderItem->index(), true);
     openBooksTree->setCurrentIndex(phantomItem->index());
+    openBooksTree->selectionModel()->select(phantomItem->index(), QItemSelectionModel::ClearAndSelect);
 }
 
 /** * @brief Executes logic for loadSession. This function manages component initialization and handles state
@@ -3988,6 +3989,7 @@ void MainWindow::onOpenBooksSelectionChanged(const QItemSelection& selected, con
         multiSelectionLayout->addWidget(previewBtn);
 
         QPushButton* mergeBtn = new QPushButton(QIcon::fromTheme("merge"), tr("Merge Documents with AI..."));
+        mergeBtn->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_M));
         connect(mergeBtn, &QPushButton::clicked, this, &MainWindow::onMergeDocumentsSelected);
         multiSelectionLayout->addWidget(mergeBtn);
 
