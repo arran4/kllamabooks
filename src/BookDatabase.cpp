@@ -1366,6 +1366,33 @@ bool BookDatabase::updateQueueItemState(int id, const QString& state, const QStr
     return rc == SQLITE_DONE;
 }
 
+BookDatabase::QueueStats BookDatabase::getQueueStats() const {
+    QueueStats stats;
+    if (!m_isOpen) return stats;
+
+    const char* sql = "SELECT state, COUNT(*) FROM queue GROUP BY state;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return stats;
+
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        QString state = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 0));
+        int count = sqlite3_column_int(stmt, 1);
+
+        if (state == "pending") {
+            stats.pending = count;
+        } else if (state == "processing") {
+            stats.processing = count;
+        } else if (state == "completed") {
+            stats.completed = count;
+        } else if (state == "error") {
+            stats.error = count;
+        }
+    }
+
+    sqlite3_finalize(stmt);
+    return stats;
+}
+
 bool BookDatabase::isGenerating(int targetId, const QString& targetType, const QString& targetAction) const {
     if (!m_isOpen) return false;
     const char* sql = "SELECT COUNT(*) FROM queue WHERE message_id = ? AND target_type = ? AND target_action = ? AND state IN ('pending', 'processing');";

@@ -4443,6 +4443,15 @@ void MainWindow::updateQueueStatus() {
     } else {
         queueStatusBtn->setStyleSheet("");
     }
+
+    if (trayIcon) {
+        auto stats = QueueManager::instance().getQueueStats();
+        trayIcon->setToolTip(tr("KLlamaBooks\n%1 Pending / %2 Processing / %3 Error / %4 Completed")
+                                 .arg(stats.pending)
+                                 .arg(stats.processing)
+                                 .arg(stats.error)
+                                 .arg(stats.completed));
+    }
 }
 
 /** * @brief Fills the notification tray menu indicating task progress states. *  * This function is an integral
