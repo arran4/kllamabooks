@@ -159,6 +159,19 @@ QList<QueueManager::MergedQueueItem> QueueManager::getMergedQueue() const {
     return result;
 }
 
+QueueManager::QueueStats QueueManager::getQueueStats() const {
+    QueueStats stats;
+    for (auto db : m_databases) {
+        if (!db || !db->isOpen()) continue;
+        auto dbStats = db->getQueueStats();
+        stats.pending += dbStats.pending;
+        stats.processing += dbStats.processing;
+        stats.completed += dbStats.completed;
+        stats.error += dbStats.error;
+    }
+    return stats;
+}
+
 /**
  * @brief Explicitly issues a termination request to the active Ollama network generation.
  */

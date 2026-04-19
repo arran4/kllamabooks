@@ -33,6 +33,14 @@ class QueueManager : public QObject {
     };
     QList<MergedQueueItem> getMergedQueue() const;
 
+    struct QueueStats {
+        int pending = 0;
+        int processing = 0;
+        int completed = 0;
+        int error = 0;
+    };
+    QueueStats getQueueStats() const;
+
     void cancelItem(std::shared_ptr<BookDatabase> db, int queueId);
     void retryItem(std::shared_ptr<BookDatabase> db, int queueId);
     void modifyItem(std::shared_ptr<BookDatabase> db, int queueId, const QString& newPrompt, const QString& newModel = QString());
