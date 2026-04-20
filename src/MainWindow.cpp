@@ -1915,16 +1915,7 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
         if (type == "document" && currentDb) {
             int id = item->data(Qt::UserRole).toInt();
             bool hasMerge = currentDb->getDocumentMerge(id).has_value();
-            bool hasPrompt = false;
-
-            if (auto docOpt = currentDb->getDocument(id)) {
-                if (!docOpt->metadata.isEmpty()) {
-                    QJsonObject metaObj = QJsonDocument::fromJson(docOpt->metadata.toUtf8()).object();
-                    if (metaObj.contains("raw_prompt")) {
-                        hasPrompt = true;
-                    }
-                }
-            }
+            bool hasPrompt = isPromptGenerated(id);
 
             if (hasMerge || hasPrompt) {
                 regenerateMergeAction = menu.addAction(QIcon::fromTheme("view-refresh"), "Regenerate");
@@ -4679,16 +4670,7 @@ void MainWindow::updateNotificationStatus() {
 
                     if (n.type == "finished_generation" && n.targetType == "document") {
                         bool hasMerge = db->getDocumentMerge(n.targetId).has_value();
-                        bool hasPrompt = false;
-
-                        if (auto docOpt = db->getDocument(n.targetId)) {
-                            if (!docOpt->metadata.isEmpty()) {
-                                QJsonObject metaObj = QJsonDocument::fromJson(docOpt->metadata.toUtf8()).object();
-                                if (metaObj.contains("raw_prompt")) {
-                                    hasPrompt = true;
-                                }
-                            }
-                        }
+                        bool hasPrompt = isPromptGenerated(n.targetId);
 
                         if (hasMerge || hasPrompt) {
                             tryAgainBtn = new QPushButton(tr("Regenerate"), &dialog);
@@ -5569,12 +5551,12 @@ void MainWindow::handleNewDocumentCreation(int defaultFolderId) {
                 int newFolderId = currentDb->addFolder(folderId, title, "folder");
                 for (const QString& model : models) {
                     QString docTitle = title + " (" + model + ")";
-                    newDocId = currentDb->addDocument(newFolderId, docTitle, "*Generating...*", 0, metaStr);
+                    newDocId = currentDb->addDocument(newFolderId, docTitle, GENERATING_MERGE_TEXT, 0, metaStr);
                     if (newDocId != -1) currentDb->enqueuePrompt(newDocId, model, prompt, 0, "document", 0, "replace_direct");
                 }
             } else {
                 QString model = models.isEmpty() ? "" : models.first();
-                newDocId = currentDb->addDocument(folderId, title, "*Generating...*", 0, metaStr);
+                newDocId = currentDb->addDocument(folderId, title, GENERATING_MERGE_TEXT, 0, metaStr);
                 if (newDocId != -1) currentDb->enqueuePrompt(newDocId, model, prompt, 0, "document", 0, "replace_direct");
                 shouldNavigate = true;
             }
@@ -5661,14 +5643,7 @@ void MainWindow::updateRegenerateButtonVisibility(const DocumentNode& doc, const
 
     if (type == "document" && currentDb) {
         bool hasMerge = currentDb->getDocumentMerge(doc.id).has_value();
-        bool hasPrompt = false;
-
-        if (!doc.metadata.isEmpty()) {
-            QJsonObject metaObj = QJsonDocument::fromJson(doc.metadata.toUtf8()).object();
-            if (metaObj.contains("raw_prompt")) {
-                hasPrompt = true;
-            }
-        }
+        bool hasPrompt = isPromptGenerated(doc.id);
 
         if (hasMerge || hasPrompt) {
             if (hasMerge) showSources = true;
@@ -6184,4 +6159,16 @@ void MainWindow::resetZoom() {
     QSettings settings;
     settings.setValue("zoomDelta", 0);
     updateApplicationFont();
+}
+
+bool MainWindow::isPromptGenerated(int docId) {
+    if (auto docOpt = currentDb->getDocument(docId)) {
+        if (!docOpt->metadata.isEmpty()) {
+            QJsonObject metaObj = QJsonDocument::fromJson(docOpt->metadata.toUtf8()).object();
+            if (metaObj.contains("raw_prompt")) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
