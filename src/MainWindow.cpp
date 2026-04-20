@@ -2190,7 +2190,10 @@ void MainWindow::onMergeDocumentsSelected() {
             if (baseTitle.length() > 50) baseTitle = baseTitle.left(47) + "...";
         }
 
-        processMergeGeneration(finalPrompt, rawPrompt, selectedModels, sourceDocumentIds, baseTitle, targetFolderId);
+        int targetDocId = dlg.getTargetDocumentId();
+        QList<int> docsToDelete = dlg.getDocumentsToDelete();
+
+        processMergeGeneration(finalPrompt, rawPrompt, selectedModels, sourceDocumentIds, baseTitle, targetFolderId, targetDocId, docsToDelete);
     }
 }
 
@@ -3475,6 +3478,28 @@ void MainWindow::onCancelActiveGeneration() {
 
 void MainWindow::onProcessingFinished(std::shared_ptr<BookDatabase> db, int messageId, bool success,
                                       const QString& targetType) {
+    if (db) {
+        if (targetType == "document" && success) {
+            auto docOpt = db->getDocument(messageId);
+            if (docOpt) {
+                QJsonDocument metaDoc = QJsonDocument::fromJson(docOpt->metadata.toUtf8());
+                QJsonObject metaObj = metaDoc.object();
+                if (metaObj.contains("delete_after_generation")) {
+                    QJsonArray deleteArr = metaObj["delete_after_generation"].toArray();
+                    for (const QJsonValue& val : deleteArr) {
+                        db->deleteDocument(val.toInt());
+                    }
+                    metaObj.remove("delete_after_generation");
+                    QString metaStr = QString::fromUtf8(QJsonDocument(metaObj).toJson(QJsonDocument::Compact));
+                    db->updateDocument(messageId, docOpt->title, docOpt->content, metaStr);
+                    if (currentDb == db) {
+                        loadDocumentsAndNotes();
+                    }
+                }
+            }
+        }
+    }
+
     if (currentDb == db) {
         if (targetType == "document" && currentDocumentId == messageId) {
             statusBar->showMessage(success ? tr("AI document generation complete.")
@@ -5204,6 +5229,8 @@ void MainWindow::onRegenerateMerge() {
     }
     dlg.setTitle(currentBaseTitle);
 
+    dlg.setIsRegenerating(true);
+
     if (dlg.exec() == QDialog::Accepted) {
         QString finalPrompt = dlg.getFinalPrompt();
         QString newRawPrompt = dlg.getRawPrompt();
@@ -5215,11 +5242,23 @@ void MainWindow::onRegenerateMerge() {
             baseTitle = currentBaseTitle;
         }
 
-        processMergeGeneration(finalPrompt, newRawPrompt, selectedModels, sourceIds, baseTitle, doc.parentId, currentDocumentId);
+        int targetDocId = dlg.getTargetDocumentId();
+        QList<int> docsToDelete = dlg.getDocumentsToDelete();
+
+        if (targetDocId == -1) { // Replace existing merged document
+            targetDocId = currentDocumentId;
+        } else {
+            // Since we are creating a new document or replacing a source document, we should delete the current old merged document
+            if (!docsToDelete.contains(currentDocumentId)) {
+                docsToDelete.append(currentDocumentId);
+            }
+        }
+
+        processMergeGeneration(finalPrompt, newRawPrompt, selectedModels, sourceIds, baseTitle, doc.parentId, targetDocId, docsToDelete);
     }
 }
 
-void MainWindow::processMergeGeneration(const QString& finalPrompt, const QString& rawPrompt, const QStringList& selectedModels, const QList<int>& sourceDocumentIds, const QString& baseTitle, int targetFolderId, int existingDocId) {
+void MainWindow::processMergeGeneration(const QString& finalPrompt, const QString& rawPrompt, const QStringList& selectedModels, const QList<int>& sourceDocumentIds, const QString& baseTitle, int targetFolderId, int existingDocId, const QList<int>& docsToDelete) {
     if (!currentDb || selectedModels.isEmpty() || finalPrompt.isEmpty()) return;
 
     // Build metadata
@@ -5232,6 +5271,14 @@ void MainWindow::processMergeGeneration(const QString& finalPrompt, const QStrin
         sourceIdsStrs.append(QString::number(id));
     }
     metaObj["source_documents"] = sourcesArr;
+
+    if (!docsToDelete.isEmpty()) {
+        QJsonArray deleteArr;
+        for (int id : docsToDelete) {
+            deleteArr.append(id);
+        }
+        metaObj["delete_after_generation"] = deleteArr;
+    }
     metaObj["prompt"] = finalPrompt;
     metaObj["raw_prompt"] = rawPrompt;
     QString metaStr = QString::fromUtf8(QJsonDocument(metaObj).toJson(QJsonDocument::Compact));
@@ -5250,6 +5297,8 @@ void MainWindow::processMergeGeneration(const QString& finalPrompt, const QStrin
 
                 // Update the existing merge row to point to this history ID
                 currentDb->updateDocumentMergeVersion(mergeOpt->id, historyId);
+            } else {
+                currentDb->addDocumentHistory(existingDocId, "replace_pre", docOpt->content);
             }
 
             // Add a new row for the new generation

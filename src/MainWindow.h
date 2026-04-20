@@ -108,7 +108,7 @@ class MainWindow : public KXmlGuiWindow {
     void showOpenBookContextMenu(const QPoint& pos);
     void showVfsContextMenu(const QPoint& pos);
     void onMergeDocumentsSelected();
-    void processMergeGeneration(const QString& finalPrompt, const QString& rawPrompt, const QStringList& selectedModels, const QList<int>& sourceDocumentIds, const QString& baseTitle, int targetFolderId, int existingDocId = 0);
+    void processMergeGeneration(const QString& finalPrompt, const QString& rawPrompt, const QStringList& selectedModels, const QList<int>& sourceDocumentIds, const QString& baseTitle, int targetFolderId, int existingDocId = 0, const QList<int>& docsToDelete = QList<int>());
     void showInputSettingsMenu();
     void showChatSettingsDialog(int messageId);
     void updateInputBehavior();

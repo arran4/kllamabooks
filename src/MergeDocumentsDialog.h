@@ -16,6 +16,7 @@
 class QFormLayout;
 class ModelSelectionDialog;
 class QPushButton;
+class QCheckBox;
 
 class MergeDocumentsDialog : public QDialog {
     Q_OBJECT
@@ -31,6 +32,10 @@ class MergeDocumentsDialog : public QDialog {
     QString getTitle() const;
     void setTitle(const QString& title);
     void setDefaultTitleSuffix(const QString& suffix);
+
+    void setIsRegenerating(bool isRegenerating);
+    int getTargetDocumentId() const;
+    QList<int> getDocumentsToDelete() const;
 
    public slots:
     void accept() override;
@@ -67,6 +72,12 @@ class MergeDocumentsDialog : public QDialog {
     QList<AiDynamicInputInfo> m_currentDynamicInputs;
     QList<AIOperation> m_templates;
     QList<QString> m_documentContents;
+    QList<QString> m_documentTitles;
+
+    QComboBox* m_mainActionCombo;
+    QComboBox* m_replaceTargetCombo;
+    QCheckBox* m_deleteSourcesCheck;
+    bool m_isRegenerating = false;
 };
 
 #endif // MERGEDOCUMENTSDIALOG_H

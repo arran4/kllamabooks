@@ -908,7 +908,7 @@ bool BookDatabase::updateDocument(int id, const QString& newTitle, const QString
 std::optional<DocumentNode> BookDatabase::getDocument(int id) const {
     if (!m_isOpen) return std::nullopt;
 
-    QString sqlStr = "SELECT id, folder_id, title, content, timestamp, parent_id FROM documents WHERE id = ?;";
+    QString sqlStr = "SELECT id, folder_id, title, content, timestamp, parent_id, metadata FROM documents WHERE id = ?;";
     sqlite3_stmt* stmt;
     int rc = sqlite3_prepare_v2((sqlite3*)m_db, sqlStr.toUtf8().constData(), -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return std::nullopt;
@@ -924,7 +924,14 @@ std::optional<DocumentNode> BookDatabase::getDocument(int id) const {
         QString ts = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 4));
         node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
         node.parentId = sqlite3_column_int(stmt, 5);
-        node.metadata = getSetting("document", node.id, "metadata");
+
+        const char* metadataText = (const char*)sqlite3_column_text(stmt, 6);
+        if (metadataText) {
+            node.metadata = QString::fromUtf8(metadataText);
+        }
+        if (node.metadata.isEmpty()) {
+            node.metadata = getSetting("document", node.id, "metadata");
+        }
 
         sqlite3_finalize(stmt);
         return node;
@@ -937,7 +944,7 @@ QList<DocumentNode> BookDatabase::getDocuments(int folderId) const {
     QList<DocumentNode> nodes;
     if (!m_isOpen) return nodes;
 
-    QString sqlStr = "SELECT id, folder_id, title, content, timestamp, parent_id FROM documents";
+    QString sqlStr = "SELECT id, folder_id, title, content, timestamp, parent_id, metadata FROM documents";
     if (folderId != -1) sqlStr += " WHERE folder_id = ?";
     sqlStr += " ORDER BY timestamp ASC;";
 
@@ -956,7 +963,15 @@ QList<DocumentNode> BookDatabase::getDocuments(int folderId) const {
         QString ts = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 4));
         node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
         node.parentId = sqlite3_column_int(stmt, 5);
-        node.metadata = getSetting("document", node.id, "metadata");
+
+        const char* metadataText = (const char*)sqlite3_column_text(stmt, 6);
+        if (metadataText) {
+            node.metadata = QString::fromUtf8(metadataText);
+        }
+        if (node.metadata.isEmpty()) {
+            node.metadata = getSetting("document", node.id, "metadata");
+        }
+
         node.isFolder = false;
         nodes.append(node);
     }
