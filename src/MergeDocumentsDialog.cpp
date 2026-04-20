@@ -235,15 +235,74 @@ void MergeDocumentsDialog::setIsRegenerating(bool isRegenerating) {
     m_actionTypeCombo->clear();
 
     if (m_isRegenerating) {
-        m_actionTypeCombo->addItem(tr("Replace Merged Document (Add previous to version history)"), ReplaceExisting);
+        // ID -1 indicates "ReplaceExisting" to be resolved by MainWindow, empty delete list
+        QVariantList data;
+        data << -1 << QVariantList();
+        m_actionTypeCombo->addItem(tr("Replace Merged Document (Add previous to version history)"), data);
     }
 
-    m_actionTypeCombo->addItem(tr("New Merged Document"), NewDocument);
+    // ID 0 indicates New Document, empty delete list
+    QVariantList newDocData;
+    newDocData << 0 << QVariantList();
+    m_actionTypeCombo->addItem(tr("New Merged Document"), newDocData);
 
-    if (m_documentTitles.size() == 2) {
-        m_actionTypeCombo->addItem(tr("Replace '%1' (Add to version history)").arg(m_documentTitles[0]), ReplaceDocA);
-        m_actionTypeCombo->addItem(tr("Replace '%1' (Add to version history)").arg(m_documentTitles[1]), ReplaceDocB);
-        m_actionTypeCombo->addItem(tr("Replace '%1' & '%2' (Delete both)").arg(m_documentTitles[0], m_documentTitles[1]), ReplaceDocAandB);
+    if (!m_documentIds.isEmpty() && m_documentTitles.size() == m_documentIds.size()) {
+        int n = m_documentIds.size();
+
+        if (n <= 5) {
+            int numCombinations = 1 << n; // 2^n combinations
+
+            for (int i = 1; i < numCombinations; ++i) {
+                QVariantList deleteIds;
+                QStringList names;
+                int singleId = 0;
+                int count = 0;
+
+                for (int j = 0; j < n; ++j) {
+                    if (i & (1 << j)) {
+                        deleteIds << m_documentIds[j];
+                        names << QString("'%1'").arg(m_documentTitles[j]);
+                        singleId = m_documentIds[j];
+                        count++;
+                    }
+                }
+
+                QVariantList comboData;
+                QString label;
+
+                if (count == 1) {
+                    comboData << singleId << QVariantList();
+                    label = tr("Replace %1 (Add to version history)").arg(names[0]);
+                } else {
+                    comboData << 0 << deleteIds;
+                    QString joinedNames = names.join(tr(", "));
+                    // Replace the last comma with an ampersand if there are multiple elements
+                    if (names.size() > 1) {
+                        int lastCommaPos = joinedNames.lastIndexOf(tr(", "));
+                        if (lastCommaPos != -1) {
+                            joinedNames.replace(lastCommaPos, 2, tr(" & "));
+                        }
+                    }
+                    label = tr("New & Remove %1").arg(joinedNames);
+                }
+                m_actionTypeCombo->addItem(label, comboData);
+            }
+        } else {
+            // For a larger number of documents, just offer single replacements and replace all
+            for (int i = 0; i < n; ++i) {
+                QVariantList comboData;
+                comboData << m_documentIds[i] << QVariantList();
+                m_actionTypeCombo->addItem(tr("Replace %1 (Add to version history)").arg(QString("'%1'").arg(m_documentTitles[i])), comboData);
+            }
+
+            QVariantList deleteIds;
+            for (int i = 0; i < n; ++i) {
+                deleteIds << m_documentIds[i];
+            }
+            QVariantList comboData;
+            comboData << 0 << deleteIds;
+            m_actionTypeCombo->addItem(tr("New & Remove All Source Documents"), comboData);
+        }
     }
 
     // Select the default action depending on regenerating status
@@ -251,15 +310,31 @@ void MergeDocumentsDialog::setIsRegenerating(bool isRegenerating) {
         m_actionTypeCombo->setCurrentIndex(0); // ReplaceExisting
     } else {
         // Find NewDocument in the combo box
-        int index = m_actionTypeCombo->findData(NewDocument);
+        int index = m_actionTypeCombo->findData(newDocData);
         if (index != -1) {
             m_actionTypeCombo->setCurrentIndex(index);
         }
     }
 }
 
-MergeDocumentsDialog::MergeAction MergeDocumentsDialog::getSelectedAction() const {
-    return static_cast<MergeAction>(m_actionTypeCombo->currentData().toInt());
+int MergeDocumentsDialog::getTargetDocumentId() const {
+    QVariantList data = m_actionTypeCombo->currentData().toList();
+    if (!data.isEmpty()) {
+        return data.first().toInt();
+    }
+    return 0;
+}
+
+QList<int> MergeDocumentsDialog::getDocumentsToDelete() const {
+    QList<int> result;
+    QVariantList data = m_actionTypeCombo->currentData().toList();
+    if (data.size() > 1) {
+        QVariantList deleteList = data[1].toList();
+        for (const QVariant& v : deleteList) {
+            result.append(v.toInt());
+        }
+    }
+    return result;
 }
 
 QString MergeDocumentsDialog::getTitle() const {

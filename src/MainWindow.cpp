@@ -2190,22 +2190,8 @@ void MainWindow::onMergeDocumentsSelected() {
             if (baseTitle.length() > 50) baseTitle = baseTitle.left(47) + "...";
         }
 
-        MergeDocumentsDialog::MergeAction action = dlg.getSelectedAction();
-
-        int targetDocId = 0;
-        QList<int> docsToDelete;
-
-        if (action == MergeDocumentsDialog::ReplaceDocA && sourceDocumentIds.size() >= 1) {
-            targetDocId = sourceDocumentIds[0];
-        } else if (action == MergeDocumentsDialog::ReplaceDocB && sourceDocumentIds.size() >= 2) {
-            targetDocId = sourceDocumentIds[1];
-        } else if (action == MergeDocumentsDialog::ReplaceDocAandB && sourceDocumentIds.size() >= 2) {
-            targetDocId = 0; // Create new
-            docsToDelete.append(sourceDocumentIds[0]);
-            docsToDelete.append(sourceDocumentIds[1]);
-        } else if (action == MergeDocumentsDialog::NewDocument) {
-            targetDocId = 0; // Create new
-        }
+        int targetDocId = dlg.getTargetDocumentId();
+        QList<int> docsToDelete = dlg.getDocumentsToDelete();
 
         processMergeGeneration(finalPrompt, rawPrompt, selectedModels, sourceDocumentIds, baseTitle, targetFolderId, targetDocId, docsToDelete);
     }
@@ -5238,27 +5224,16 @@ void MainWindow::onRegenerateMerge() {
             baseTitle = currentBaseTitle;
         }
 
-        MergeDocumentsDialog::MergeAction action = dlg.getSelectedAction();
+        int targetDocId = dlg.getTargetDocumentId();
+        QList<int> docsToDelete = dlg.getDocumentsToDelete();
 
-        int targetDocId = 0;
-        QList<int> docsToDelete;
-
-        if (action == MergeDocumentsDialog::ReplaceExisting) {
+        if (targetDocId == -1) { // Replace existing merged document
             targetDocId = currentDocumentId;
-        } else if (action == MergeDocumentsDialog::ReplaceDocA && sourceIds.size() >= 1) {
-            targetDocId = sourceIds[0];
-            // Since we are replacing a source document, we should delete the current document
-            docsToDelete.append(currentDocumentId);
-        } else if (action == MergeDocumentsDialog::ReplaceDocB && sourceIds.size() >= 2) {
-            targetDocId = sourceIds[1];
-            docsToDelete.append(currentDocumentId);
-        } else if (action == MergeDocumentsDialog::ReplaceDocAandB && sourceIds.size() >= 2) {
-            targetDocId = 0; // Create new
-            docsToDelete.append(sourceIds[0]);
-            docsToDelete.append(sourceIds[1]);
-            docsToDelete.append(currentDocumentId);
-        } else if (action == MergeDocumentsDialog::NewDocument) {
-            targetDocId = 0; // Create new
+        } else {
+            // Since we are creating a new document or replacing a source document, we should delete the current old merged document
+            if (!docsToDelete.contains(currentDocumentId)) {
+                docsToDelete.append(currentDocumentId);
+            }
         }
 
         processMergeGeneration(finalPrompt, newRawPrompt, selectedModels, sourceIds, baseTitle, doc.parentId, targetDocId, docsToDelete);

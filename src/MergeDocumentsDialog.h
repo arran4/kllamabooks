@@ -20,14 +20,6 @@ class QPushButton;
 class MergeDocumentsDialog : public QDialog {
     Q_OBJECT
    public:
-    enum MergeAction {
-        ReplaceExisting,
-        NewDocument,
-        ReplaceDocA,
-        ReplaceDocB,
-        ReplaceDocAandB
-    };
-
     explicit MergeDocumentsDialog(BookDatabase* db, const QList<int>& documentIds, const QList<OllamaModelInfo>& modelInfos, const QStringList& fallbackModels, QWidget* parent = nullptr);
 
     QString getFinalPrompt() const;
@@ -41,7 +33,8 @@ class MergeDocumentsDialog : public QDialog {
     void setDefaultTitleSuffix(const QString& suffix);
 
     void setIsRegenerating(bool isRegenerating);
-    MergeAction getSelectedAction() const;
+    int getTargetDocumentId() const;
+    QList<int> getDocumentsToDelete() const;
 
    public slots:
     void accept() override;
