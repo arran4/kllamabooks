@@ -10,6 +10,7 @@
 #include <QPushButton>
 #include <QMessageBox>
 #include <QSettings>
+#include <QCheckBox>
 
 #include <QUuid>
 #include <QInputDialog>
@@ -37,12 +38,40 @@ MergeDocumentsDialog::MergeDocumentsDialog(BookDatabase* db, const QList<int>& d
 
     QVBoxLayout* layout = new QVBoxLayout(this);
 
-    // Action combo box
+    // Action UI
+    QVBoxLayout* actionsOuterLayout = new QVBoxLayout();
+
     QHBoxLayout* actionLayout = new QHBoxLayout();
     actionLayout->addWidget(new QLabel(tr("Action:"), this));
-    m_actionTypeCombo = new QComboBox(this);
-    actionLayout->addWidget(m_actionTypeCombo);
-    layout->addLayout(actionLayout);
+    m_mainActionCombo = new QComboBox(this);
+    actionLayout->addWidget(m_mainActionCombo);
+    actionsOuterLayout->addLayout(actionLayout);
+
+    QHBoxLayout* replaceLayout = new QHBoxLayout();
+    replaceLayout->addWidget(new QLabel(tr("Replace Document:"), this));
+    m_replaceTargetCombo = new QComboBox(this);
+
+    for (int i = 0; i < m_documentIds.size(); ++i) {
+        m_replaceTargetCombo->addItem(m_documentTitles[i], m_documentIds[i]);
+    }
+
+    replaceLayout->addWidget(m_replaceTargetCombo);
+    actionsOuterLayout->addLayout(replaceLayout);
+
+    m_deleteSourcesCheck = new QCheckBox(tr("Delete all other source documents"), this);
+    actionsOuterLayout->addWidget(m_deleteSourcesCheck);
+
+    layout->addLayout(actionsOuterLayout);
+
+    connect(m_mainActionCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int index) {
+        // Option 0: New Document
+        // Option 1: Replace Existing Merge (only if regenerating)
+        // Option N: Replace Source Document
+        int replaceSourceIndex = m_isRegenerating ? 2 : 1;
+
+        bool isReplacingSource = (index == replaceSourceIndex);
+        m_replaceTargetCombo->setEnabled(isReplacingSource);
+    });
 
     // We populate the combo box in setIsRegenerating(),
     // we default to false.
@@ -232,106 +261,49 @@ void MergeDocumentsDialog::setInitialModels(const QStringList& models) {
 
 void MergeDocumentsDialog::setIsRegenerating(bool isRegenerating) {
     m_isRegenerating = isRegenerating;
-    m_actionTypeCombo->clear();
+    m_mainActionCombo->clear();
+
+    m_mainActionCombo->addItem(tr("Create New Merged Document"), 0);
 
     if (m_isRegenerating) {
-        // ID -1 indicates "ReplaceExisting" to be resolved by MainWindow, empty delete list
-        QVariantList data;
-        data << -1 << QVariantList();
-        m_actionTypeCombo->addItem(tr("Replace Merged Document (Add previous to version history)"), data);
+        m_mainActionCombo->addItem(tr("Replace Existing Merge (Add previous to version history)"), -1);
     }
 
-    // ID 0 indicates New Document, empty delete list
-    QVariantList newDocData;
-    newDocData << 0 << QVariantList();
-    m_actionTypeCombo->addItem(tr("New Merged Document"), newDocData);
-
-    if (!m_documentIds.isEmpty() && m_documentTitles.size() == m_documentIds.size()) {
-        int n = m_documentIds.size();
-
-        if (n <= 5) {
-            int numCombinations = 1 << n; // 2^n combinations
-
-            for (int i = 1; i < numCombinations; ++i) {
-                QVariantList deleteIds;
-                QStringList names;
-                int singleId = 0;
-                int count = 0;
-
-                for (int j = 0; j < n; ++j) {
-                    if (i & (1 << j)) {
-                        deleteIds << m_documentIds[j];
-                        names << QString("'%1'").arg(m_documentTitles[j]);
-                        singleId = m_documentIds[j];
-                        count++;
-                    }
-                }
-
-                QVariantList comboData;
-                QString label;
-
-                if (count == 1) {
-                    comboData << singleId << QVariantList();
-                    label = tr("Replace %1 (Add to version history)").arg(names[0]);
-                } else {
-                    comboData << 0 << deleteIds;
-                    QString joinedNames = names.join(tr(", "));
-                    // Replace the last comma with an ampersand if there are multiple elements
-                    if (names.size() > 1) {
-                        int lastCommaPos = joinedNames.lastIndexOf(tr(", "));
-                        if (lastCommaPos != -1) {
-                            joinedNames.replace(lastCommaPos, 2, tr(" & "));
-                        }
-                    }
-                    label = tr("New & Remove %1").arg(joinedNames);
-                }
-                m_actionTypeCombo->addItem(label, comboData);
-            }
-        } else {
-            // For a larger number of documents, just offer single replacements and replace all
-            for (int i = 0; i < n; ++i) {
-                QVariantList comboData;
-                comboData << m_documentIds[i] << QVariantList();
-                m_actionTypeCombo->addItem(tr("Replace %1 (Add to version history)").arg(QString("'%1'").arg(m_documentTitles[i])), comboData);
-            }
-
-            QVariantList deleteIds;
-            for (int i = 0; i < n; ++i) {
-                deleteIds << m_documentIds[i];
-            }
-            QVariantList comboData;
-            comboData << 0 << deleteIds;
-            m_actionTypeCombo->addItem(tr("New & Remove All Source Documents"), comboData);
-        }
+    if (!m_documentIds.isEmpty()) {
+        m_mainActionCombo->addItem(tr("Replace Source Document"), 1);
     }
 
-    // Select the default action depending on regenerating status
     if (m_isRegenerating) {
-        m_actionTypeCombo->setCurrentIndex(0); // ReplaceExisting
+        int index = m_mainActionCombo->findData(-1);
+        m_mainActionCombo->setCurrentIndex(index != -1 ? index : 0);
     } else {
-        // Find NewDocument in the combo box
-        int index = m_actionTypeCombo->findData(newDocData);
-        if (index != -1) {
-            m_actionTypeCombo->setCurrentIndex(index);
-        }
+        m_mainActionCombo->setCurrentIndex(0);
     }
+
+    // Trigger the signal to setup combo box states immediately
+    m_replaceTargetCombo->setEnabled(m_mainActionCombo->currentData().toInt() == 1);
 }
 
 int MergeDocumentsDialog::getTargetDocumentId() const {
-    QVariantList data = m_actionTypeCombo->currentData().toList();
-    if (!data.isEmpty()) {
-        return data.first().toInt();
+    int actionData = m_mainActionCombo->currentData().toInt();
+    if (actionData == 0) {
+        return 0; // New Document
+    } else if (actionData == -1) {
+        return -1; // Replace Existing (resolved in MainWindow)
+    } else if (actionData == 1) {
+        return m_replaceTargetCombo->currentData().toInt();
     }
     return 0;
 }
 
 QList<int> MergeDocumentsDialog::getDocumentsToDelete() const {
     QList<int> result;
-    QVariantList data = m_actionTypeCombo->currentData().toList();
-    if (data.size() > 1) {
-        QVariantList deleteList = data[1].toList();
-        for (const QVariant& v : deleteList) {
-            result.append(v.toInt());
+    if (m_deleteSourcesCheck->isChecked()) {
+        int targetId = getTargetDocumentId();
+        for (int id : m_documentIds) {
+            if (id != targetId) {
+                result.append(id);
+            }
         }
     }
     return result;

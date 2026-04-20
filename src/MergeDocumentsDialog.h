@@ -16,6 +16,7 @@
 class QFormLayout;
 class ModelSelectionDialog;
 class QPushButton;
+class QCheckBox;
 
 class MergeDocumentsDialog : public QDialog {
     Q_OBJECT
@@ -73,7 +74,9 @@ class MergeDocumentsDialog : public QDialog {
     QList<QString> m_documentContents;
     QList<QString> m_documentTitles;
 
-    QComboBox* m_actionTypeCombo;
+    QComboBox* m_mainActionCombo;
+    QComboBox* m_replaceTargetCombo;
+    QCheckBox* m_deleteSourcesCheck;
     bool m_isRegenerating = false;
 };
 
