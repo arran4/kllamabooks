@@ -128,7 +128,7 @@ QMimeData* CustomItemModel::mimeData(const QModelIndexList& indexes) const {
     return data;
 }
 
-MainWindow::MainWindow(QWidget* parent) : KXmlGuiWindow(parent), currentLastNodeId(0) {
+MainWindow::MainWindow(QWidget* parent) : KXmlGuiWindow(parent), currentLastNodeId(0), trayIcon(nullptr) {
     QueueManager::instance().setClient(&ollamaClient);
     connect(&QueueManager::instance(), &QueueManager::queueChanged, this, &MainWindow::updateQueueStatus);
     connect(&QueueManager::instance(), &QueueManager::queueChanged, this, &MainWindow::updateNotificationStatus);
