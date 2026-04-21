@@ -128,7 +128,7 @@ QMimeData* CustomItemModel::mimeData(const QModelIndexList& indexes) const {
     return data;
 }
 
-MainWindow::MainWindow(QWidget* parent) : KXmlGuiWindow(parent), currentLastNodeId(0) {
+MainWindow::MainWindow(QWidget* parent) : KXmlGuiWindow(parent), currentLastNodeId(0), trayIcon(nullptr) {
     QueueManager::instance().setClient(&ollamaClient);
     connect(&QueueManager::instance(), &QueueManager::queueChanged, this, &MainWindow::updateQueueStatus);
     connect(&QueueManager::instance(), &QueueManager::queueChanged, this, &MainWindow::updateNotificationStatus);
@@ -1914,9 +1914,14 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
         QAction* viewMergeSourcesAction = nullptr;
         if (type == "document" && currentDb) {
             int id = item->data(Qt::UserRole).toInt();
-            if (currentDb->getDocumentMerge(id).has_value()) {
-                regenerateMergeAction = menu.addAction(QIcon::fromTheme("view-refresh"), "Regenerate Merge");
-                viewMergeSourcesAction = menu.addAction(QIcon::fromTheme("document-multiple"), "View Merge Sources");
+            bool hasMerge = currentDb->getDocumentMerge(id).has_value();
+            bool hasPrompt = isPromptGenerated(id);
+
+            if (hasMerge || hasPrompt) {
+                regenerateMergeAction = menu.addAction(QIcon::fromTheme("view-refresh"), "Regenerate");
+                if (hasMerge) {
+                    viewMergeSourcesAction = menu.addAction(QIcon::fromTheme("document-multiple"), "View Merge Sources");
+                }
             }
         }
 
@@ -4664,7 +4669,10 @@ void MainWindow::updateNotificationStatus() {
                     QPushButton* tryAgainBtn = nullptr;
 
                     if (n.type == "finished_generation" && n.targetType == "document") {
-                        if (db->getDocumentMerge(n.targetId).has_value()) {
+                        bool hasMerge = db->getDocumentMerge(n.targetId).has_value();
+                        bool hasPrompt = isPromptGenerated(n.targetId);
+
+                        if (hasMerge || hasPrompt) {
                             tryAgainBtn = new QPushButton(tr("Regenerate"), &dialog);
                         }
                     }
@@ -5156,6 +5164,11 @@ void MainWindow::onDocumentAIOperations() {
             models.append(m_availableModels.first());
         }
 
+        QJsonObject metaObj;
+        metaObj["prompt"] = prompt;
+        metaObj["raw_prompt"] = promptTpl;
+        QString metaStr = QString::fromUtf8(QJsonDocument(metaObj).toJson(QJsonDocument::Compact));
+
         if (models.size() > 1) {
             QString outTitle, outContent;
             getDocumentContent(currentDocumentId, "document", outTitle, outContent);
@@ -5174,12 +5187,21 @@ void MainWindow::onDocumentAIOperations() {
 
             for (const QString& model : models) {
                 QString docTitle = outTitle + " (" + model + ")";
-                int newDocId = currentDb->addDocument(newFolderId, docTitle, outContent);
+                int newDocId = currentDb->addDocument(newFolderId, docTitle, outContent, 0, metaStr);
                 QueueManager::instance().enqueuePrompt(newDocId, model, prompt, 0, "document", 0, "");
             }
             loadDocumentsAndNotes();
         } else {
             QString model = models.isEmpty() ? "" : models.first();
+            if (auto docOpt = currentDb->getDocument(currentDocumentId)) {
+                QJsonObject docMeta;
+                if (!docOpt->metadata.isEmpty()) {
+                    docMeta = QJsonDocument::fromJson(docOpt->metadata.toUtf8()).object();
+                }
+                docMeta["prompt"] = prompt;
+                docMeta["raw_prompt"] = promptTpl;
+                currentDb->updateDocument(currentDocumentId, docOpt->title, docOpt->content, QString::fromUtf8(QJsonDocument(docMeta).toJson(QJsonDocument::Compact)));
+            }
             QueueManager::instance().enqueuePrompt(currentDocumentId, model, prompt, 0, "document", 0, "");
         }
         statusBar->showMessage(tr("AI document task queued."), 3000);
@@ -5194,33 +5216,41 @@ void MainWindow::onRegenerateMerge() {
     const auto& doc = *docOpt;
 
     auto mergeOpt = currentDb->getDocumentMerge(currentDocumentId);
-    if (!mergeOpt) return;
-    const auto& merge = *mergeOpt;
 
     QString rawPrompt;
+    QString prompt;
     QJsonDocument metaDoc = QJsonDocument::fromJson(doc.metadata.toUtf8());
     QJsonObject metaObj = metaDoc.object();
     if (metaObj.contains("raw_prompt")) {
         rawPrompt = metaObj["raw_prompt"].toString();
     }
+    if (metaObj.contains("prompt")) {
+        prompt = metaObj["prompt"].toString();
+    }
 
     QList<int> sourceIds;
-    QStringList idStrs = merge.sourceDocumentIds.split(",", Qt::SkipEmptyParts);
-    for (const QString& idStr : idStrs) {
-        sourceIds.append(idStr.toInt());
+    QStringList initialModels;
+
+    if (mergeOpt) {
+        const auto& merge = *mergeOpt;
+        QStringList idStrs = merge.sourceDocumentIds.split(",", Qt::SkipEmptyParts);
+        for (const QString& idStr : idStrs) {
+            sourceIds.append(idStr.toInt());
+        }
+        if (prompt.isEmpty()) prompt = merge.prompt;
+        if (!merge.model.isEmpty()) initialModels << merge.model;
+    } else {
+        QString model = currentDb->getSetting("document", currentDocumentId, "model");
+        if (!model.isEmpty()) initialModels << model;
     }
 
     MergeDocumentsDialog dlg(currentDb.get(), sourceIds, m_availableModelInfos, m_availableModels, this);
     if (!rawPrompt.isEmpty()) {
         dlg.setInitialPrompt(rawPrompt);
     } else {
-        dlg.setInitialPrompt(merge.prompt);
+        dlg.setInitialPrompt(prompt);
     }
 
-    QStringList initialModels;
-    if (!merge.model.isEmpty()) {
-        initialModels << merge.model;
-    }
     dlg.setInitialModels(initialModels);
 
     QString currentBaseTitle = doc.title;
@@ -5512,16 +5542,21 @@ void MainWindow::handleNewDocumentCreation(int defaultFolderId) {
                 models.append(m_availableModels.first());
             }
 
+            QJsonObject metaObj;
+            metaObj["prompt"] = prompt;
+            metaObj["raw_prompt"] = prompt;
+            QString metaStr = QString::fromUtf8(QJsonDocument(metaObj).toJson(QJsonDocument::Compact));
+
             if (models.size() > 1) {
                 int newFolderId = currentDb->addFolder(folderId, title, "folder");
                 for (const QString& model : models) {
                     QString docTitle = title + " (" + model + ")";
-                    newDocId = currentDb->addDocument(newFolderId, docTitle, "*Generating...*");
+                    newDocId = currentDb->addDocument(newFolderId, docTitle, GENERATING_MERGE_TEXT, 0, metaStr);
                     if (newDocId != -1) currentDb->enqueuePrompt(newDocId, model, prompt, 0, "document", 0, "replace_direct");
                 }
             } else {
                 QString model = models.isEmpty() ? "" : models.first();
-                newDocId = currentDb->addDocument(folderId, title, "*Generating...*");
+                newDocId = currentDb->addDocument(folderId, title, GENERATING_MERGE_TEXT, 0, metaStr);
                 if (newDocId != -1) currentDb->enqueuePrompt(newDocId, model, prompt, 0, "document", 0, "replace_direct");
                 shouldNavigate = true;
             }
@@ -5607,8 +5642,11 @@ void MainWindow::updateRegenerateButtonVisibility(const DocumentNode& doc, const
     bool showSources = false;
 
     if (type == "document" && currentDb) {
-        if (currentDb->getDocumentMerge(doc.id).has_value()) {
-            showSources = true;
+        bool hasMerge = currentDb->getDocumentMerge(doc.id).has_value();
+        bool hasPrompt = isPromptGenerated(doc.id);
+
+        if (hasMerge || hasPrompt) {
+            if (hasMerge) showSources = true;
             bool isGenerating = currentDb->isGenerating(doc.id, "document", "replace_direct");
             if (!isGenerating && !doc.content.contains(GENERATING_MERGE_TEXT)) {
                 showRegenerate = true;
@@ -6121,4 +6159,16 @@ void MainWindow::resetZoom() {
     QSettings settings;
     settings.setValue("zoomDelta", 0);
     updateApplicationFont();
+}
+
+bool MainWindow::isPromptGenerated(int docId) {
+    if (auto docOpt = currentDb->getDocument(docId)) {
+        if (!docOpt->metadata.isEmpty()) {
+            QJsonObject metaObj = QJsonDocument::fromJson(docOpt->metadata.toUtf8()).object();
+            if (metaObj.contains("raw_prompt")) {
+                return true;
+            }
+        }
+    }
+    return false;
 }

@@ -126,6 +126,12 @@ MergeDocumentsDialog::MergeDocumentsDialog(BookDatabase* db, const QList<int>& d
     m_dynamicInputsLayout = new QFormLayout();
     layout->addLayout(m_dynamicInputsLayout);
 
+    QCheckBox* parseTemplateCheck = new QCheckBox(tr("Parse as Template (Uncheck if regenerating previously outputted prompt to prevent double parsing)"), this);
+    parseTemplateCheck->setChecked(true);
+    m_parseTemplate = true;
+    layout->addWidget(parseTemplateCheck);
+    connect(parseTemplateCheck, &QCheckBox::checkStateChanged, this, &MergeDocumentsDialog::onParseTemplateToggled);
+
     // Models Selection
     QHBoxLayout* modelsLayout = new QHBoxLayout();
     modelsLayout->addWidget(new QLabel(tr("Model(s):"), this));
@@ -260,6 +266,13 @@ void MergeDocumentsDialog::setInitialModels(const QStringList& models) {
 }
 
 void MergeDocumentsDialog::setIsRegenerating(bool isRegenerating) {
+    if (isRegenerating) {
+        // When regenerating we are using the already parsed prompt, so disable parsing by default
+        m_parseTemplate = false;
+        if (auto check = findChild<QCheckBox*>()) {
+            check->setChecked(false);
+        }
+    }
     m_isRegenerating = isRegenerating;
     m_mainActionCombo->clear();
 
@@ -357,12 +370,19 @@ QString MergeDocumentsDialog::buildPreviewPrompt() const {
         }
     }
 
-    return TemplateParser::parseMergeTemplate(prompt, m_documentContents);
+    if (m_parseTemplate) {
+        return TemplateParser::parseMergeTemplate(prompt, m_documentContents);
+    }
+    return prompt;
 }
 
 void MergeDocumentsDialog::onPreviewClicked() {
     QString prompt = buildPreviewPrompt();
     QMessageBox::information(this, tr("Prompt Preview"), prompt);
+}
+
+void MergeDocumentsDialog::onParseTemplateToggled(int state) {
+    m_parseTemplate = (state == Qt::Checked);
 }
 
 void MergeDocumentsDialog::onSaveTemplateClicked() {
