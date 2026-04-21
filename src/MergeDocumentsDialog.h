@@ -47,6 +47,7 @@ class MergeDocumentsDialog : public QDialog {
     void onHelpClicked();
     void onPreviewClicked();
     void onSaveTemplateClicked();
+    void onParseTemplateToggled(int state);
 
    private:
     void loadTemplates();
@@ -58,6 +59,7 @@ class MergeDocumentsDialog : public QDialog {
     QStringList m_selectedModels;
 
     QString buildPreviewPrompt() const;
+    bool m_parseTemplate = true;
 
     QComboBox* m_templateCombo;
     QTextEdit* m_instructionEdit;
