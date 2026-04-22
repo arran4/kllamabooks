@@ -472,7 +472,19 @@ jobs:
     if: ${{ needs.route.outputs.run_release == 'true' }}
     runs-on: ubuntu-latest
     steps:
+      - name: Check for token
+        id: check_token
+        env:
+          OVERLAY_TOKEN: ${{ secrets.OVERLAY_GITHUB_TOKEN }}
+        run: |
+          if [ -n "$OVERLAY_TOKEN" ]; then
+            echo "has_token=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_token=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout arrans_overlay
+        if: steps.check_token.outputs.has_token == 'true'
         uses: actions/checkout@v4
         with:
           repository: arran4/arrans_overlay
@@ -480,12 +492,14 @@ jobs:
           token: ${{ secrets.OVERLAY_GITHUB_TOKEN }}
 
       - name: Set up Git
+        if: steps.check_token.outputs.has_token == 'true'
         run: |
           cd arrans_overlay
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
 
       - name: Install required tools
+        if: steps.check_token.outputs.has_token == 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y wget jq coreutils
@@ -495,6 +509,7 @@ jobs:
           rm /tmp/g2.deb
 
       - name: Update ebuild and manifest
+        if: steps.check_token.outputs.has_token == 'true'
         run: |
           cd arrans_overlay
           # Extract version from tag
@@ -516,6 +531,7 @@ jobs:
           fi
 
       - name: Create Pull Request
+        if: steps.check_token.outputs.has_token == 'true'
         env:
           GH_TOKEN: ${{ secrets.OVERLAY_GITHUB_TOKEN }}
         run: |
