@@ -477,7 +477,7 @@ jobs:
         with:
           repository: arran4/arrans_overlay
           path: arrans_overlay
-          token: ${{ secrets.OVERLAY_GITHB_TOKEN }}
+          token: ${{ secrets.OVERLAY_GITHUB_TOKEN }}
 
       - name: Set up Git
         run: |
@@ -517,7 +517,7 @@ jobs:
 
       - name: Create Pull Request
         env:
-          GH_TOKEN: ${{ secrets.OVERLAY_GITHB_TOKEN }}
+          GH_TOKEN: ${{ secrets.OVERLAY_GITHUB_TOKEN }}
         run: |
           cd arrans_overlay
           VERSION="${GITHUB_REF#refs/tags/v}"
