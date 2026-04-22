@@ -118,9 +118,9 @@ add_executable(test_TemplateParser tests/test_TemplateParser.cpp src/TemplatePar
 target_link_libraries(test_TemplateParser Qt6::Test Qt6::Core)
 add_test(NAME test_TemplateParser COMMAND test_TemplateParser)
 
-install(FILES src/assets/icon.svg
-    DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps
-    RENAME kllamabooks.svg
+install(FILES src/assets/icon.png
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/512x512/apps
+    RENAME kllamabooks.png
 )
 
 install(FILES src/kllamabooks.notifyrc
