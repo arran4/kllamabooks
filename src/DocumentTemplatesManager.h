@@ -20,9 +20,9 @@ class DocumentTemplatesManager {
     static QList<DocumentTemplate> getGlobalTemplates();
     static void setGlobalTemplates(const QList<DocumentTemplate>& templates);
 
-    static QList<DocumentTemplate> getDatabaseTemplates(const BookDatabase* db);
+    static QList<DocumentTemplate> getDatabaseTemplates(BookDatabase* db);
 
-    static QList<DocumentTemplate> getMergedTemplates(const BookDatabase* db);
+    static QList<DocumentTemplate> getMergedTemplates(BookDatabase* db);
 };
 
 #endif  // DOCUMENTTEMPLATESMANAGER_H
