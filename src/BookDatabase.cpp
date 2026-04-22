@@ -948,7 +948,7 @@ std::optional<DocumentNode> BookDatabase::getDocument(int id) const {
         node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
         node.parentId = sqlite3_column_int(stmt, 5);
 
-        const char* metadataText = reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 6);
+        const char* metadataText = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 6));
         if (metadataText) {
             node.metadata = QString::fromUtf8(metadataText);
         }
@@ -987,7 +987,7 @@ QList<DocumentNode> BookDatabase::getDocuments(int folderId) const {
         node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
         node.parentId = sqlite3_column_int(stmt, 5);
 
-        const char* metadataText = reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 6);
+        const char* metadataText = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 6));
         if (metadataText) {
             node.metadata = QString::fromUtf8(metadataText);
         }
@@ -1478,7 +1478,7 @@ QList<QueueItem> BookDatabase::getQueue() const {
         if (errorText) item.lastError = QString::fromUtf8(reinterpret_cast<const char*>(errorText));
         item.priority = sqlite3_column_int(stmt, 6);
         item.timestamp = QDateTime::fromString(
-            QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 7)), Qt::ISODate);
+            QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 7))), Qt::ISODate);
         item.targetType = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 8)));
         if (item.targetType.isEmpty()) item.targetType = "message";
         const unsigned char* stateText = sqlite3_column_text(stmt, 9);
@@ -1593,7 +1593,7 @@ QList<Notification> BookDatabase::getNotifications(bool includeDismissed) const 
         n.type = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)));
         n.isDismissed = sqlite3_column_int(stmt, 4) != 0;
         n.timestamp = QDateTime::fromString(
-            QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 5)), Qt::ISODate);
+            QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 5))), Qt::ISODate);
         notifications.append(n);
     }
     sqlite3_finalize(stmt);
@@ -1723,7 +1723,7 @@ QList<CommentNode> BookDatabase::getComments(const QString& entityType, int enti
         item.entityId = sqlite3_column_int(stmt, 2);
         item.content = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)));
         item.timestamp = QDateTime::fromString(
-            QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 4)), Qt::ISODate);
+            QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4))), Qt::ISODate);
         items.append(item);
     }
 
