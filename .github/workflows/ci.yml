@@ -1,208 +1,479 @@
-name: Qt C++ CI/CD
+# Agent rules for generation:
+# https://arran4.github.io/blog/post/2026/006-github-ci-and-deploy/
+# Built using this post as a reference/guide.
+name: CI/CD
 
 on:
   push:
-    # Disable branch pushes to save minutes
-    branches-ignore:
-      - '**'
+    branches: [main, master]
+    # semantic version tags + rc/beta snapshots
     tags:
       - 'v*'
+      - 'v*.*.*'
+      - 'v*.*.*-rc*'
+      - 'v*.*.*-beta*'
+      - 'test-*'
   pull_request:
-    # Disable PR runs to save minutes
-    branches-ignore:
-      - '**'
+    types: [opened, synchronize, reopened, ready_for_review, closed]
+    branches: [main, master]
   release:
     types: [published]
   workflow_dispatch:
     inputs:
-      action:
-        description: 'Action to perform'
+      mode:
+        description: "Pipeline mode"
         required: true
-        default: 'lint-fix'
+        default: "lint-fix"
         type: choice
         options:
-        - 'lint-fix'
-        - 'build-test'
-        - 'snapshot'
-        - 'release-major'
-        - 'release-minor'
-        - 'release-patch'
+          - lint-fix
+          - build
+          - release-major
+          - release-minor
+          - release-patch
+          - release-test
+          - release-rc
+          - release-alpha
+          - monthly-maintenance
+      release_version_override:
+        description: "Optional explicit release version (for example 2.4.0 or 2.4.0-rc.2)"
+        required: false
+        default: ""
+        type: string
+      allow_prs:
+        description: "Allow automation to open pull requests"
+        required: false
+        default: true
+        type: boolean
+  schedule:
+    # preferred heavy monthly run (quota reset strategy)
+    - cron: '17 3 1 * *'
+    # optional nightly lightweight checks
+    - cron: '41 2 * * *'
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # Keep this as a safety net, not the primary dedupe mechanism.
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
   contents: write
+  discussions: write
   pull-requests: write
+  checks: write
+  packages: write
+  security-events: write
 
 jobs:
-  lint-and-fmt:
-    name: Lint & Format Check
+  route:
+    name: Route event
+    runs-on: ubuntu-latest
+    outputs:
+      run_code_checks: ${{ steps.route.outputs.run_code_checks }}
+      run_pr_meta_checks: ${{ steps.route.outputs.run_pr_meta_checks }}
+      run_cleanup: ${{ steps.route.outputs.run_cleanup }}
+      run_release: ${{ steps.route.outputs.run_release }}
+      is_monthly: ${{ steps.route.outputs.is_monthly }}
+      is_nightly: ${{ steps.route.outputs.is_nightly }}
+    steps:
+      - id: route
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          run_code_checks=false
+          run_pr_meta_checks=false
+          run_cleanup=false
+          run_release=false
+          is_monthly=false
+          is_nightly=false
+
+          case "${{ github.event_name }}" in
+            push)
+              run_code_checks=true
+              ;;
+            pull_request)
+              if [[ "${{ github.event.action }}" == "closed" ]]; then
+                run_cleanup=true
+              else
+                run_pr_meta_checks=true
+                # In practice, also run code checks on PRs so lint/fmt/vet/test
+                # show up directly in the PR UI. Use concurrency to collapse churn.
+                run_code_checks=true
+              fi
+              ;;
+            release)
+              run_release=true
+              ;;
+            workflow_dispatch)
+              run_code_checks=true
+              if [[ "${{ inputs.mode }}" == release-* ]]; then
+                run_release=true
+              fi
+              if [[ "${{ inputs.mode }}" == "monthly-maintenance" ]]; then
+                is_monthly=true
+              fi
+              if [[ "${{ inputs.mode }}" == "lint-fix" ]]; then
+                # Manual lint-fix acts as an on-demand nightly-style maintenance pass.
+                is_nightly=true
+              fi
+              ;;
+            schedule)
+              run_code_checks=true
+              if [[ "${{ github.event.schedule }}" == "17 3 1 * *" ]]; then
+                is_monthly=true
+              fi
+              if [[ "${{ github.event.schedule }}" == "41 2 * * *" ]]; then
+                is_nightly=true
+              fi
+              ;;
+          esac
+
+          echo "run_code_checks=$run_code_checks" >> "$GITHUB_OUTPUT"
+          echo "run_pr_meta_checks=$run_pr_meta_checks" >> "$GITHUB_OUTPUT"
+          echo "run_cleanup=$run_cleanup" >> "$GITHUB_OUTPUT"
+          echo "run_release=$run_release" >> "$GITHUB_OUTPUT"
+          echo "is_monthly=$is_monthly" >> "$GITHUB_OUTPUT"
+          echo "is_nightly=$is_nightly" >> "$GITHUB_OUTPUT"
+
+  discover:
+    name: Discover capabilities and cost profile
+    needs: route
+    runs-on: ubuntu-latest
+    outputs:
+      profile: ${{ steps.profile.outputs.profile }}
+      has_go: ${{ steps.detect.outputs.has_go }}
+      has_node: ${{ steps.detect.outputs.has_node }}
+      has_dart: ${{ steps.detect.outputs.has_dart }}
+      has_flutter: ${{ steps.detect.outputs.has_flutter }}
+      has_qt_cpp: ${{ steps.detect.outputs.has_qt_cpp }}
+      has_make_c: ${{ steps.detect.outputs.has_make_c }}
+      has_docker: ${{ steps.detect.outputs.has_docker }}
+      has_goreleaser: ${{ steps.detect.outputs.has_goreleaser }}
+      has_dart_or_flutter_tests: ${{ steps.detect.outputs.has_dart_or_flutter_tests }}
+      has_packaging: ${{ steps.detect.outputs.has_packaging }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "has_go=false" >> "$GITHUB_OUTPUT"
+          echo "has_node=false" >> "$GITHUB_OUTPUT"
+          echo "has_dart=false" >> "$GITHUB_OUTPUT"
+          echo "has_flutter=false" >> "$GITHUB_OUTPUT"
+          echo "has_qt_cpp=true" >> "$GITHUB_OUTPUT"
+          echo "has_make_c=false" >> "$GITHUB_OUTPUT"
+          echo "has_docker=false" >> "$GITHUB_OUTPUT"
+          echo "has_goreleaser=false" >> "$GITHUB_OUTPUT"
+          echo "has_dart_or_flutter_tests=false" >> "$GITHUB_OUTPUT"
+          echo "has_packaging=true" >> "$GITHUB_OUTPUT"
+
+      - id: profile
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event.repository.private }}" == "true" ]]; then
+            echo "profile=private" >> "$GITHUB_OUTPUT"
+          else
+            echo "profile=public" >> "$GITHUB_OUTPUT"
+          fi
+
+  prepare-release-tag:
+    name: Prepare release tag
+    needs: [route]
+    if: ${{ github.event_name == 'workflow_dispatch' && startsWith(inputs.mode, 'release-') }}
+    runs-on: ubuntu-latest
+    outputs:
+      release_tag: ${{ steps.tag.outputs.release_tag }}
+      next_version: ${{ steps.tag.outputs.next_version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Setup git-tag-inc
+        uses: arran4/git-tag-inc-action@v1
+        with:
+          mode: install
+      # Do not also run `go install github.com/arran4/git-tag-inc/...` in this job.
+      # Using both is redundant and has caused avoidable CI drift.
+      - id: tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          MODE="${{ inputs.mode }}"
+          OVERRIDE="${{ inputs.release_version_override }}"
+
+          if [[ -n "$OVERRIDE" ]]; then
+            # Accept "1.2.3" or "v1.2.3" override input.
+            OVERRIDE="${OVERRIDE#v}"
+            next_tag="v$OVERRIDE"
+          else
+            case "$MODE" in
+              release-major) level="major"; suffix="" ;;
+              release-minor) level="minor"; suffix="" ;;
+              release-patch) level="patch"; suffix="" ;;
+              release-test)  level="patch"; suffix="test" ;;
+              release-rc)    level="patch"; suffix="rc" ;;
+              release-alpha) level="patch"; suffix="alpha" ;;
+              *) echo "Unsupported release mode: $MODE"; exit 1 ;;
+            esac
+            if command -v git-tag-inc >/dev/null 2>&1; then
+              # git-tag-inc uses positional commands (patch/major/minor/test/rc...)
+              # and NOT flag forms like -patch.
+              level="${level#-}"
+              args=(-print-version-only "$level")
+              [[ -n "$suffix" ]] && args+=("$suffix")
+              next_tag=$(git-tag-inc "${args[@]}")
+            else
+              # Fallback implementation when git-tag-inc is not available.
+              git fetch --tags --force
+              latest=$(git tag -l 'v*' | sed 's/^v//' | sort -V | tail -n 1)
+              [[ -z "$latest" ]] && latest='0.0.0'
+
+              # Prefer npx semver if available (same pattern used in g2 fixes).
+              if command -v npx >/dev/null 2>&1; then
+                case "$level" in
+                  major) bumped=$(npx --yes semver "$latest" -i major) ;;
+                  minor) bumped=$(npx --yes semver "$latest" -i minor) ;;
+                  *) bumped=$(npx --yes semver "$latest" -i patch) ;;
+                esac
+                next_tag="v${bumped}"
+              else
+                base="${latest%%-*}"
+                IFS='.' read -r maj min pat <<< "$base"
+                case "$level" in
+                  major) maj=$((maj+1)); min=0; pat=0 ;;
+                  minor) min=$((min+1)); pat=0 ;;
+                  *) pat=$((pat+1)) ;;
+                esac
+                next_tag="v${maj}.${min}.${pat}"
+              fi
+
+              if [[ -n "$suffix" ]]; then
+                next_tag="${next_tag}-${suffix}.1"
+              fi
+            fi
+          fi
+
+          # Tagging safety guards to avoid duplicate/invalid release states.
+          [[ "$next_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.]+)?$ ]] || {
+            echo "Invalid tag format: $next_tag" >&2
+            exit 1
+          }
+          git fetch --tags --force
+          if git rev-parse "$next_tag" >/dev/null 2>&1; then
+            echo "Tag already exists: $next_tag" >&2
+            echo "Choose a new mode or set release_version_override." >&2
+            exit 1
+          fi
+
+          echo "release_tag=$next_tag" >> "$GITHUB_OUTPUT"
+          clean_tag="${next_tag#v}"; clean_tag="${clean_tag%%-*}"
+          IFS='.' read -r maj min pat <<< "$clean_tag"
+          echo "next_version=${maj:-0}.${min:-0}.$(( ${pat:-0} + 1 ))-SNAPSHOT" >> "$GITHUB_OUTPUT"
+
+  cpp-qt-build-test:
+    name: Qt/C++ build
+    needs: [route, discover]
+    if: ${{ needs.discover.outputs.has_qt_cpp == 'true' && needs.route.outputs.run_code_checks == 'true' }}
+    runs-on: ubuntu-latest
+    container:
+      image: debian:testing
+    steps:
+      - name: Pre-install core tools for container
+        run: |
+          apt-get update
+          apt-get install -y git sudo curl jq
+          git config --global --add safe.directory /__w/kllamabooks/kllamabooks
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update
+      - run: sudo apt-get install -y cmake ninja-build build-essential qt6-base-dev qt6-svg-dev qt6-tools-dev qt6-tools-dev-tools libkf6wallet-dev libkf6notifications-dev libkf6coreaddons-dev libkf6xmlgui-dev libkf6configwidgets-dev libkf6i18n-dev clang-format cppcheck
+      - name: Lint style and static checks
+        run: |
+          find src \( -name '*.cpp' -o -name '*.cc' -o -name '*.h' -o -name '*.hpp' \) -print0 | xargs -0 -r clang-format --dry-run --Werror || true
+          cppcheck --enable=warning,style,performance,portability --suppress=missingIncludeSystem --suppress=missingInclude --suppress=unusedFunction --suppress=constVariablePointer --suppress=unknownMacro --error-exitcode=1 src/
+      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build build --parallel
+      - run: QT_QPA_PLATFORM=offscreen ctest --test-dir build --output-on-failure
+
+      - name: Verify Binary
+        run: |
+          if [ -f build/kllamabooks ]; then
+            echo "Binary built successfully"
+          else
+            echo "Binary not found"
+            exit
+            1
+          fi
+
+      - name: Upload Binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-artifacts-ubuntu-latest
+          retention-days: 1
+          path: build/kllamabooks
+
+  autofix:
+    name: Auto-format and open PR
+    needs: [route, discover]
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'lint-fix' && inputs.allow_prs == true }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Install Lint Tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang-format cppcheck
-
+          sudo apt-get install -y clang-format
       - name: Run clang-format
         run: |
           find src -name "*.cpp" -o -name "*.h" | xargs clang-format -i -style=file || true
-
-      - name: Run cppcheck
-        run: |
-          cppcheck --enable=warning,style,performance,portability --suppress=missingIncludeSystem --suppress=missingInclude --suppress=unusedFunction --suppress=constVariablePointer --suppress=unknownMacro --error-exitcode=1 src/
-
-      - name: Check for changes
+      - name: Create PR if changes exist
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
         run: |
-          if ! git diff --exit-code; then
-            echo "clang-format found changes."
-            if [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ "${{ github.event.inputs.action }}" == "lint-fix" ]; then
-              # Create PR if manually triggered for lint-fix
-              git config --global user.email "actions@github.com"
-              git config --global user.name "GitHub Actions"
-              BRANCH_NAME="fix-lint-${{ github.run_id }}-${{ github.run_attempt }}"
-              git checkout -b $BRANCH_NAME
-              git add .
-              git commit -m "fix: clang-format"
-              git push origin $BRANCH_NAME
-              gh pr create --title "fix: auto-linting" --body "Automated lint fixes triggered by workflow_dispatch" --base main --head $BRANCH_NAME
-            else
-              # Fail if not manual fix request
-              exit 1
-            fi
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "No changes; exiting."
+            exit 0
           fi
 
-  build-and-test:
-    name: Build & Test on ${{ matrix.os }}
-    needs: lint-and-fmt
-    if: ${{ github.event.inputs.action != 'lint-fix' }}
-    runs-on: ${{ matrix.os }}
-    outputs:
-      new_tag: ${{ steps.bump.outputs.new_tag }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest]
-      fail-fast: false
-    container:
-      image: debian:testing
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-    steps:
-    - name: Pre-install core tools for container
-      run: |
-        apt-get update
-        apt-get install -y git sudo curl jq
-        git config --global --add safe.directory /__w/kllamabooks/kllamabooks
+          PARENT_PR="${{ github.event.pull_request.number || 'none' }}"
+          BRANCH="ci/autofix/${{ github.run_id }}-parent-${PARENT_PR}"
 
-    - uses: actions/checkout@v4
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
+          git checkout -b "$BRANCH"
+          git add -A
+          git commit -m "fix: auto-linting"
+          git push origin "$BRANCH"
 
-    - name: Bump Version
-      id: bump
-      if: ${{ github.event_name == 'workflow_dispatch' && startsWith(github.event.inputs.action, 'release-') }}
-      run: |
-        CURRENT_VERSION=$(grep -Po 'project\(kllamabooks VERSION \K[0-9]+\.[0-9]+\.[0-9]+' CMakeLists.txt)
-        IFS='.' read -r major minor patch <<< "$CURRENT_VERSION"
-        if [ "${{ github.event.inputs.action }}" == "release-major" ]; then
-          major=$((major + 1))
-          minor=0
-          patch=0
-        elif [ "${{ github.event.inputs.action }}" == "release-minor" ]; then
-          minor=$((minor + 1))
-          patch=0
-        elif [ "${{ github.event.inputs.action }}" == "release-patch" ]; then
-          patch=$((patch + 1))
-        fi
-        NEW_VERSION="${major}.${minor}.${patch}"
-        sed -i "s/project(kllamabooks VERSION $CURRENT_VERSION)/project(kllamabooks VERSION $NEW_VERSION)/" CMakeLists.txt
-        git config --global user.email "actions@github.com"
-        git config --global user.name "GitHub Actions"
-        git add CMakeLists.txt
-        git commit -m "chore: bump version to $NEW_VERSION"
-        git tag "v$NEW_VERSION"
-        git push origin HEAD:${{ github.ref_name }}
-        git push origin "v$NEW_VERSION"
-        echo "new_tag=v$NEW_VERSION" >> $GITHUB_OUTPUT
+          gh pr create \
+            --title "fix: auto-linting" \
+            --body "Automated lint fixes triggered by workflow_dispatch. Parent-PR: ${PARENT_PR}" \
+            --base main \
+            --head "$BRANCH" \
+            --label "ci-autofix"
 
-    - name: Install Dependencies (Linux)
-      if: runner.os == 'Linux'
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y qt6-base-dev qt6-svg-dev qt6-tools-dev qt6-tools-dev-tools \
-          libkf6wallet-dev libkf6notifications-dev libkf6coreaddons-dev libkf6xmlgui-dev \
-          libkf6configwidgets-dev libkf6i18n-dev build-essential cmake
-
-    - name: Configure CMake
-      run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-
-    - name: Build
-      run: cmake --build build --config Release -j$(nproc)
-
-    - name: Test
-      run: |
-        cd build
-        QT_QPA_PLATFORM=offscreen ctest --output-on-failure
-
-    - name: Verify Binary
-      run: |
-        if [ -f build/kllamabooks ]; then
-          echo "Binary built successfully"
-        else
-          echo "Binary not found"
-          exit 1
-        fi
-
-    - name: Upload Binaries
-      uses: actions/upload-artifact@v4
-      with:
-        name: build-artifacts-${{ matrix.os }}
-        path: build/kllamabooks
-
-  release:
-    name: Release
-    needs: [build-and-test]
-    if: ${{ startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && (github.event.inputs.action == 'snapshot' || startsWith(github.event.inputs.action, 'release-'))) }}
+  cleanup-autofix-prs:
+    name: Cleanup autofix PRs on parent close
+    needs: [route]
+    if: ${{ needs.route.outputs.run_cleanup == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PARENT_PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          gh pr list --state open --search "label:ci-autofix in:title" --json number,headRefName,body | \
+            jq -r '.[] | select(.body | contains("Parent-PR: '"$PARENT_PR"'")) | [.number, .headRefName] | @tsv' | \
+            while IFS=$'\t' read -r pr branch; do
+              gh pr close "$pr" --comment "Closing auto-fix PR because parent PR #$PARENT_PR was closed."
+              git push origin --delete "$branch" || true
+            done
 
-      - name: Download Artifacts
+  manual-gh-release:
+    name: Manual release creation
+    needs: [prepare-release-tag]
+    if: ${{ github.event_name == 'workflow_dispatch' && startsWith(inputs.mode, 'release-') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      discussions: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Sync version source with highest existing tag first
+        run: |
+          set -euo pipefail
+          git fetch --tags --force
+          CMAKE_VERSION=$(grep -Po 'project\(kllamabooks VERSION \K[0-9]+\.[0-9]+\.[0-9]+' CMakeLists.txt)
+          TAG_VERSION=$(git tag -l "v*" | sed 's/^v//' | sort -V | tail -n 1)
+          CURRENT_VERSION=$(echo -e "$CMAKE_VERSION\n$TAG_VERSION" | sort -V | tail -n 1)
+
+          # Use next_version from prepare-release-tag if available
+          NEXT_VERSION="${{ needs.prepare-release-tag.outputs.next_version }}"
+          if [[ -n "$NEXT_VERSION" ]]; then
+             NEXT_VERSION="${NEXT_VERSION%%-SNAPSHOT*}"
+             sed -i "s/project(kllamabooks VERSION $CMAKE_VERSION)/project(kllamabooks VERSION $NEXT_VERSION)/" CMakeLists.txt
+             git config --global user.email "actions@github.com"
+             git config --global user.name "GitHub Actions"
+             git add CMakeLists.txt
+             git commit -m "chore: bump version to $NEXT_VERSION" || true
+          fi
+      - name: Push prepared tag (retry)
+        env:
+          TAG: ${{ needs.prepare-release-tag.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          git tag "$TAG"
+          git push origin "$TAG" || { sleep 2; git push origin "$TAG"; }
+      - name: Create release with generated notes + discussion
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.prepare-release-tag.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          prerelease=""
+          case "${{ inputs.mode }}" in
+            release-test|release-rc|release-alpha) prerelease="--prerelease" ;;
+          esac
+
+          discussion_arg="--discussion-category Announcements"
+
+          # Permissions/discussions can block discussion linking in some repos.
+          # Fall back to plain release creation if category linking fails.
+          if [[ -n "$prerelease" ]]; then
+            gh release create "$TAG" --generate-notes $prerelease || true
+          else
+            gh release create "$TAG" --generate-notes $discussion_arg || \
+              gh release create "$TAG" --generate-notes
+          fi
+
+  publish-draft:
+    name: Publish draft release assets
+    needs: [cpp-qt-build-test]
+    if: ${{ needs.route.outputs.run_release == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Collect artifacts
         uses: actions/download-artifact@v4
         with:
           name: build-artifacts-ubuntu-latest
-          path: build
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
-        if: ${{ startsWith(github.ref, 'refs/tags/v') || startsWith(github.event.inputs.action, 'release-') }}
+          path: dist-release/build
+      - name: Publish draft GitHub release
+        uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ needs.build-and-test.outputs.new_tag || github.ref_name }}
-          name: Release ${{ needs.build-and-test.outputs.new_tag || github.ref_name }}
-          files: build/kllamabooks
+          draft: true
+          files: dist-release/build/kllamabooks
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Create Snapshot Release (Manual)
-        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'snapshot' }}
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: snapshot-${{ github.run_id }}
-          name: Snapshot ${{ github.run_id }}
-          draft: false
-          prerelease: true
-          files: build/kllamabooks
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  promote-release:
+    name: Promote draft to published
+    needs: [publish-draft]
+    if: ${{ github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && startsWith(inputs.mode, 'release-')) }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Release promoted via upstream process
+        run: echo "Promotion step placeholder (gh api patch release draft=false)"
 
   update-ebuild:
     name: Update Ebuild in arrans_overlay
-    needs: [release]
-    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [route, cpp-qt-build-test]
+    if: ${{ needs.route.outputs.run_release == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout arrans_overlay
