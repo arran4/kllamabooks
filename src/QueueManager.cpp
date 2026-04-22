@@ -12,7 +12,8 @@ QueueManager& QueueManager::instance() {
     return instance;
 }
 
-QueueManager::QueueManager(QObject* parent) : QObject(parent), m_timer(new QTimer(this)), m_isPaused(false), m_probeTimer(new QTimer(this)) {
+QueueManager::QueueManager(QObject* parent)
+    : QObject(parent), m_timer(new QTimer(this)), m_isPaused(false), m_probeTimer(new QTimer(this)) {
     connect(m_timer, &QTimer::timeout, this, &QueueManager::checkQueue);
     m_timer->start(1000);  // Check every second
 
@@ -57,7 +58,8 @@ void QueueManager::retryItem(std::shared_ptr<BookDatabase> db, int queueId) {
     }
 }
 
-void QueueManager::modifyItem(std::shared_ptr<BookDatabase> db, int queueId, const QString& newPrompt, const QString& newModel) {
+void QueueManager::modifyItem(std::shared_ptr<BookDatabase> db, int queueId, const QString& newPrompt,
+                              const QString& newModel) {
     if (db) {
         db->updateQueueItemPrompt(queueId, newPrompt);
         if (!newModel.isEmpty()) db->updateQueueItemModel(queueId, newModel);
@@ -414,10 +416,9 @@ void QueueManager::processNext() {
                     auto act = m_activeItems[procId];
                     if (act.db && act.db->isOpen()) {
                         if (errorCode == QNetworkReply::ConnectionRefusedError ||
-                            errorCode == QNetworkReply::HostNotFoundError ||
-                            errorCode == QNetworkReply::TimeoutError) {
+                            errorCode == QNetworkReply::HostNotFoundError || errorCode == QNetworkReply::TimeoutError) {
                             act.db->updateQueueItemState(act.item.id, "pending");
-                            act.db->updateQueueError(act.item.id, ""); // also resets processing_id to 0
+                            act.db->updateQueueError(act.item.id, "");  // also resets processing_id to 0
                         } else {
                             act.db->updateQueueError(act.item.id, error);
                             act.db->addNotification(act.item.messageId, act.item.targetType, "error");
@@ -499,10 +500,9 @@ void QueueManager::processNext() {
                     auto act = m_activeItems[procId];
                     if (act.db && act.db->isOpen()) {
                         if (errorCode == QNetworkReply::ConnectionRefusedError ||
-                            errorCode == QNetworkReply::HostNotFoundError ||
-                            errorCode == QNetworkReply::TimeoutError) {
+                            errorCode == QNetworkReply::HostNotFoundError || errorCode == QNetworkReply::TimeoutError) {
                             act.db->updateQueueItemState(act.item.id, "pending");
-                            act.db->updateQueueError(act.item.id, ""); // also resets processing_id to 0
+                            act.db->updateQueueError(act.item.id, "");  // also resets processing_id to 0
                         } else {
                             act.db->updateQueueError(act.item.id, error);
                             act.db->addNotification(act.item.messageId, act.item.targetType, "error");

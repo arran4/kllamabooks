@@ -1,25 +1,30 @@
 #include "MergeDocumentsDialog.h"
 
-#include <QDialogButtonBox>
-#include <QHBoxLayout>
-#include <QLabel>
-#include <QVBoxLayout>
-#include <QRegularExpression>
-#include <QFormLayout>
-#include <QLineEdit>
-#include <QPushButton>
-#include <QMessageBox>
-#include <QSettings>
 #include <QCheckBox>
-
-#include <QUuid>
+#include <QDialogButtonBox>
+#include <QFormLayout>
+#include <QHBoxLayout>
 #include <QInputDialog>
+#include <QLabel>
+#include <QLineEdit>
+#include <QMessageBox>
+#include <QPushButton>
+#include <QRegularExpression>
+#include <QSettings>
+#include <QUuid>
+#include <QVBoxLayout>
 
 #include "ModelSelectionDialog.h"
 #include "TemplateParser.h"
 
-MergeDocumentsDialog::MergeDocumentsDialog(BookDatabase* db, const QList<int>& documentIds, const QList<OllamaModelInfo>& modelInfos, const QStringList& fallbackModels, QWidget* parent)
-    : QDialog(parent), m_db(db), m_documentIds(documentIds), m_modelInfos(modelInfos), m_fallbackModels(fallbackModels) {
+MergeDocumentsDialog::MergeDocumentsDialog(BookDatabase* db, const QList<int>& documentIds,
+                                           const QList<OllamaModelInfo>& modelInfos, const QStringList& fallbackModels,
+                                           QWidget* parent)
+    : QDialog(parent),
+      m_db(db),
+      m_documentIds(documentIds),
+      m_modelInfos(modelInfos),
+      m_fallbackModels(fallbackModels) {
     setWindowTitle(tr("Merge Documents with AI"));
     setMinimumWidth(600);
     setMinimumHeight(500);
@@ -84,9 +89,7 @@ MergeDocumentsDialog::MergeDocumentsDialog(BookDatabase* db, const QList<int>& d
     titleLayout->addWidget(m_titleEdit);
     layout->addLayout(titleLayout);
 
-    connect(m_titleEdit, &QLineEdit::textEdited, this, [this](const QString&) {
-        m_titleManuallyEdited = true;
-    });
+    connect(m_titleEdit, &QLineEdit::textEdited, this, [this](const QString&) { m_titleManuallyEdited = true; });
 
     // Templates selection
     QHBoxLayout* topLayout = new QHBoxLayout();
@@ -118,7 +121,8 @@ MergeDocumentsDialog::MergeDocumentsDialog(BookDatabase* db, const QList<int>& d
     connect(helpBtn, &QPushButton::clicked, this, &MergeDocumentsDialog::onHelpClicked);
 
     m_instructionEdit = new QTextEdit(this);
-    m_instructionEdit->setPlaceholderText(tr("Use {foreach contexts}...{between}...{end} and {input \"label\"} placeholders..."));
+    m_instructionEdit->setPlaceholderText(
+        tr("Use {foreach contexts}...{between}...{end} and {input \"label\"} placeholders..."));
     m_instructionEdit->setAcceptRichText(false);
     layout->addWidget(m_instructionEdit);
 
@@ -126,7 +130,8 @@ MergeDocumentsDialog::MergeDocumentsDialog(BookDatabase* db, const QList<int>& d
     m_dynamicInputsLayout = new QFormLayout();
     layout->addLayout(m_dynamicInputsLayout);
 
-    QCheckBox* parseTemplateCheck = new QCheckBox(tr("Parse as Template (Uncheck if regenerating previously outputted prompt to prevent double parsing)"), this);
+    QCheckBox* parseTemplateCheck = new QCheckBox(
+        tr("Parse as Template (Uncheck if regenerating previously outputted prompt to prevent double parsing)"), this);
     parseTemplateCheck->setChecked(true);
     m_parseTemplate = true;
     layout->addWidget(parseTemplateCheck);
@@ -173,13 +178,16 @@ MergeDocumentsDialog::MergeDocumentsDialog(BookDatabase* db, const QList<int>& d
 
     loadTemplates();
 
-    connect(m_templateCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MergeDocumentsDialog::onTemplateChanged);
+    connect(m_templateCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+            &MergeDocumentsDialog::onTemplateChanged);
     connect(m_instructionEdit, &QTextEdit::textChanged, this, &MergeDocumentsDialog::updateDynamicInputs);
 
     if (m_templateCombo->count() > 0) {
         onTemplateChanged(0);
     } else {
-        m_instructionEdit->setPlainText(tr("Merge the following documents into one coherent document:\n\n{foreach contexts}\nDocument:\n{context}\n{between}\n---\n{end}"));
+        m_instructionEdit->setPlainText(
+            tr("Merge the following documents into one coherent document:\n\n{foreach "
+               "contexts}\nDocument:\n{context}\n{between}\n---\n{end}"));
     }
 }
 
@@ -197,29 +205,33 @@ void MergeDocumentsDialog::loadTemplates() {
 }
 
 void MergeDocumentsDialog::onHelpClicked() {
-    QString helpText = tr(
-        "<b>Template Language Help</b><br><br>"
-        "You can configure how the selected documents are merged using template tags.<br><br>"
-        "<b><code>{foreach contexts} ... {end}</code></b><br>"
-        "Loops over every selected document. Inside this block, use <b><code>{context}</code></b> to output the document's content.<br><br>"
-        "<b><code>{between}</code></b><br>"
-        "Placed inside a <code>{foreach}</code> block to separate documents. Text after <code>{between}</code> is only inserted between documents, not at the very end.<br><br>"
-        "<b>Example:</b><br>"
-        "<code>{foreach contexts}</code><br>"
-        "<code>Doc: {context}</code><br>"
-        "<code>{between}</code><br>"
-        "<code>---</code><br>"
-        "<code>{end}</code><br><br>"
-        "<b>Dynamic Inputs:</b><br>"
-        "You can also use <code>{input \"Label\"}</code> or <code>{textarea \"Label\"}</code> to create custom input fields that will be requested before merging."
-    );
+    QString helpText =
+        tr("<b>Template Language Help</b><br><br>"
+           "You can configure how the selected documents are merged using template tags.<br><br>"
+           "<b><code>{foreach contexts} ... {end}</code></b><br>"
+           "Loops over every selected document. Inside this block, use <b><code>{context}</code></b> to output the "
+           "document's content.<br><br>"
+           "<b><code>{between}</code></b><br>"
+           "Placed inside a <code>{foreach}</code> block to separate documents. Text after <code>{between}</code> is "
+           "only inserted between documents, not at the very end.<br><br>"
+           "<b>Example:</b><br>"
+           "<code>{foreach contexts}</code><br>"
+           "<code>Doc: {context}</code><br>"
+           "<code>{between}</code><br>"
+           "<code>---</code><br>"
+           "<code>{end}</code><br><br>"
+           "<b>Dynamic Inputs:</b><br>"
+           "You can also use <code>{input \"Label\"}</code> or <code>{textarea \"Label\"}</code> to create custom "
+           "input fields that will be requested before merging.");
     QMessageBox::information(this, tr("Template Help"), helpText);
 }
 
 void MergeDocumentsDialog::onTemplateChanged(int index) {
     QString templateName;
     if (index == 0) {
-        m_instructionEdit->setPlainText(tr("Merge the following documents into one coherent document:\n\n{foreach contexts}\nDocument:\n{context}\n{between}\n---\n{end}"));
+        m_instructionEdit->setPlainText(
+            tr("Merge the following documents into one coherent document:\n\n{foreach "
+               "contexts}\nDocument:\n{context}\n{between}\n---\n{end}"));
         templateName = tr("Default Merge");
     } else if (index > 0 && index - 1 < m_templates.size()) {
         m_instructionEdit->setPlainText(m_templates[index - 1].prompt);
@@ -236,17 +248,11 @@ void MergeDocumentsDialog::onTemplateChanged(int index) {
     }
 }
 
-QString MergeDocumentsDialog::getFinalPrompt() const {
-    return m_finalPrompt;
-}
+QString MergeDocumentsDialog::getFinalPrompt() const { return m_finalPrompt; }
 
-QStringList MergeDocumentsDialog::getSelectedModels() const {
-    return m_selectedModels;
-}
+QStringList MergeDocumentsDialog::getSelectedModels() const { return m_selectedModels; }
 
-QString MergeDocumentsDialog::getRawPrompt() const {
-    return m_instructionEdit->toPlainText();
-}
+QString MergeDocumentsDialog::getRawPrompt() const { return m_instructionEdit->toPlainText(); }
 
 void MergeDocumentsDialog::setInitialPrompt(const QString& prompt) {
     if (!prompt.isEmpty()) {
@@ -300,9 +306,9 @@ void MergeDocumentsDialog::setIsRegenerating(bool isRegenerating) {
 int MergeDocumentsDialog::getTargetDocumentId() const {
     int actionData = m_mainActionCombo->currentData().toInt();
     if (actionData == 0) {
-        return 0; // New Document
+        return 0;  // New Document
     } else if (actionData == -1) {
-        return -1; // Replace Existing (resolved in MainWindow)
+        return -1;  // Replace Existing (resolved in MainWindow)
     } else if (actionData == 1) {
         return m_replaceTargetCombo->currentData().toInt();
     }
@@ -322,9 +328,7 @@ QList<int> MergeDocumentsDialog::getDocumentsToDelete() const {
     return result;
 }
 
-QString MergeDocumentsDialog::getTitle() const {
-    return m_titleEdit->text();
-}
+QString MergeDocumentsDialog::getTitle() const { return m_titleEdit->text(); }
 
 void MergeDocumentsDialog::setTitle(const QString& title) {
     m_titleEdit->setText(title);
@@ -381,16 +385,16 @@ void MergeDocumentsDialog::onPreviewClicked() {
     QMessageBox::information(this, tr("Prompt Preview"), prompt);
 }
 
-void MergeDocumentsDialog::onParseTemplateToggled(int state) {
-    m_parseTemplate = (state == Qt::Checked);
-}
+void MergeDocumentsDialog::onParseTemplateToggled(int state) { m_parseTemplate = (state == Qt::Checked); }
 
 void MergeDocumentsDialog::onSaveTemplateClicked() {
     bool ok;
     QString name = QInputDialog::getText(this, tr("Save Template"), tr("Template Name:"), QLineEdit::Normal, "", &ok);
     if (!ok || name.isEmpty()) return;
 
-    QMessageBox::StandardButton reply = QMessageBox::question(this, tr("Save Location"), tr("Save this template globally so it is available in all books?"), QMessageBox::Yes | QMessageBox::No | QMessageBox::Cancel);
+    QMessageBox::StandardButton reply = QMessageBox::question(
+        this, tr("Save Location"), tr("Save this template globally so it is available in all books?"),
+        QMessageBox::Yes | QMessageBox::No | QMessageBox::Cancel);
     if (reply == QMessageBox::Cancel) return;
 
     AIOperation op;

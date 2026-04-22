@@ -26,7 +26,7 @@ struct DocumentNode {
     QDateTime timestamp;
     bool isFolder;  // Deprecated, but keeping for compatibility during migration if needed
     QString metadata;
-    QString targetType; // Optional, e.g., 'document', 'note', 'template'
+    QString targetType;  // Optional, e.g., 'document', 'note', 'template'
 };
 
 struct ChatNode {
@@ -86,15 +86,15 @@ struct CommentNode {
 struct Notification {
     int id;
     int targetId;
-    QString targetType; // "document", "message"
-    QString type;  // "responded_to", "error"
+    QString targetType;  // "document", "message"
+    QString type;        // "responded_to", "error"
     bool isDismissed;
     QDateTime timestamp;
 };
 
 class BookDatabase {
    public:
-    BookDatabase(const QString& filepath);
+    explicit BookDatabase(const QString& filepath);
     ~BookDatabase();
 
     bool open(const QString& password);
@@ -124,7 +124,8 @@ class BookDatabase {
                        const QString& defaultValue = QString()) const;
 
     // Documents
-    int addDocument(int folderId, const QString& title, const QString& content, int parentId = 0, const QString& metadata = "");
+    int addDocument(int folderId, const QString& title, const QString& content, int parentId = 0,
+                    const QString& metadata = "");
     bool updateDocument(int id, const QString& newTitle, const QString& newContent, const QString& metadata = "");
     QList<DocumentNode> getDocuments(int folderId = -1) const;  // -1 for all, 0 for root
     std::optional<DocumentNode> getDocument(int id) const;
@@ -144,13 +145,14 @@ class BookDatabase {
     struct DocumentMergeEntry {
         int id;
         int documentId;
-        QString sourceDocumentIds; // comma separated or JSON array
+        QString sourceDocumentIds;  // comma separated or JSON array
         QString prompt;
         QString model;
         QString timestamp;
         int versionHistoryId;
     };
-    int addDocumentMerge(int documentId, const QString& sourceDocumentIds, const QString& prompt, const QString& model, int versionHistoryId = 0);
+    int addDocumentMerge(int documentId, const QString& sourceDocumentIds, const QString& prompt, const QString& model,
+                         int versionHistoryId = 0);
     std::optional<DocumentMergeEntry> getDocumentMerge(int documentId) const;
     bool updateDocumentMergeVersion(int mergeId, int versionHistoryId);
 
@@ -161,7 +163,8 @@ class BookDatabase {
     bool deleteTemplate(int id);
 
     // Drafts
-    int addDraft(int folderId, const QString& title, const QString& content, int parentId = 0, const QString& targetType = "document");
+    int addDraft(int folderId, const QString& title, const QString& content, int parentId = 0,
+                 const QString& targetType = "document");
     bool updateDraft(int id, const QString& newTitle, const QString& newContent);
     QList<DocumentNode> getDrafts(int folderId = -1) const;
     bool deleteDraft(int id);

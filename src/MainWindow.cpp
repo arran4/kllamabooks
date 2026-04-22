@@ -49,14 +49,14 @@
 #include "AIOperationsDialog.h"
 #include "AiActionDialog.h"
 #include "ChatSettingsDialog.h"
-#include "MergeDocumentsDialog.h"
 #include "DatabaseSettingsDialog.h"
 #include "DocumentEditWindow.h"
 #include "DocumentHistoryDialog.h"
 #include "DocumentReviewDialog.h"
-#include "DraftSelectionDialog.h"
-#include "ModelSelectionDialog.h"
 #include "DocumentTemplatesManager.h"
+#include "DraftSelectionDialog.h"
+#include "MergeDocumentsDialog.h"
+#include "ModelSelectionDialog.h"
 #include "NewDocumentDialog.h"
 #include "NotificationDelegate.h"
 #include "QueueManager.h"
@@ -1461,8 +1461,10 @@ void MainWindow::updateInputBehavior() {
                 } else if (!m_availableModels.isEmpty()) {
                     m_selectedModels = QStringList() << m_availableModels.first();
                 }
-                if (modelLabel && !m_selectedModels.isEmpty()) modelLabel->setText(tr("Model: %1 (System Selected)").arg(m_selectedModels.first()));
-                if (modelSelectButton && !m_selectedModels.isEmpty()) modelSelectButton->setText(m_selectedModels.first());
+                if (modelLabel && !m_selectedModels.isEmpty())
+                    modelLabel->setText(tr("Model: %1 (System Selected)").arg(m_selectedModels.first()));
+                if (modelSelectButton && !m_selectedModels.isEmpty())
+                    modelSelectButton->setText(m_selectedModels.first());
             }
         }
 
@@ -1720,7 +1722,8 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
                         } else if (!m_availableModels.isEmpty()) {
                             m_selectedModels = QStringList() << m_availableModels.first();
                         }
-                        if (!m_selectedModels.isEmpty()) modelLabel->setText(tr("Model: %1 (System Selected)").arg(m_selectedModels.first()));
+                        if (!m_selectedModels.isEmpty())
+                            modelLabel->setText(tr("Model: %1 (System Selected)").arg(m_selectedModels.first()));
                     }
                     if (currentLastNodeId != 0 && mainContentStack->currentWidget() == chatWindowView) {
                         updateLinearChatView(currentLastNodeId, currentDb->getMessages());
@@ -1920,7 +1923,8 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
             if (hasMerge || hasPrompt) {
                 regenerateMergeAction = menu.addAction(QIcon::fromTheme("view-refresh"), "Regenerate");
                 if (hasMerge) {
-                    viewMergeSourcesAction = menu.addAction(QIcon::fromTheme("document-multiple"), "View Merge Sources");
+                    viewMergeSourcesAction =
+                        menu.addAction(QIcon::fromTheme("document-multiple"), "View Merge Sources");
                 }
             }
         }
@@ -1984,8 +1988,9 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
                         QStandardItem* originalItem = findItemInTree(d.parentId, d.targetType);
                         if (originalItem) {
                             openBooksTree->setCurrentIndex(originalItem->index());
-                            openBooksTree->selectionModel()->select(originalItem->index(),
-                                                                    QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Current);
+                            openBooksTree->selectionModel()->select(
+                                originalItem->index(),
+                                QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Current);
                             openBooksTree->scrollTo(originalItem->index());
                             onOpenBooksTreeDoubleClicked(originalItem->index());
                         } else {
@@ -2198,7 +2203,8 @@ void MainWindow::onMergeDocumentsSelected() {
         int targetDocId = dlg.getTargetDocumentId();
         QList<int> docsToDelete = dlg.getDocumentsToDelete();
 
-        processMergeGeneration(finalPrompt, rawPrompt, selectedModels, sourceDocumentIds, baseTitle, targetFolderId, targetDocId, docsToDelete);
+        processMergeGeneration(finalPrompt, rawPrompt, selectedModels, sourceDocumentIds, baseTitle, targetFolderId,
+                               targetDocId, docsToDelete);
     }
 }
 
@@ -2432,7 +2438,8 @@ void MainWindow::addPhantomItem(QStandardItem* folderItem, const QString& type) 
     folderItem->appendRow(phantomItem);
 
     openBooksTree->setExpanded(folderItem->index(), true);
-    openBooksTree->selectionModel()->select(phantomItem->index(), QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Current);
+    openBooksTree->selectionModel()->select(phantomItem->index(),
+                                            QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Current);
 }
 
 /** * @brief Executes logic for loadSession. This function manages component initialization and handles state
@@ -3294,7 +3301,6 @@ void MainWindow::onSendMessage() {
         currentDb->updateChat(cn);
 
         QueueManager::instance().enqueuePrompt(aiId, model, text);
-
     }
 
     // Refresh tree if needed
@@ -3452,7 +3458,8 @@ void MainWindow::updateGenerationUI() {
     if (QueueManager::instance().isProcessing() && currentDb) {
         auto items = QueueManager::instance().currentProcessingItems();
         for (const auto& mergedItem : items) {
-            if (mergedItem.db == currentDb && mergedItem.item.targetType == "message" && mergedItem.item.messageId == currentLastNodeId) {
+            if (mergedItem.db == currentDb && mergedItem.item.targetType == "message" &&
+                mergedItem.item.messageId == currentLastNodeId) {
                 isGeneratingCurrentChat = true;
                 break;
             }
@@ -3472,9 +3479,10 @@ void MainWindow::onCancelActiveGeneration() {
     if (QueueManager::instance().isProcessing() && currentDb) {
         auto items = QueueManager::instance().currentProcessingItems();
         for (const auto& mergedItem : items) {
-            if (mergedItem.db == currentDb && mergedItem.item.targetType == "message" && mergedItem.item.messageId == currentLastNodeId) {
+            if (mergedItem.db == currentDb && mergedItem.item.targetType == "message" &&
+                mergedItem.item.messageId == currentLastNodeId) {
                 QueueManager::instance().cancelItem(currentDb, mergedItem.item.id);
-                break; // Assuming only one active generation per chat node
+                break;  // Assuming only one active generation per chat node
             }
         }
         updateGenerationUI();
@@ -3507,9 +3515,8 @@ void MainWindow::onProcessingFinished(std::shared_ptr<BookDatabase> db, int mess
 
     if (currentDb == db) {
         if (targetType == "document" && currentDocumentId == messageId) {
-            statusBar->showMessage(success ? tr("AI document generation complete.")
-                                           : tr("Error generating document changes."),
-                                   3000);
+            statusBar->showMessage(
+                success ? tr("AI document generation complete.") : tr("Error generating document changes."), 3000);
         } else if (targetType == "message" && currentLastNodeId == messageId) {
             statusBar->showMessage(success ? tr("Response complete.") : tr("Error in response."), 3000);
             updateGenerationUI();
@@ -4006,8 +4013,8 @@ void MainWindow::onOpenBooksSelectionChanged(const QItemSelection& selected, con
                 connect(editWin, &DocumentEditWindow::jumpToDocumentRequested, this, [this, type](int docId) {
                     QStandardItem* item = findItemInTree(docId, type);
                     if (item) {
-                        openBooksTree->selectionModel()->select(item->index(),
-                                                                QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Current);
+                        openBooksTree->selectionModel()->select(
+                            item->index(), QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Current);
                         openBooksTree->scrollTo(item->index());
                     }
                     this->raise();
@@ -4244,7 +4251,7 @@ void MainWindow::showOpenBookContextMenu(const QPoint& pos) {
         if (selectedAction == mergeAction) {
             onMergeDocumentsSelected();
         }
-        return; // Don't show regular single-item context menu
+        return;  // Don't show regular single-item context menu
     }
 
     QModelIndex index = openBooksTree->indexAt(pos);
@@ -4541,7 +4548,8 @@ void MainWindow::updateNotificationStatus() {
                 targetTitle = tr("Unknown");
             }
 
-            QString menuText = QString("[%1] %2: %3 '%4' (%5)").arg(bookName, typeStr, displayTargetType, targetTitle, QString::number(n.targetId));
+            QString menuText = QString("[%1] %2: %3 '%4' (%5)")
+                                   .arg(bookName, typeStr, displayTargetType, targetTitle, QString::number(n.targetId));
             QAction* action = notificationMenu->addAction(menuText);
             snapshot.append({db, n.id, action->text()});
             connect(action, &QAction::triggered, this, [this, db, n, bookName, displayTargetType, targetTitle]() {
@@ -4579,8 +4587,9 @@ void MainWindow::updateNotificationStatus() {
                     dialog.setWindowTitle(tr("Error: Modify and Retry"));
                     QVBoxLayout* layout = new QVBoxLayout(&dialog);
 
-                    QLabel* summary = new QLabel(QString("<b>Book:</b> %1<br><b>%2:</b> %3 (%4)")
-                                                     .arg(bookName, displayTargetType, targetTitle, QString::number(n.targetId)));
+                    QLabel* summary =
+                        new QLabel(QString("<b>Book:</b> %1<br><b>%2:</b> %3 (%4)")
+                                       .arg(bookName, displayTargetType, targetTitle, QString::number(n.targetId)));
                     summary->setWordWrap(true);
                     layout->addWidget(summary);
 
@@ -4659,9 +4668,9 @@ void MainWindow::updateNotificationStatus() {
                     QVBoxLayout* layout = new QVBoxLayout(&dialog);
 
                     QString typeStr = (n.type == "finished_generation") ? tr("Finished Generation") : tr("Finished");
-                    QLabel* summary =
-                        new QLabel(QString("<b>Book:</b> %1<br><b>Status:</b> %2<br><b>%3:</b> %4 (%5)")
-                                       .arg(bookName, typeStr, displayTargetType, targetTitle, QString::number(n.targetId)));
+                    QLabel* summary = new QLabel(
+                        QString("<b>Book:</b> %1<br><b>Status:</b> %2<br><b>%3:</b> %4 (%5)")
+                            .arg(bookName, typeStr, displayTargetType, targetTitle, QString::number(n.targetId)));
                     summary->setWordWrap(true);
                     layout->addWidget(summary);
 
@@ -5200,7 +5209,8 @@ void MainWindow::onDocumentAIOperations() {
                 }
                 docMeta["prompt"] = prompt;
                 docMeta["raw_prompt"] = promptTpl;
-                currentDb->updateDocument(currentDocumentId, docOpt->title, docOpt->content, QString::fromUtf8(QJsonDocument(docMeta).toJson(QJsonDocument::Compact)));
+                currentDb->updateDocument(currentDocumentId, docOpt->title, docOpt->content,
+                                          QString::fromUtf8(QJsonDocument(docMeta).toJson(QJsonDocument::Compact)));
             }
             QueueManager::instance().enqueuePrompt(currentDocumentId, model, prompt, 0, "document", 0, "");
         }
@@ -5255,7 +5265,7 @@ void MainWindow::onRegenerateMerge() {
 
     QString currentBaseTitle = doc.title;
     if (currentBaseTitle.endsWith(" (Models)")) {
-        currentBaseTitle.chop(9); // length of " (Models)"
+        currentBaseTitle.chop(9);  // length of " (Models)"
     }
     dlg.setTitle(currentBaseTitle);
 
@@ -5275,20 +5285,25 @@ void MainWindow::onRegenerateMerge() {
         int targetDocId = dlg.getTargetDocumentId();
         QList<int> docsToDelete = dlg.getDocumentsToDelete();
 
-        if (targetDocId == -1) { // Replace existing merged document
+        if (targetDocId == -1) {  // Replace existing merged document
             targetDocId = currentDocumentId;
         } else {
-            // Since we are creating a new document or replacing a source document, we should delete the current old merged document
+            // Since we are creating a new document or replacing a source document, we should delete the current old
+            // merged document
             if (!docsToDelete.contains(currentDocumentId)) {
                 docsToDelete.append(currentDocumentId);
             }
         }
 
-        processMergeGeneration(finalPrompt, newRawPrompt, selectedModels, sourceIds, baseTitle, doc.parentId, targetDocId, docsToDelete);
+        processMergeGeneration(finalPrompt, newRawPrompt, selectedModels, sourceIds, baseTitle, doc.parentId,
+                               targetDocId, docsToDelete);
     }
 }
 
-void MainWindow::processMergeGeneration(const QString& finalPrompt, const QString& rawPrompt, const QStringList& selectedModels, const QList<int>& sourceDocumentIds, const QString& baseTitle, int targetFolderId, int existingDocId, const QList<int>& docsToDelete) {
+void MainWindow::processMergeGeneration(const QString& finalPrompt, const QString& rawPrompt,
+                                        const QStringList& selectedModels, const QList<int>& sourceDocumentIds,
+                                        const QString& baseTitle, int targetFolderId, int existingDocId,
+                                        const QList<int>& docsToDelete) {
     if (!currentDb || selectedModels.isEmpty() || finalPrompt.isEmpty()) return;
 
     // Build metadata
@@ -5337,7 +5352,8 @@ void MainWindow::processMergeGeneration(const QString& finalPrompt, const QStrin
             // Set generating text and metadata
             currentDb->updateDocument(existingDocId, docOpt->title, GENERATING_MERGE_TEXT, metaStr);
 
-            if (documentEditorView && mainContentStack->currentWidget() == docContainer && currentDocumentId == existingDocId) {
+            if (documentEditorView && mainContentStack->currentWidget() == docContainer &&
+                currentDocumentId == existingDocId) {
                 documentEditorView->blockSignals(true);
                 documentEditorView->setPlainText(GENERATING_MERGE_TEXT);
                 documentEditorView->blockSignals(false);
@@ -5353,7 +5369,9 @@ void MainWindow::processMergeGeneration(const QString& finalPrompt, const QStrin
         if (selectedModels.size() > 1) {
             targetFolderId = currentDb->addFolder(targetFolderId, baseTitle + " (Models)", "docs_folder");
         }
-        int newDocId = currentDb->addDocument(targetFolderId, selectedModels.size() > 1 ? baseTitle + " - " + firstModel : baseTitle, GENERATING_MERGE_TEXT, 0, metaStr);
+        int newDocId = currentDb->addDocument(targetFolderId,
+                                              selectedModels.size() > 1 ? baseTitle + " - " + firstModel : baseTitle,
+                                              GENERATING_MERGE_TEXT, 0, metaStr);
         currentDb->addDocumentMerge(newDocId, sourceIdsStr, finalPrompt, firstModel, 0);
         currentDb->enqueuePrompt(newDocId, firstModel, finalPrompt, 0, "document", 0, "replace_direct");
     }
@@ -5361,7 +5379,8 @@ void MainWindow::processMergeGeneration(const QString& finalPrompt, const QStrin
     // If there are additional models selected, create new documents for them
     for (int i = 1; i < selectedModels.size(); ++i) {
         QString model = selectedModels[i];
-        int newDocId = currentDb->addDocument(targetFolderId, baseTitle + " - " + model, GENERATING_MERGE_TEXT, 0, metaStr);
+        int newDocId =
+            currentDb->addDocument(targetFolderId, baseTitle + " - " + model, GENERATING_MERGE_TEXT, 0, metaStr);
         currentDb->addDocumentMerge(newDocId, sourceIdsStr, finalPrompt, model, 0);
         currentDb->enqueuePrompt(newDocId, model, finalPrompt, 0, "document", 0, "replace_direct");
     }
@@ -5552,12 +5571,14 @@ void MainWindow::handleNewDocumentCreation(int defaultFolderId) {
                 for (const QString& model : models) {
                     QString docTitle = title + " (" + model + ")";
                     newDocId = currentDb->addDocument(newFolderId, docTitle, GENERATING_MERGE_TEXT, 0, metaStr);
-                    if (newDocId != -1) currentDb->enqueuePrompt(newDocId, model, prompt, 0, "document", 0, "replace_direct");
+                    if (newDocId != -1)
+                        currentDb->enqueuePrompt(newDocId, model, prompt, 0, "document", 0, "replace_direct");
                 }
             } else {
                 QString model = models.isEmpty() ? "" : models.first();
                 newDocId = currentDb->addDocument(folderId, title, GENERATING_MERGE_TEXT, 0, metaStr);
-                if (newDocId != -1) currentDb->enqueuePrompt(newDocId, model, prompt, 0, "document", 0, "replace_direct");
+                if (newDocId != -1)
+                    currentDb->enqueuePrompt(newDocId, model, prompt, 0, "document", 0, "replace_direct");
                 shouldNavigate = true;
             }
             loadDocumentsAndNotes();
@@ -5760,11 +5781,12 @@ void MainWindow::onEditDocument() {
                 return;
             } else if (res == QDialog::Accepted + 10) {
                 // Navigate to original
-                QStandardItem* originalItem = findItemInTree(associatedDrafts.first().parentId, associatedDrafts.first().targetType);
+                QStandardItem* originalItem =
+                    findItemInTree(associatedDrafts.first().parentId, associatedDrafts.first().targetType);
                 if (originalItem) {
                     openBooksTree->setCurrentIndex(originalItem->index());
-                    openBooksTree->selectionModel()->select(originalItem->index(),
-                                                            QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Current);
+                    openBooksTree->selectionModel()->select(
+                        originalItem->index(), QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Current);
                     openBooksTree->scrollTo(originalItem->index());
                     onOpenBooksTreeDoubleClicked(originalItem->index());
                 } else {

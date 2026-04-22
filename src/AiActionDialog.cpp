@@ -1,13 +1,13 @@
 #include "AiActionDialog.h"
 
 #include <QDialogButtonBox>
+#include <QFormLayout>
 #include <QHBoxLayout>
 #include <QLabel>
-#include <QVBoxLayout>
-#include <QRegularExpression>
-#include <QFormLayout>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QRegularExpression>
+#include <QVBoxLayout>
 
 AiActionDialog::AiActionDialog(const QString& title, const QString& labelText, const QString& defaultTemplate,
                                const QString& contextText, QWidget* parent)
@@ -22,7 +22,8 @@ AiActionDialog::AiActionDialog(const QString& title, const QString& labelText, c
     layout->addWidget(instructionLabel);
 
     m_instructionEdit = new QTextEdit(this);
-    m_instructionEdit->setPlaceholderText("Configure prompt using {context}, {input \"label\"}, or {textarea \"label\"} placeholders...");
+    m_instructionEdit->setPlaceholderText(
+        "Configure prompt using {context}, {input \"label\"}, or {textarea \"label\"} placeholders...");
     m_instructionEdit->setAcceptRichText(false);
     m_instructionEdit->setPlainText(defaultTemplate);
     layout->addWidget(m_instructionEdit);
@@ -51,9 +52,7 @@ AiActionDialog::AiActionDialog(const QString& title, const QString& labelText, c
     updateDynamicInputs();
 }
 
-QString AiActionDialog::getPrompt() const {
-    return m_finalPrompt;
-}
+QString AiActionDialog::getPrompt() const { return m_finalPrompt; }
 
 void AiActionDialog::updateDynamicInputs() {
     QString prompt = m_instructionEdit->toPlainText();

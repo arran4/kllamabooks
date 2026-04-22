@@ -12,8 +12,14 @@
 #include <QVBoxLayout>
 
 DraftSelectionDialog::DraftSelectionDialog(std::shared_ptr<BookDatabase> db, int documentId,
-                                           const QList<DocumentNode>& drafts, const QString& targetType, QWidget* parent)
-    : QDialog(parent), m_db(db), m_documentId(documentId), m_drafts(drafts), m_targetType(targetType), m_draftSelected(false) {
+                                           const QList<DocumentNode>& drafts, const QString& targetType,
+                                           QWidget* parent)
+    : QDialog(parent),
+      m_db(db),
+      m_documentId(documentId),
+      m_drafts(drafts),
+      m_targetType(targetType),
+      m_draftSelected(false) {
     setWindowTitle(tr("Drafts Available"));
     resize(800, 600);
 
@@ -70,7 +76,8 @@ DraftSelectionDialog::DraftSelectionDialog(std::shared_ptr<BookDatabase> db, int
     connect(navigateOrigBtn, &QPushButton::clicked, this, [this]() {
         // Find the original document ID
         if (m_db && m_db->isOpen() && m_drafts.size() > 0) {
-            // Signal navigation externally (MainWindow handles the jump logic best). We'll set m_draftSelected to false and a specific exit code.
+            // Signal navigation externally (MainWindow handles the jump logic best). We'll set m_draftSelected to false
+            // and a specific exit code.
             done(QDialog::Accepted + 10);
         }
     });
@@ -113,9 +120,7 @@ void DraftSelectionDialog::refreshDraftsList() {
     }
 }
 
-void DraftSelectionDialog::onSelectionChanged() {
-    onPreview();
-}
+void DraftSelectionDialog::onSelectionChanged() { onPreview(); }
 
 void DraftSelectionDialog::onIgnoreDrafts() {
     // If we just want to ignore drafts, we accept the dialog without selecting a draft content
@@ -226,7 +231,7 @@ void DraftSelectionDialog::onShowDifferences() {
 
     QWidget* col1 = new QWidget(innerSplitter);
     QVBoxLayout* lay1 = new QVBoxLayout(col1);
-    lay1->setContentsMargins(0,0,0,0);
+    lay1->setContentsMargins(0, 0, 0, 0);
     lay1->addWidget(new QLabel(tr("Original (Forked From)")));
     QTextEdit* text1 = new QTextEdit(col1);
     text1->setPlainText(originalContent);
@@ -235,7 +240,7 @@ void DraftSelectionDialog::onShowDifferences() {
 
     QWidget* col2 = new QWidget(innerSplitter);
     QVBoxLayout* lay2 = new QVBoxLayout(col2);
-    lay2->setContentsMargins(0,0,0,0);
+    lay2->setContentsMargins(0, 0, 0, 0);
     lay2->addWidget(new QLabel(tr("Current Document")));
     QTextEdit* text2 = new QTextEdit(col2);
     text2->setPlainText(currentContent);
@@ -244,7 +249,7 @@ void DraftSelectionDialog::onShowDifferences() {
 
     QWidget* col3 = new QWidget(innerSplitter);
     QVBoxLayout* lay3 = new QVBoxLayout(col3);
-    lay3->setContentsMargins(0,0,0,0);
+    lay3->setContentsMargins(0, 0, 0, 0);
     lay3->addWidget(new QLabel(tr("Selected Draft")));
     QTextEdit* text3 = new QTextEdit(col3);
     text3->setPlainText(draftContent);

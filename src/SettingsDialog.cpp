@@ -173,7 +173,8 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
 
     m_connectionsTable = new QTableWidget(this);
     m_connectionsTable->setColumnCount(5);
-    m_connectionsTable->setHorizontalHeaderLabels({tr("Name"), tr("Backend"), tr("URL"), tr("Auth Key"), tr("Max Concurrent")});
+    m_connectionsTable->setHorizontalHeaderLabels(
+        {tr("Name"), tr("Backend"), tr("URL"), tr("Auth Key"), tr("Max Concurrent")});
     m_connectionsTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     m_connectionsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_connectionsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);

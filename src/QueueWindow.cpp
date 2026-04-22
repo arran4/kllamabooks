@@ -2,12 +2,12 @@
 
 #include <QApplication>
 #include <QFileInfo>
+#include <QFormLayout>
 #include <QHeaderView>
 #include <QInputDialog>
 #include <QMenu>
 #include <QMessageBox>
 #include <QTextEdit>
-#include <QFormLayout>
 
 QueueWindow::QueueWindow(QWidget* parent) : QWidget(parent, Qt::Window) {
     setWindowTitle("LLM Request Queue");
@@ -38,9 +38,7 @@ QueueWindow::QueueWindow(QWidget* parent) : QWidget(parent, Qt::Window) {
     connect(m_clearBtn, &QPushButton::clicked, this, &QueueWindow::onClearCompleted);
     connect(m_queueList, &QListWidget::itemSelectionChanged, this, &QueueWindow::updateButtons);
 
-    connect(m_queueList, &QListWidget::itemDoubleClicked, this, [this](QListWidgetItem*) {
-        onJumpItem();
-    });
+    connect(m_queueList, &QListWidget::itemDoubleClicked, this, [this](QListWidgetItem*) { onJumpItem(); });
 
     connect(pauseBtn, &QPushButton::clicked, this, [this, pauseBtn]() {
         if (QueueManager::instance().isPaused()) {
@@ -328,8 +326,7 @@ void QueueWindow::onJumpItem() {
                     if (mainWin) {
                         QMetaObject::invokeMethod(mainWin, "onQueueItemClicked",
                                                   Q_ARG(std::shared_ptr<BookDatabase>, db),
-                                                  Q_ARG(int, mi.item.messageId),
-                                                  Q_ARG(QString, mi.item.targetType));
+                                                  Q_ARG(int, mi.item.messageId), Q_ARG(QString, mi.item.targetType));
                     }
                     break;
                 }

@@ -43,7 +43,8 @@ class QueueManager : public QObject {
 
     void cancelItem(std::shared_ptr<BookDatabase> db, int queueId);
     void retryItem(std::shared_ptr<BookDatabase> db, int queueId);
-    void modifyItem(std::shared_ptr<BookDatabase> db, int queueId, const QString& newPrompt, const QString& newModel = QString());
+    void modifyItem(std::shared_ptr<BookDatabase> db, int queueId, const QString& newPrompt,
+                    const QString& newModel = QString());
 
     void clearCompleted();
     void pauseQueue();
@@ -77,12 +78,12 @@ class QueueManager : public QObject {
     OllamaClient* m_client = nullptr;
     QTimer* m_timer;
 
-    QMap<int, MergedQueueItem> m_activeItems; // Map processingId to QueueItem
+    QMap<int, MergedQueueItem> m_activeItems;  // Map processingId to QueueItem
     int m_maxConcurrent = 1;
     bool m_isPaused = false;
     QString m_lastProcessedModel;
 
-    int m_nextProcessingId = 1; // Counter to track unique processing IDs
+    int m_nextProcessingId = 1;  // Counter to track unique processing IDs
     bool m_isEndpointUp = true;
     QTimer* m_probeTimer;
 

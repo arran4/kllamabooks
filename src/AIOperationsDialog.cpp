@@ -1,16 +1,16 @@
 #include "AIOperationsDialog.h"
 
 #include <QComboBox>
+#include <QDialog>
+#include <QFormLayout>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QLineEdit>
 #include <QPushButton>
+#include <QRegularExpression>
 #include <QSettings>
 #include <QTextEdit>
 #include <QVBoxLayout>
-#include <QRegularExpression>
-#include <QDialog>
-#include <QFormLayout>
-#include <QLineEdit>
 
 #include "AIOperationsManager.h"
 

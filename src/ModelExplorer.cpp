@@ -4,19 +4,20 @@
 #include <QDesktopServices>
 #include <QHeaderView>
 #include <QIcon>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QMenu>
 #include <QMessageBox>
+#include <QNetworkReply>
+#include <QNetworkRequest>
+#include <QRegularExpression>
 #include <QSettings>
 #include <QUrl>
 #include <QUrlQuery>
-#include <QNetworkRequest>
-#include <QNetworkReply>
-#include <QJsonDocument>
-#include <QJsonObject>
-#include <QJsonArray>
-#include <QRegularExpression>
 
-ModelExplorer::ModelExplorer(OllamaClient* client, bool isOllama, QWidget* parent) : QDialog(parent), m_client(client), m_isOllama(isOllama), m_networkManager(new QNetworkAccessManager(this)) {
+ModelExplorer::ModelExplorer(OllamaClient* client, bool isOllama, QWidget* parent)
+    : QDialog(parent), m_client(client), m_isOllama(isOllama), m_networkManager(new QNetworkAccessManager(this)) {
     setWindowTitle("Model Explorer");
     resize(800, 600);
 
@@ -91,7 +92,9 @@ void ModelExplorer::setupDownloadTab() {
         externalSearchLayout->addWidget(searchHfButton);
         layout->addLayout(externalSearchLayout);
 
-        QLabel* hfNoteLabel = new QLabel("Note: Downloading Hugging Face models may require configuring Ollama's HF connection (e.g., via HF CLI).", this);
+        QLabel* hfNoteLabel = new QLabel(
+            "Note: Downloading Hugging Face models may require configuring Ollama's HF connection (e.g., via HF CLI).",
+            this);
         hfNoteLabel->setStyleSheet("color: gray; font-style: italic; font-size: 10px;");
         layout->addWidget(hfNoteLabel);
 
@@ -137,7 +140,7 @@ void ModelExplorer::setupOnlineSearchTab() {
     layout->addWidget(m_searchResultsTable);
 
     m_loadMoreButton = new QPushButton("Load More", this);
-    m_loadMoreButton->hide(); // Hidden initially
+    m_loadMoreButton->hide();  // Hidden initially
     layout->addWidget(m_loadMoreButton);
 
     QPushButton* downloadSelectedBtn = new QPushButton("Download Selected", this);
@@ -222,12 +225,13 @@ void ModelExplorer::onLoadMoreClicked() {
             if (doc.isArray()) {
                 QJsonArray arr = doc.array();
                 if (arr.isEmpty()) {
-                    m_loadMoreButton->hide(); // No more results
+                    m_loadMoreButton->hide();  // No more results
                 } else {
                     for (const QJsonValue& val : arr) {
                         QJsonObject obj = val.toObject();
                         QString name = obj["id"].toString();
-                        QString desc = "Downloads: " + QString::number(obj["downloads"].toInt()) + ", Pipeline: " + obj["pipeline_tag"].toString();
+                        QString desc = "Downloads: " + QString::number(obj["downloads"].toInt()) +
+                                       ", Pipeline: " + obj["pipeline_tag"].toString();
                         int row = m_searchResultsTable->rowCount();
                         m_searchResultsTable->insertRow(row);
                         m_searchResultsTable->setItem(row, 0, new QTableWidgetItem(name));
@@ -301,7 +305,8 @@ void ModelExplorer::onOnlineSearchClicked() {
                     for (const QJsonValue& val : arr) {
                         QJsonObject obj = val.toObject();
                         QString name = obj["id"].toString();
-                        QString desc = "Downloads: " + QString::number(obj["downloads"].toInt()) + ", Pipeline: " + obj["pipeline_tag"].toString();
+                        QString desc = "Downloads: " + QString::number(obj["downloads"].toInt()) +
+                                       ", Pipeline: " + obj["pipeline_tag"].toString();
                         int row = m_searchResultsTable->rowCount();
                         m_searchResultsTable->insertRow(row);
                         m_searchResultsTable->setItem(row, 0, new QTableWidgetItem(name));
@@ -331,7 +336,7 @@ void ModelExplorer::onDownloadFromSearchClicked() {
     }
 
     m_downloadNameField->setText(name);
-    m_tabWidget->setCurrentIndex(1); // Switch back to Download Models tab
+    m_tabWidget->setCurrentIndex(1);  // Switch back to Download Models tab
     onDownloadModelClicked();
 }
 

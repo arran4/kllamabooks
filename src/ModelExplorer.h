@@ -1,19 +1,18 @@
 #ifndef MODELEXPLORER_H
 #define MODELEXPLORER_H
 
+#include <QComboBox>
 #include <QDialog>
 #include <QHBoxLayout>
 #include <QLabel>
-#include <QComboBox>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QNetworkAccessManager>
 #include <QProgressBar>
 #include <QPushButton>
 #include <QTabWidget>
 #include <QTableWidget>
 #include <QVBoxLayout>
-
-#include <QNetworkAccessManager>
 
 #include "OllamaClient.h"
 #include "OllamaModelInfo.h"
