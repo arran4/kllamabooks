@@ -2,6 +2,8 @@
 
 #include <sqlite3.h>
 
+#include <KActionCollection>
+#include <KStandardAction>
 #include <KToolBar>
 #include <QAction>
 #include <QCloseEvent>
@@ -19,8 +21,6 @@
 #include <QStatusBar>
 #include <QTextEdit>
 #include <QVBoxLayout>
-#include <KActionCollection>
-#include <KStandardAction>
 
 DocumentEditWindow::DocumentEditWindow(std::shared_ptr<BookDatabase> db, int documentId, const QString& title,
                                        const QString& targetType, QWidget* parent)
@@ -74,7 +74,7 @@ void DocumentEditWindow::setupWindow() {
     QAction* replaceOriginalAction = nullptr;
     QAction* viewOriginalAction = nullptr;
     if (m_targetType == "draft") {
-        saveAsDraftAction->setVisible(false); // Hide "Save as Draft" if it is already a draft.
+        saveAsDraftAction->setVisible(false);  // Hide "Save as Draft" if it is already a draft.
 
         replaceOriginalAction = new QAction(QIcon::fromTheme("document-export"), tr("Replace Original Document"), this);
         actionCollection()->addAction(QStringLiteral("replace_original"), replaceOriginalAction);
@@ -99,8 +99,10 @@ void DocumentEditWindow::setupWindow() {
 
             QDateTime originalTimestamp;
             QList<DocumentNode> originals;
-            if (targetType == "document") originals = m_db->getDocuments(-1);
-            else if (targetType == "template") originals = m_db->getTemplates(-1);
+            if (targetType == "document")
+                originals = m_db->getDocuments(-1);
+            else if (targetType == "template")
+                originals = m_db->getTemplates(-1);
             else if (targetType == "note") {
                 auto notes = m_db->getNotes(-1);
                 for (const auto& n : notes) {
@@ -122,24 +124,28 @@ void DocumentEditWindow::setupWindow() {
             if (originalTimestamp > m_openTimestamp) {
                 QMessageBox msgBox(this);
                 msgBox.setWindowTitle(tr("Conflict Detected"));
-                msgBox.setText(tr("Warning: The original document has drifted (been modified) since this draft was created/opened.\nWhat would you like to do?"));
+                msgBox.setText(
+                    tr("Warning: The original document has drifted (been modified) since this draft was "
+                       "created/opened.\nWhat would you like to do?"));
 
                 QPushButton* viewDiffBtn = msgBox.addButton(tr("View Differences"), QMessageBox::ActionRole);
                 QPushButton* continueBtn = msgBox.addButton(tr("Continue & Replace"), QMessageBox::AcceptRole);
                 QPushButton* forkBtn = msgBox.addButton(tr("Create New Forked Document"), QMessageBox::AcceptRole);
-                QPushButton* deleteDraftBtn = msgBox.addButton(tr("Delete Draft & Cancel"), QMessageBox::DestructiveRole);
+                QPushButton* deleteDraftBtn =
+                    msgBox.addButton(tr("Delete Draft & Cancel"), QMessageBox::DestructiveRole);
                 QPushButton* cancelBtn = msgBox.addButton(tr("Cancel"), QMessageBox::RejectRole);
 
                 msgBox.exec();
 
                 if (msgBox.clickedButton() == viewDiffBtn) {
-                    emit jumpToDocumentRequested(parentId); // Jump to original document
-                    return; // abort replacement for now
+                    emit jumpToDocumentRequested(parentId);  // Jump to original document
+                    return;                                  // abort replacement for now
                 } else if (msgBox.clickedButton() == continueBtn) {
                     // fallthrough to regular replace logic
                 } else if (msgBox.clickedButton() == forkBtn) {
                     bool ok;
-                    QString newTitle = QInputDialog::getText(this, tr("Create Fork"), tr("New Title:"), QLineEdit::Normal, m_title + " (Fork)", &ok);
+                    QString newTitle = QInputDialog::getText(this, tr("Create Fork"), tr("New Title:"),
+                                                             QLineEdit::Normal, m_title + " (Fork)", &ok);
                     if (ok && !newTitle.isEmpty()) {
                         int folderId = 0;
                         for (const auto& doc : originals) {
@@ -173,7 +179,7 @@ void DocumentEditWindow::setupWindow() {
                     close();
                     return;
                 } else {
-                    return; // Cancel
+                    return;  // Cancel
                 }
             }
 
@@ -190,7 +196,7 @@ void DocumentEditWindow::setupWindow() {
 
             // Delete the draft after replacing
             m_db->deleteDraft(m_documentId);
-            emit documentModified(m_documentId); // Trigger a refresh
+            emit documentModified(m_documentId);  // Trigger a refresh
             close();
         });
 
@@ -215,7 +221,7 @@ void DocumentEditWindow::setupWindow() {
                 return;
             }
 
-            emit jumpToDocumentRequested(parentId); // Signal MainWindow to jump there, need to update param
+            emit jumpToDocumentRequested(parentId);  // Signal MainWindow to jump there, need to update param
         });
     }
 
@@ -248,7 +254,7 @@ void DocumentEditWindow::setupWindow() {
                         m_db->updateComment(commentId, desc);
                     }
                 }
-                emit documentModified(m_documentId); // Force UI refresh
+                emit documentModified(m_documentId);  // Force UI refresh
             }
         });
     }
@@ -275,11 +281,12 @@ void DocumentEditWindow::setupWindow() {
             if (!m_db || !m_db->isOpen()) return;
 
             QMessageBox::StandardButton reply;
-            reply = QMessageBox::question(this, tr("Dismiss Draft"), tr("Are you sure you want to dismiss this draft permanently?"),
-                                          QMessageBox::Yes|QMessageBox::No);
+            reply = QMessageBox::question(this, tr("Dismiss Draft"),
+                                          tr("Are you sure you want to dismiss this draft permanently?"),
+                                          QMessageBox::Yes | QMessageBox::No);
             if (reply == QMessageBox::Yes) {
                 m_db->deleteDraft(m_documentId);
-                m_initialContent = m_editor->toPlainText(); // Prevent save prompt
+                m_initialContent = m_editor->toPlainText();  // Prevent save prompt
                 emit documentModified(m_documentId);
                 close();
             }
@@ -307,14 +314,12 @@ void DocumentEditWindow::onContentChanged() {
     updateStatusBar();
 }
 
-void DocumentEditWindow::setInitialContent(const QString& content) {
-    m_editor->setPlainText(content);
-}
+void DocumentEditWindow::setInitialContent(const QString& content) { m_editor->setPlainText(content); }
 
 void DocumentEditWindow::updateStatusBar() {
     if (m_targetType == "draft") {
         m_statusLabel->setText(tr("Viewing Draft"));
-        m_statusLabel->setStyleSheet("color: #FF8C00; font-weight: bold;"); // Dark Orange
+        m_statusLabel->setStyleSheet("color: #FF8C00; font-weight: bold;");  // Dark Orange
         return;
     }
 
@@ -335,9 +340,12 @@ void DocumentEditWindow::loadDocument() {
     if (!m_db || !m_db->isOpen()) return;
 
     QList<DocumentNode> docs;
-    if (m_targetType == "document") docs = m_db->getDocuments();
-    else if (m_targetType == "draft") docs = m_db->getDrafts();
-    else if (m_targetType == "template") docs = m_db->getTemplates();
+    if (m_targetType == "document")
+        docs = m_db->getDocuments();
+    else if (m_targetType == "draft")
+        docs = m_db->getDrafts();
+    else if (m_targetType == "template")
+        docs = m_db->getTemplates();
     else if (m_targetType == "note") {
         auto notes = m_db->getNotes();
         for (const auto& n : notes) {
@@ -370,9 +378,12 @@ QDateTime DocumentEditWindow::getLatestDbTimestamp() const {
 
     QDateTime latest;
     QList<DocumentNode> docs;
-    if (m_targetType == "document") docs = m_db->getDocuments();
-    else if (m_targetType == "draft") docs = m_db->getDrafts();
-    else if (m_targetType == "template") docs = m_db->getTemplates();
+    if (m_targetType == "document")
+        docs = m_db->getDocuments();
+    else if (m_targetType == "draft")
+        docs = m_db->getDrafts();
+    else if (m_targetType == "template")
+        docs = m_db->getTemplates();
     else if (m_targetType == "note") {
         auto notes = m_db->getNotes();
         for (const auto& n : notes) {
@@ -410,9 +421,7 @@ QDateTime DocumentEditWindow::getLatestDbTimestamp() const {
     return latest;
 }
 
-void DocumentEditWindow::onJumpClicked() {
-    emit jumpToDocumentRequested(m_documentId);
-}
+void DocumentEditWindow::onJumpClicked() { emit jumpToDocumentRequested(m_documentId); }
 
 void DocumentEditWindow::onSaveClicked() {
     if (saveToDb()) {
@@ -460,14 +469,14 @@ void DocumentEditWindow::onSaveAsTemplateClicked() {
 
 void DocumentEditWindow::onSaveAsDraftClicked() {
     bool ok;
-    QString newTitle = QInputDialog::getText(this, tr("Save As Draft"), tr("Draft Title:"), QLineEdit::Normal,
-                                             m_title, &ok);
+    QString newTitle =
+        QInputDialog::getText(this, tr("Save As Draft"), tr("Draft Title:"), QLineEdit::Normal, m_title, &ok);
     if (ok && !newTitle.isEmpty()) {
         int newId = saveToDraft(newTitle);
         if (newId > 0) {
             m_statusLabel->setText(tr("Saved to drafts"));
             emit newDocumentCreated(newId);
-            close(); // Close active window since it was saved as draft
+            close();  // Close active window since it was saved as draft
         }
     }
 }
@@ -490,9 +499,12 @@ int DocumentEditWindow::forkDocument(const QString& newTitle) {
     if (!m_db || !m_db->isOpen()) return 0;
 
     QList<DocumentNode> docs;
-    if (m_targetType == "document") docs = m_db->getDocuments();
-    else if (m_targetType == "draft") docs = m_db->getDrafts();
-    else if (m_targetType == "template") docs = m_db->getTemplates();
+    if (m_targetType == "document")
+        docs = m_db->getDocuments();
+    else if (m_targetType == "draft")
+        docs = m_db->getDrafts();
+    else if (m_targetType == "template")
+        docs = m_db->getTemplates();
     else if (m_targetType == "note") {
         auto notes = m_db->getNotes();
         int folderId = 0;
@@ -527,9 +539,12 @@ int DocumentEditWindow::saveToDraft(const QString& newTitle) {
     if (!m_db || !m_db->isOpen()) return 0;
 
     QList<DocumentNode> docs;
-    if (m_targetType == "document") docs = m_db->getDocuments();
-    else if (m_targetType == "draft") docs = m_db->getDrafts();
-    else if (m_targetType == "template") docs = m_db->getTemplates();
+    if (m_targetType == "document")
+        docs = m_db->getDocuments();
+    else if (m_targetType == "draft")
+        docs = m_db->getDrafts();
+    else if (m_targetType == "template")
+        docs = m_db->getTemplates();
     else if (m_targetType == "note") {
         auto notes = m_db->getNotes();
         int folderId = 0;
@@ -633,8 +648,10 @@ void DocumentEditWindow::closeEvent(QCloseEvent* event) {
             if (originalId > 0) {
                 // Fetch the original's current timestamp
                 QList<DocumentNode> originals;
-                if (targetType == "document") originals = m_db->getDocuments(-1);
-                else if (targetType == "template") originals = m_db->getTemplates(-1);
+                if (targetType == "document")
+                    originals = m_db->getDocuments(-1);
+                else if (targetType == "template")
+                    originals = m_db->getTemplates(-1);
 
                 for (const auto& doc : originals) {
                     if (doc.id == originalId) {
@@ -652,7 +669,9 @@ void DocumentEditWindow::closeEvent(QCloseEvent* event) {
                 // It's a best-effort check given the schema.
 
                 if (originalTimestamp > m_openTimestamp) {
-                    msgBox.setText(tr("Warning: The original document has been modified since you started editing this draft.\nWould you still like to Save this draft, Discard your current edits, or Cancel?"));
+                    msgBox.setText(
+                        tr("Warning: The original document has been modified since you started editing this "
+                           "draft.\nWould you still like to Save this draft, Discard your current edits, or Cancel?"));
                     QPushButton* saveBtn = msgBox.addButton(tr("Save Draft"), QMessageBox::AcceptRole);
                     QPushButton* discardBtn = msgBox.addButton(tr("Discard Edits"), QMessageBox::DestructiveRole);
                     QPushButton* cancelBtn = msgBox.addButton(tr("Cancel"), QMessageBox::RejectRole);

@@ -11,4 +11,4 @@ struct OllamaModelInfo {
     QString quantizationLevel;
 };
 
-#endif // OLLAMAMODELINFO_H
+#endif  // OLLAMAMODELINFO_H

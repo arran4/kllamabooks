@@ -14,8 +14,8 @@ struct AIOperation {
     QString id;
     QString name;
     QString prompt;
-    QString source;  // "built-in", "global", "database"
-    QString inputType; // "single", "multiple", "any"
+    QString source;     // "built-in", "global", "database"
+    QString inputType;  // "single", "multiple", "any"
 };
 
 class AIOperationsManager {

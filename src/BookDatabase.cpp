@@ -24,16 +24,16 @@ BookDatabase::~BookDatabase() { close(); }
 bool BookDatabase::open(const QString& password) {
     if (m_isOpen) return true;
 
-    int rc = sqlite3_open(m_filepath.toUtf8().constData(), (sqlite3**)&m_db);
+    int rc = sqlite3_open(m_filepath.toUtf8().constData(), reinterpret_cast<sqlite3**>(&m_db));
     if (rc != SQLITE_OK) {
-        qWarning() << "Cannot open database: " << sqlite3_errmsg((sqlite3*)m_db);
+        qWarning() << "Cannot open database: " << sqlite3_errmsg(reinterpret_cast<sqlite3*>(m_db));
         return false;
     }
 
     if (!password.isEmpty()) {
         QString keyPragma = QString("PRAGMA key = '%1';").arg(password);
         char* errMsg = nullptr;
-        rc = sqlite3_exec((sqlite3*)m_db, keyPragma.toUtf8().constData(), nullptr, nullptr, &errMsg);
+        rc = sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), keyPragma.toUtf8().constData(), nullptr, nullptr, &errMsg);
         if (rc != SQLITE_OK) {
             qWarning() << "Failed to set key: " << errMsg;
             sqlite3_free(errMsg);
@@ -44,7 +44,8 @@ bool BookDatabase::open(const QString& password) {
 
     // Verify key works
     char* errMsg = nullptr;
-    rc = sqlite3_exec((sqlite3*)m_db, "SELECT count(*) FROM sqlite_master;", nullptr, nullptr, &errMsg);
+    rc = sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "SELECT count(*) FROM sqlite_master;", nullptr, nullptr,
+                      &errMsg);
     if (rc != SQLITE_OK) {
         qWarning() << "Invalid password or corrupted database: " << errMsg;
         sqlite3_free(errMsg);
@@ -64,11 +65,10 @@ void BookDatabase::cleanupDeadProcessingItems() {
     if (!m_isOpen) return;
 
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2((sqlite3*)m_db,
+    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db),
                            "SELECT id, processing_id, last_error FROM queue WHERE processing_id > 0 OR state = "
                            "'processing' OR (last_error IS NOT NULL AND last_error != '' AND state != 'error');",
-                           -1,
-                           &stmt, nullptr) == SQLITE_OK) {
+                           -1, &stmt, nullptr) == SQLITE_OK) {
         struct ItemToReset {
             int id;
             QString error;
@@ -78,7 +78,7 @@ void BookDatabase::cleanupDeadProcessingItems() {
             int id = sqlite3_column_int(stmt, 0);
             int pid = sqlite3_column_int(stmt, 1);
             const unsigned char* errText = sqlite3_column_text(stmt, 2);
-            QString lastError = errText ? QString::fromUtf8((const char*)errText) : QString();
+            QString lastError = errText ? QString::fromUtf8(reinterpret_cast<const char*>(errText)) : QString();
 
             if (pid <= 0) {
                 itemsToReset.append({id, lastError});
@@ -120,7 +120,7 @@ void BookDatabase::cleanupDeadProcessingItems() {
 
 void BookDatabase::close() {
     if (m_db) {
-        sqlite3_close((sqlite3*)m_db);
+        sqlite3_close(reinterpret_cast<sqlite3*>(m_db));
         m_db = nullptr;
         m_isOpen = false;
     }
@@ -137,7 +137,7 @@ bool BookDatabase::initSchema() {
     int userVersion = 0;
 
     // Get existing PRAGMA version for legacy support
-    if (sqlite3_prepare_v2((sqlite3*)m_db, "PRAGMA user_version;", -1, &stmt, nullptr) == SQLITE_OK) {
+    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), "PRAGMA user_version;", -1, &stmt, nullptr) == SQLITE_OK) {
         if (sqlite3_step(stmt) == SQLITE_ROW) {
             userVersion = sqlite3_column_int(stmt, 0);
         }
@@ -145,7 +145,7 @@ bool BookDatabase::initSchema() {
     }
 
     bool hasSchemaTable = false;
-    if (sqlite3_prepare_v2((sqlite3*)m_db,
+    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db),
                            "SELECT name FROM sqlite_master WHERE type='table' AND name='schema_version';", -1, &stmt,
                            nullptr) == SQLITE_OK) {
         if (sqlite3_step(stmt) == SQLITE_ROW) {
@@ -158,15 +158,15 @@ bool BookDatabase::initSchema() {
         const char* createSchemaTable =
             "CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at DATETIME DEFAULT "
             "CURRENT_TIMESTAMP);";
-        sqlite3_exec((sqlite3*)m_db, createSchemaTable, nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), createSchemaTable, nullptr, nullptr, nullptr);
         // Sync PRAGMA version to table if table was just created
         if (userVersion > 0) {
             QString syncSql = QString("INSERT OR REPLACE INTO schema_version (version) VALUES (%1);").arg(userVersion);
-            sqlite3_exec((sqlite3*)m_db, syncSql.toUtf8().constData(), nullptr, nullptr, nullptr);
+            sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), syncSql.toUtf8().constData(), nullptr, nullptr, nullptr);
         }
     } else {
-        if (sqlite3_prepare_v2((sqlite3*)m_db, "SELECT MAX(version) FROM schema_version;", -1, &stmt, nullptr) ==
-            SQLITE_OK) {
+        if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), "SELECT MAX(version) FROM schema_version;", -1, &stmt,
+                               nullptr) == SQLITE_OK) {
             if (sqlite3_step(stmt) == SQLITE_ROW) {
                 int tableVersion = sqlite3_column_int(stmt, 0);
                 if (tableVersion > userVersion) userVersion = tableVersion;
@@ -231,26 +231,26 @@ bool BookDatabase::initSchema() {
             "INSERT INTO schema_version (version) VALUES (1);";
 
         char* errMsg = nullptr;
-        int rc = sqlite3_exec((sqlite3*)m_db, sql, nullptr, nullptr, &errMsg);
+        int rc = sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), sql, nullptr, nullptr, &errMsg);
         if (rc != SQLITE_OK) {
             qWarning() << "SQL error during schema init: " << errMsg;
             sqlite3_free(errMsg);
             return false;
         }
 
-        sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 1;", nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "PRAGMA user_version = 1;", nullptr, nullptr, nullptr);
         userVersion = 1;
     }
 
     if (userVersion < 2) {
         // upgrade to version 2 - Ensure settings table exists (redundant but safe)
-        sqlite3_exec((sqlite3*)m_db,
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db),
                      "CREATE TABLE IF NOT EXISTS settings (scope TEXT, target_id INTEGER, key TEXT, value TEXT, "
                      "PRIMARY KEY(scope, target_id, key));",
                      nullptr, nullptr, nullptr);
-        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (2);", nullptr, nullptr,
-                     nullptr);
-        sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 2;", nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "INSERT OR REPLACE INTO schema_version (version) VALUES (2);",
+                     nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "PRAGMA user_version = 2;", nullptr, nullptr, nullptr);
         userVersion = 2;
     }
 
@@ -264,26 +264,26 @@ bool BookDatabase::initSchema() {
             "CREATE TABLE IF NOT EXISTS folders (id INTEGER PRIMARY KEY AUTOINCREMENT, parent_id INTEGER DEFAULT 0, "
             "name TEXT, type TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, position INTEGER DEFAULT 0);";
 
-        sqlite3_exec((sqlite3*)m_db, sql, nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), sql, nullptr, nullptr, nullptr);
 
         // Add folder_id columns if they don't exist
-        sqlite3_exec((sqlite3*)m_db, "ALTER TABLE documents ADD COLUMN folder_id INTEGER DEFAULT 0;", nullptr, nullptr,
-                     nullptr);
-        sqlite3_exec((sqlite3*)m_db, "ALTER TABLE notes ADD COLUMN folder_id INTEGER DEFAULT 0;", nullptr, nullptr,
-                     nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "ALTER TABLE documents ADD COLUMN folder_id INTEGER DEFAULT 0;",
+                     nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "ALTER TABLE notes ADD COLUMN folder_id INTEGER DEFAULT 0;",
+                     nullptr, nullptr, nullptr);
 
-        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (3);", nullptr, nullptr,
-                     nullptr);
-        sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 3;", nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "INSERT OR REPLACE INTO schema_version (version) VALUES (3);",
+                     nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "PRAGMA user_version = 3;", nullptr, nullptr, nullptr);
         userVersion = 3;
     }
 
     if (userVersion < 4) {
-        sqlite3_exec((sqlite3*)m_db, "ALTER TABLE messages ADD COLUMN folder_id INTEGER DEFAULT 0;", nullptr, nullptr,
-                     nullptr);
-        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (4);", nullptr, nullptr,
-                     nullptr);
-        sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 4;", nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "ALTER TABLE messages ADD COLUMN folder_id INTEGER DEFAULT 0;",
+                     nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "INSERT OR REPLACE INTO schema_version (version) VALUES (4);",
+                     nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "PRAGMA user_version = 4;", nullptr, nullptr, nullptr);
         userVersion = 4;
     }
 
@@ -305,19 +305,20 @@ bool BookDatabase::initSchema() {
             "is_dismissed BOOLEAN DEFAULT 0, "
             "created_at DATETIME DEFAULT CURRENT_TIMESTAMP"
             ");";
-        sqlite3_exec((sqlite3*)m_db, sql, nullptr, nullptr, nullptr);
-        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (5);", nullptr, nullptr,
-                     nullptr);
-        sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 5;", nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), sql, nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "INSERT OR REPLACE INTO schema_version (version) VALUES (5);",
+                     nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "PRAGMA user_version = 5;", nullptr, nullptr, nullptr);
         userVersion = 5;
     }
 
     if (userVersion < 6) {
         // Clean up old completed jobs since they are now memory-only
-        sqlite3_exec((sqlite3*)m_db, "DELETE FROM queue WHERE status = 'completed';", nullptr, nullptr, nullptr);
-        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (6);", nullptr, nullptr,
-                     nullptr);
-        sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 6;", nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "DELETE FROM queue WHERE status = 'completed';", nullptr,
+                     nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "INSERT OR REPLACE INTO schema_version (version) VALUES (6);",
+                     nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "PRAGMA user_version = 6;", nullptr, nullptr, nullptr);
         userVersion = 6;
     }
 
@@ -330,37 +331,37 @@ bool BookDatabase::initSchema() {
             "content TEXT, "
             "created_at DATETIME DEFAULT CURRENT_TIMESTAMP"
             ");";
-        sqlite3_exec((sqlite3*)m_db, sql, nullptr, nullptr, nullptr);
-        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (7);", nullptr, nullptr,
-                     nullptr);
-        sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 7;", nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), sql, nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "INSERT OR REPLACE INTO schema_version (version) VALUES (7);",
+                     nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "PRAGMA user_version = 7;", nullptr, nullptr, nullptr);
         userVersion = 7;
     }
 
     if (userVersion < 8) {
-        sqlite3_exec((sqlite3*)m_db, "ALTER TABLE documents ADD COLUMN parent_id INTEGER DEFAULT 0;", nullptr, nullptr,
-                     nullptr);
-        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (8);", nullptr, nullptr,
-                     nullptr);
-        sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 8;", nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "ALTER TABLE documents ADD COLUMN parent_id INTEGER DEFAULT 0;",
+                     nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "INSERT OR REPLACE INTO schema_version (version) VALUES (8);",
+                     nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "PRAGMA user_version = 8;", nullptr, nullptr, nullptr);
         userVersion = 8;
     }
 
     if (userVersion < 9) {
-        sqlite3_exec((sqlite3*)m_db, "ALTER TABLE queue ADD COLUMN target_type TEXT DEFAULT 'message';", nullptr,
-                     nullptr, nullptr);
-        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (9);", nullptr, nullptr,
-                     nullptr);
-        sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 9;", nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db),
+                     "ALTER TABLE queue ADD COLUMN target_type TEXT DEFAULT 'message';", nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "INSERT OR REPLACE INTO schema_version (version) VALUES (9);",
+                     nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "PRAGMA user_version = 9;", nullptr, nullptr, nullptr);
         userVersion = 9;
     }
 
     if (userVersion < 10) {
-        sqlite3_exec((sqlite3*)m_db, "ALTER TABLE queue ADD COLUMN processing_pid INTEGER DEFAULT 0;", nullptr, nullptr,
-                     nullptr);
-        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (10);", nullptr, nullptr,
-                     nullptr);
-        sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 10;", nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "ALTER TABLE queue ADD COLUMN processing_pid INTEGER DEFAULT 0;",
+                     nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "INSERT OR REPLACE INTO schema_version (version) VALUES (10);",
+                     nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "PRAGMA user_version = 10;", nullptr, nullptr, nullptr);
         userVersion = 10;
     }
 
@@ -381,11 +382,11 @@ bool BookDatabase::initSchema() {
             "SELECT id, message_id, model, prompt, processing_pid, priority, created_at, target_type FROM queue;"
             "DROP TABLE queue;"
             "ALTER TABLE queue_new RENAME TO queue;";
-        sqlite3_exec((sqlite3*)m_db, sql, nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), sql, nullptr, nullptr, nullptr);
 
-        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (11);", nullptr, nullptr,
-                     nullptr);
-        sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 11;", nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "INSERT OR REPLACE INTO schema_version (version) VALUES (11);",
+                     nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "PRAGMA user_version = 11;", nullptr, nullptr, nullptr);
         userVersion = 11;
     }
 
@@ -402,16 +403,17 @@ bool BookDatabase::initSchema() {
             "userNote TEXT, "
             "version INTEGER DEFAULT 0"
             ");";
-        sqlite3_exec((sqlite3*)m_db, sql, nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), sql, nullptr, nullptr, nullptr);
 
-        sqlite3_stmt* stmt;
-        if (sqlite3_prepare_v2((sqlite3*)m_db, "SELECT DISTINCT target_id FROM settings WHERE scope='chat';", -1, &stmt,
+        sqlite3_stmt* inner_stmt = nullptr;
+        if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db),
+                               "SELECT DISTINCT target_id FROM settings WHERE scope='chat';", -1, &inner_stmt,
                                nullptr) == SQLITE_OK) {
             QList<int> messageIds;
-            while (sqlite3_step(stmt) == SQLITE_ROW) {
-                messageIds.append(sqlite3_column_int(stmt, 0));
+            while (sqlite3_step(inner_stmt) == SQLITE_ROW) {
+                messageIds.append(sqlite3_column_int(inner_stmt, 0));
             }
-            sqlite3_finalize(stmt);
+            sqlite3_finalize(inner_stmt);
 
             for (int id : messageIds) {
                 ChatNode c;
@@ -428,10 +430,11 @@ bool BookDatabase::initSchema() {
             }
         }
 
-        sqlite3_exec((sqlite3*)m_db, "DELETE FROM settings WHERE scope='chat';", nullptr, nullptr, nullptr);
-        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (12);", nullptr, nullptr,
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "DELETE FROM settings WHERE scope='chat';", nullptr, nullptr,
                      nullptr);
-        sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 12;", nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "INSERT OR REPLACE INTO schema_version (version) VALUES (12);",
+                     nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "PRAGMA user_version = 12;", nullptr, nullptr, nullptr);
         userVersion = 12;
     }
 
@@ -444,67 +447,77 @@ bool BookDatabase::initSchema() {
             "content TEXT, "
             "timestamp DATETIME DEFAULT CURRENT_TIMESTAMP"
             ");";
-        sqlite3_exec((sqlite3*)m_db, sql_history, nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), sql_history, nullptr, nullptr, nullptr);
 
         const char* sql_alter_state = "ALTER TABLE queue ADD COLUMN state TEXT DEFAULT 'pending';";
-        sqlite3_exec((sqlite3*)m_db, sql_alter_state, nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), sql_alter_state, nullptr, nullptr, nullptr);
 
         const char* sql_alter_response = "ALTER TABLE queue ADD COLUMN response TEXT DEFAULT '';";
-        sqlite3_exec((sqlite3*)m_db, sql_alter_response, nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), sql_alter_response, nullptr, nullptr, nullptr);
 
         const char* sql_alter_parent = "ALTER TABLE queue ADD COLUMN parent_id INTEGER DEFAULT 0;";
-        sqlite3_exec((sqlite3*)m_db, sql_alter_parent, nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), sql_alter_parent, nullptr, nullptr, nullptr);
 
-        sqlite3_exec((sqlite3*)m_db, "UPDATE queue SET state = 'processing' WHERE processing_id > 0;", nullptr, nullptr,
-                     nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "UPDATE queue SET state = 'processing' WHERE processing_id > 0;",
+                     nullptr, nullptr, nullptr);
 
-        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (13);", nullptr, nullptr,
-                     nullptr);
-        sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 13;", nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "INSERT OR REPLACE INTO schema_version (version) VALUES (13);",
+                     nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "PRAGMA user_version = 13;", nullptr, nullptr, nullptr);
         userVersion = 13;
     }
 
     if (userVersion < 14) {
         const char* sql_alter_target = "ALTER TABLE queue ADD COLUMN target_action TEXT DEFAULT '';";
-        sqlite3_exec((sqlite3*)m_db, sql_alter_target, nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), sql_alter_target, nullptr, nullptr, nullptr);
 
-        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (14);", nullptr, nullptr,
-                     nullptr);
-        sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 14;", nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "INSERT OR REPLACE INTO schema_version (version) VALUES (14);",
+                     nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "PRAGMA user_version = 14;", nullptr, nullptr, nullptr);
         userVersion = 14;
     }
 
     if (userVersion < 15) {
-        sqlite3_exec((sqlite3*)m_db, "ALTER TABLE notifications RENAME COLUMN message_id TO target_id;", nullptr, nullptr, nullptr);
-        sqlite3_exec((sqlite3*)m_db, "ALTER TABLE notifications ADD COLUMN target_type TEXT DEFAULT 'message';", nullptr, nullptr, nullptr);
-        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (15);", nullptr, nullptr, nullptr);
-        sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 15;", nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db),
+                     "ALTER TABLE notifications RENAME COLUMN message_id TO target_id;", nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db),
+                     "ALTER TABLE notifications ADD COLUMN target_type TEXT DEFAULT 'message';", nullptr, nullptr,
+                     nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "INSERT OR REPLACE INTO schema_version (version) VALUES (15);",
+                     nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "PRAGMA user_version = 15;", nullptr, nullptr, nullptr);
         userVersion = 15;
     }
 
     if (userVersion < 16) {
-        sqlite3_exec((sqlite3*)m_db, "ALTER TABLE drafts ADD COLUMN parent_id INTEGER DEFAULT 0;", nullptr, nullptr, nullptr);
-        sqlite3_exec((sqlite3*)m_db, "ALTER TABLE drafts ADD COLUMN target_type TEXT DEFAULT 'document';", nullptr, nullptr, nullptr);
-        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (16);", nullptr, nullptr, nullptr);
-        sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 16;", nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "ALTER TABLE drafts ADD COLUMN parent_id INTEGER DEFAULT 0;",
+                     nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db),
+                     "ALTER TABLE drafts ADD COLUMN target_type TEXT DEFAULT 'document';", nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "INSERT OR REPLACE INTO schema_version (version) VALUES (16);",
+                     nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "PRAGMA user_version = 16;", nullptr, nullptr, nullptr);
         userVersion = 16;
     }
 
     if (userVersion < 17) {
-        sqlite3_exec((sqlite3*)m_db, "ALTER TABLE folders ADD COLUMN is_expanded BOOLEAN DEFAULT 0;", nullptr, nullptr, nullptr);
-        sqlite3_exec((sqlite3*)m_db, "ALTER TABLE messages ADD COLUMN is_expanded BOOLEAN DEFAULT 0;", nullptr, nullptr, nullptr);
-        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (17);", nullptr, nullptr, nullptr);
-        sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 17;", nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "ALTER TABLE folders ADD COLUMN is_expanded BOOLEAN DEFAULT 0;",
+                     nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "ALTER TABLE messages ADD COLUMN is_expanded BOOLEAN DEFAULT 0;",
+                     nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "INSERT OR REPLACE INTO schema_version (version) VALUES (17);",
+                     nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "PRAGMA user_version = 17;", nullptr, nullptr, nullptr);
         userVersion = 17;
     }
 
     if (userVersion < 18) {
         const char* sql_alter_documents = "ALTER TABLE documents ADD COLUMN metadata TEXT DEFAULT '';";
-        sqlite3_exec((sqlite3*)m_db, sql_alter_documents, nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), sql_alter_documents, nullptr, nullptr, nullptr);
 
-        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (18);", nullptr, nullptr,
-                     nullptr);
-        sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 18;", nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "INSERT OR REPLACE INTO schema_version (version) VALUES (18);",
+                     nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "PRAGMA user_version = 18;", nullptr, nullptr, nullptr);
         userVersion = 18;
     }
 
@@ -519,11 +532,11 @@ bool BookDatabase::initSchema() {
             "timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, "
             "version_history_id INTEGER DEFAULT 0"
             ");";
-        sqlite3_exec((sqlite3*)m_db, sql_merges, nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), sql_merges, nullptr, nullptr, nullptr);
 
-        sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (19);", nullptr, nullptr, nullptr);
-        sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 19;", nullptr, nullptr, nullptr);
-        userVersion = 19;
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "INSERT OR REPLACE INTO schema_version (version) VALUES (19);",
+                     nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "PRAGMA user_version = 19;", nullptr, nullptr, nullptr);
     }
 
     return true;
@@ -534,7 +547,7 @@ void BookDatabase::setSetting(const QString& scope, int targetId, const QString&
 
     const char* sql = "INSERT OR REPLACE INTO settings (scope, target_id, key, value) VALUES (?, ?, ?, ?);";
     sqlite3_stmt* stmt;
-    int rc = sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr);
+    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return;
 
     sqlite3_bind_text(stmt, 1, scope.toUtf8().constData(), -1, SQLITE_TRANSIENT);
@@ -552,7 +565,7 @@ QString BookDatabase::getSetting(const QString& scope, int targetId, const QStri
 
     const char* sql = "SELECT value FROM settings WHERE scope = ? AND target_id = ? AND key = ?;";
     sqlite3_stmt* stmt;
-    int rc = sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr);
+    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return defaultValue;
 
     sqlite3_bind_text(stmt, 1, scope.toUtf8().constData(), -1, SQLITE_TRANSIENT);
@@ -561,7 +574,7 @@ QString BookDatabase::getSetting(const QString& scope, int targetId, const QStri
 
     QString result = defaultValue;
     if (sqlite3_step(stmt) == SQLITE_ROW) {
-        result = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 0));
+        result = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 0));
     }
 
     sqlite3_finalize(stmt);
@@ -578,7 +591,8 @@ bool BookDatabase::moveItem(const QString& table, int id, int newFolderId) {
 
     QString sql = QString("UPDATE %1 SET folder_id = ? WHERE id = ?;").arg(safeTable);
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2((sqlite3*)m_db, sql.toUtf8().constData(), -1, &stmt, nullptr) != SQLITE_OK) return false;
+    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql.toUtf8().constData(), -1, &stmt, nullptr) != SQLITE_OK)
+        return false;
 
     sqlite3_bind_int(stmt, 1, newFolderId);
     sqlite3_bind_int(stmt, 2, id);
@@ -592,7 +606,7 @@ bool BookDatabase::moveFolder(int id, int newParentId) {
     if (!m_isOpen) return false;
     const char* sql = "UPDATE folders SET parent_id = ? WHERE id = ?;";
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
 
     sqlite3_bind_int(stmt, 1, newParentId);
     sqlite3_bind_int(stmt, 2, id);
@@ -607,7 +621,7 @@ int BookDatabase::addMessage(int parentId, const QString& content, const QString
 
     const char* sql = "INSERT INTO messages (parent_id, folder_id, role, content) VALUES (?, ?, ?, ?);";
     sqlite3_stmt* stmt;
-    int rc = sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr);
+    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return -1;
 
     sqlite3_bind_int(stmt, 1, parentId);
@@ -621,16 +635,19 @@ int BookDatabase::addMessage(int parentId, const QString& content, const QString
         return -1;
     }
 
-    int id = sqlite3_last_insert_rowid((sqlite3*)m_db);
+    int id = sqlite3_last_insert_rowid(reinterpret_cast<sqlite3*>(m_db));
     sqlite3_finalize(stmt);
     return id;
 }
 
-int BookDatabase::addDocumentMerge(int documentId, const QString& sourceDocumentIds, const QString& prompt, const QString& model, int versionHistoryId) {
+int BookDatabase::addDocumentMerge(int documentId, const QString& sourceDocumentIds, const QString& prompt,
+                                   const QString& model, int versionHistoryId) {
     if (!m_isOpen) return -1;
-    const char* sql = "INSERT INTO document_merges (document_id, source_document_ids, prompt, model, version_history_id) VALUES (?, ?, ?, ?, ?);";
+    const char* sql =
+        "INSERT INTO document_merges (document_id, source_document_ids, prompt, model, version_history_id) VALUES (?, "
+        "?, ?, ?, ?);";
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return -1;
+    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return -1;
 
     sqlite3_bind_int(stmt, 1, documentId);
     sqlite3_bind_text(stmt, 2, sourceDocumentIds.toUtf8().constData(), -1, SQLITE_TRANSIENT);
@@ -639,7 +656,7 @@ int BookDatabase::addDocumentMerge(int documentId, const QString& sourceDocument
     sqlite3_bind_int(stmt, 5, versionHistoryId);
 
     int rc = sqlite3_step(stmt);
-    int id = (rc == SQLITE_DONE) ? sqlite3_last_insert_rowid((sqlite3*)m_db) : -1;
+    int id = (rc == SQLITE_DONE) ? sqlite3_last_insert_rowid(reinterpret_cast<sqlite3*>(m_db)) : -1;
     sqlite3_finalize(stmt);
     return id;
 }
@@ -647,9 +664,11 @@ int BookDatabase::addDocumentMerge(int documentId, const QString& sourceDocument
 std::optional<BookDatabase::DocumentMergeEntry> BookDatabase::getDocumentMerge(int documentId) const {
     if (!m_isOpen) return std::nullopt;
 
-    QString sqlStr = "SELECT id, document_id, source_document_ids, prompt, model, timestamp, version_history_id FROM document_merges WHERE document_id = ? ORDER BY timestamp DESC LIMIT 1;";
+    QString sqlStr =
+        "SELECT id, document_id, source_document_ids, prompt, model, timestamp, version_history_id FROM "
+        "document_merges WHERE document_id = ? ORDER BY timestamp DESC LIMIT 1;";
     sqlite3_stmt* stmt;
-    int rc = sqlite3_prepare_v2((sqlite3*)m_db, sqlStr.toUtf8().constData(), -1, &stmt, nullptr);
+    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sqlStr.toUtf8().constData(), -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return std::nullopt;
 
     sqlite3_bind_int(stmt, 1, documentId);
@@ -658,10 +677,10 @@ std::optional<BookDatabase::DocumentMergeEntry> BookDatabase::getDocumentMerge(i
         DocumentMergeEntry entry;
         entry.id = sqlite3_column_int(stmt, 0);
         entry.documentId = sqlite3_column_int(stmt, 1);
-        entry.sourceDocumentIds = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 2));
-        entry.prompt = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 3));
-        entry.model = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 4));
-        entry.timestamp = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 5));
+        entry.sourceDocumentIds = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 2));
+        entry.prompt = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 3));
+        entry.model = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 4));
+        entry.timestamp = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 5));
         entry.versionHistoryId = sqlite3_column_int(stmt, 6);
 
         sqlite3_finalize(stmt);
@@ -675,7 +694,7 @@ bool BookDatabase::updateDocumentMergeVersion(int mergeId, int versionHistoryId)
     if (!m_isOpen) return false;
     const char* sql = "UPDATE document_merges SET version_history_id = ? WHERE id = ?;";
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
     sqlite3_bind_int(stmt, 1, versionHistoryId);
     sqlite3_bind_int(stmt, 2, mergeId);
     int rc = sqlite3_step(stmt);
@@ -692,14 +711,14 @@ int BookDatabase::addDocumentHistoryReturningId(int documentId, const QString& a
 
     const char* sql = "INSERT INTO document_history (document_id, action_type, content) VALUES (?, ?, ?);";
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return -1;
+    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return -1;
 
     sqlite3_bind_int(stmt, 1, documentId);
     sqlite3_bind_text(stmt, 2, actionType.toUtf8().constData(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 3, content.toUtf8().constData(), -1, SQLITE_TRANSIENT);
 
     int rc = sqlite3_step(stmt);
-    int id = (rc == SQLITE_DONE) ? sqlite3_last_insert_rowid((sqlite3*)m_db) : -1;
+    int id = (rc == SQLITE_DONE) ? sqlite3_last_insert_rowid(reinterpret_cast<sqlite3*>(m_db)) : -1;
     sqlite3_finalize(stmt);
     return id;
 }
@@ -712,16 +731,16 @@ QList<BookDatabase::DocumentHistoryEntry> BookDatabase::getDocumentHistory(int d
         "SELECT id, action_type, content, timestamp FROM document_history WHERE document_id = ? ORDER BY timestamp "
         "DESC;";
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return items;
+    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return items;
 
     sqlite3_bind_int(stmt, 1, documentId);
 
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         DocumentHistoryEntry item;
         item.id = sqlite3_column_int(stmt, 0);
-        item.actionType = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 1));
-        item.content = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 2));
-        item.timestamp = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 3));
+        item.actionType = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 1));
+        item.content = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 2));
+        item.timestamp = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 3));
         items.append(item);
     }
 
@@ -734,7 +753,7 @@ bool BookDatabase::updateMessage(int id, const QString& newContent) {
 
     const char* sql = "UPDATE messages SET content = ? WHERE id = ?;";
     sqlite3_stmt* stmt;
-    int rc = sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr);
+    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return false;
 
     sqlite3_bind_text(stmt, 1, newContent.toUtf8().constData(), -1, SQLITE_TRANSIENT);
@@ -751,7 +770,7 @@ bool BookDatabase::deleteMessage(int id) {
     // Recursively delete children? For now just delete this one.
     const char* sql = "DELETE FROM messages WHERE id = ?;";
     sqlite3_stmt* stmt;
-    int rc = sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr);
+    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return false;
 
     sqlite3_bind_int(stmt, 1, id);
@@ -767,7 +786,7 @@ int BookDatabase::getRootMessageId(int messageId) const {
     int currentId = messageId;
     const char* sql = "SELECT parent_id FROM messages WHERE id = ?;";
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) {
         return currentId;
     }
 
@@ -794,7 +813,7 @@ QString BookDatabase::getInheritedSetting(int messageId, const QString& key) con
     int currentId = messageId;
     const char* sql = "SELECT parent_id FROM messages WHERE id = ?;";
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) {
         return QString();
     }
 
@@ -841,9 +860,10 @@ QList<MessageNode> BookDatabase::getMessages() const {
     QList<MessageNode> nodes;
     if (!m_isOpen) return nodes;
 
-    const char* sql = "SELECT id, parent_id, folder_id, role, content, timestamp, is_expanded FROM messages ORDER BY id;";
+    const char* sql =
+        "SELECT id, parent_id, folder_id, role, content, timestamp, is_expanded FROM messages ORDER BY id;";
     sqlite3_stmt* stmt;
-    int rc = sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr);
+    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return nodes;
 
     while (sqlite3_step(stmt) == SQLITE_ROW) {
@@ -851,9 +871,9 @@ QList<MessageNode> BookDatabase::getMessages() const {
         node.id = sqlite3_column_int(stmt, 0);
         node.parentId = sqlite3_column_int(stmt, 1);
         node.folderId = sqlite3_column_int(stmt, 2);
-        node.role = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 3));
-        node.content = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 4));
-        QString ts = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 5));
+        node.role = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 3));
+        node.content = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 4));
+        QString ts = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 5));
         node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
         node.isExpanded = sqlite3_column_int(stmt, 6) != 0;
         nodes.append(node);
@@ -862,12 +882,13 @@ QList<MessageNode> BookDatabase::getMessages() const {
     return nodes;
 }
 
-int BookDatabase::addDocument(int folderId, const QString& title, const QString& content, int parentId, const QString& metadata) {
+int BookDatabase::addDocument(int folderId, const QString& title, const QString& content, int parentId,
+                              const QString& metadata) {
     if (!m_isOpen) return -1;
 
     const char* sql = "INSERT INTO documents (folder_id, title, content, parent_id, metadata) VALUES (?, ?, ?, ?, ?);";
     sqlite3_stmt* stmt;
-    int rc = sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr);
+    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return -1;
 
     sqlite3_bind_int(stmt, 1, folderId);
@@ -882,7 +903,7 @@ int BookDatabase::addDocument(int folderId, const QString& title, const QString&
         return -1;
     }
 
-    int id = sqlite3_last_insert_rowid((sqlite3*)m_db);
+    int id = sqlite3_last_insert_rowid(reinterpret_cast<sqlite3*>(m_db));
     sqlite3_finalize(stmt);
     return id;
 }
@@ -892,7 +913,7 @@ bool BookDatabase::updateDocument(int id, const QString& newTitle, const QString
 
     const char* sql = "UPDATE documents SET title = ?, content = ?, metadata = ? WHERE id = ?;";
     sqlite3_stmt* stmt;
-    int rc = sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr);
+    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return false;
 
     sqlite3_bind_text(stmt, 1, newTitle.toUtf8().constData(), -1, SQLITE_TRANSIENT);
@@ -908,24 +929,26 @@ bool BookDatabase::updateDocument(int id, const QString& newTitle, const QString
 std::optional<DocumentNode> BookDatabase::getDocument(int id) const {
     if (!m_isOpen) return std::nullopt;
 
-    QString sqlStr = "SELECT id, folder_id, title, content, timestamp, parent_id, metadata FROM documents WHERE id = ?;";
+    QString sqlStr =
+        "SELECT id, folder_id, title, content, timestamp, parent_id, metadata FROM documents WHERE id = ?;";
     sqlite3_stmt* stmt;
-    int rc = sqlite3_prepare_v2((sqlite3*)m_db, sqlStr.toUtf8().constData(), -1, &stmt, nullptr);
+    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sqlStr.toUtf8().constData(), -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return std::nullopt;
 
     sqlite3_bind_int(stmt, 1, id);
 
     if (sqlite3_step(stmt) == SQLITE_ROW) {
         DocumentNode node;
+        node.isFolder = false;
         node.id = sqlite3_column_int(stmt, 0);
         node.folderId = sqlite3_column_int(stmt, 1);
-        node.title = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 2));
-        node.content = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 3));
-        QString ts = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 4));
+        node.title = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 2));
+        node.content = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 3));
+        QString ts = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 4));
         node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
         node.parentId = sqlite3_column_int(stmt, 5);
 
-        const char* metadataText = (const char*)sqlite3_column_text(stmt, 6);
+        const char* metadataText = reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 6);
         if (metadataText) {
             node.metadata = QString::fromUtf8(metadataText);
         }
@@ -949,7 +972,7 @@ QList<DocumentNode> BookDatabase::getDocuments(int folderId) const {
     sqlStr += " ORDER BY timestamp ASC;";
 
     sqlite3_stmt* stmt;
-    int rc = sqlite3_prepare_v2((sqlite3*)m_db, sqlStr.toUtf8().constData(), -1, &stmt, nullptr);
+    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sqlStr.toUtf8().constData(), -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return nodes;
 
     if (folderId != -1) sqlite3_bind_int(stmt, 1, folderId);
@@ -958,13 +981,13 @@ QList<DocumentNode> BookDatabase::getDocuments(int folderId) const {
         DocumentNode node;
         node.id = sqlite3_column_int(stmt, 0);
         node.folderId = sqlite3_column_int(stmt, 1);
-        node.title = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 2));
-        node.content = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 3));
-        QString ts = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 4));
+        node.title = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 2));
+        node.content = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 3));
+        QString ts = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 4));
         node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
         node.parentId = sqlite3_column_int(stmt, 5);
 
-        const char* metadataText = (const char*)sqlite3_column_text(stmt, 6);
+        const char* metadataText = reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 6);
         if (metadataText) {
             node.metadata = QString::fromUtf8(metadataText);
         }
@@ -983,7 +1006,7 @@ bool BookDatabase::deleteDocument(int id) {
     if (!m_isOpen) return false;
     const char* sql = "DELETE FROM documents WHERE id = ?;";
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
     sqlite3_bind_int(stmt, 1, id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
@@ -995,7 +1018,7 @@ int BookDatabase::addNote(int folderId, const QString& title, const QString& con
 
     const char* sql = "INSERT INTO notes (folder_id, title, content) VALUES (?, ?, ?);";
     sqlite3_stmt* stmt;
-    int rc = sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr);
+    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return -1;
 
     sqlite3_bind_int(stmt, 1, folderId);
@@ -1008,7 +1031,7 @@ int BookDatabase::addNote(int folderId, const QString& title, const QString& con
         return -1;
     }
 
-    int id = sqlite3_last_insert_rowid((sqlite3*)m_db);
+    int id = sqlite3_last_insert_rowid(reinterpret_cast<sqlite3*>(m_db));
     sqlite3_finalize(stmt);
     return id;
 }
@@ -1018,7 +1041,7 @@ bool BookDatabase::updateNote(int id, const QString& newTitle, const QString& ne
 
     const char* sql = "UPDATE notes SET title = ?, content = ? WHERE id = ?;";
     sqlite3_stmt* stmt;
-    int rc = sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr);
+    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return false;
 
     sqlite3_bind_text(stmt, 1, newTitle.toUtf8().constData(), -1, SQLITE_TRANSIENT);
@@ -1039,7 +1062,7 @@ QList<NoteNode> BookDatabase::getNotes(int folderId) const {
     sqlStr += " ORDER BY id;";
 
     sqlite3_stmt* stmt;
-    int rc = sqlite3_prepare_v2((sqlite3*)m_db, sqlStr.toUtf8().constData(), -1, &stmt, nullptr);
+    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sqlStr.toUtf8().constData(), -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return nodes;
 
     if (folderId != -1) sqlite3_bind_int(stmt, 1, folderId);
@@ -1048,9 +1071,9 @@ QList<NoteNode> BookDatabase::getNotes(int folderId) const {
         NoteNode node;
         node.id = sqlite3_column_int(stmt, 0);
         node.folderId = sqlite3_column_int(stmt, 1);
-        node.title = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 2));
-        node.content = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 3));
-        QString ts = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 4));
+        node.title = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 2));
+        node.content = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 3));
+        QString ts = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 4));
         node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
         nodes.append(node);
     }
@@ -1062,7 +1085,7 @@ bool BookDatabase::deleteNote(int id) {
     if (!m_isOpen) return false;
     const char* sql = "DELETE FROM notes WHERE id = ?;";
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
     sqlite3_bind_int(stmt, 1, id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
@@ -1074,7 +1097,7 @@ int BookDatabase::addTemplate(int folderId, const QString& title, const QString&
 
     const char* sql = "INSERT INTO templates (folder_id, title, content) VALUES (?, ?, ?);";
     sqlite3_stmt* stmt;
-    int rc = sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr);
+    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return -1;
 
     sqlite3_bind_int(stmt, 1, folderId);
@@ -1087,7 +1110,7 @@ int BookDatabase::addTemplate(int folderId, const QString& title, const QString&
         return -1;
     }
 
-    int id = sqlite3_last_insert_rowid((sqlite3*)m_db);
+    int id = sqlite3_last_insert_rowid(reinterpret_cast<sqlite3*>(m_db));
     sqlite3_finalize(stmt);
     return id;
 }
@@ -1097,7 +1120,7 @@ bool BookDatabase::updateTemplate(int id, const QString& newTitle, const QString
 
     const char* sql = "UPDATE templates SET title = ?, content = ? WHERE id = ?;";
     sqlite3_stmt* stmt;
-    int rc = sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr);
+    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return false;
 
     sqlite3_bind_text(stmt, 1, newTitle.toUtf8().constData(), -1, SQLITE_TRANSIENT);
@@ -1118,7 +1141,7 @@ QList<DocumentNode> BookDatabase::getTemplates(int folderId) const {
     sqlStr += " ORDER BY timestamp ASC;";
 
     sqlite3_stmt* stmt;
-    int rc = sqlite3_prepare_v2((sqlite3*)m_db, sqlStr.toUtf8().constData(), -1, &stmt, nullptr);
+    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sqlStr.toUtf8().constData(), -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return nodes;
 
     if (folderId != -1) sqlite3_bind_int(stmt, 1, folderId);
@@ -1127,9 +1150,9 @@ QList<DocumentNode> BookDatabase::getTemplates(int folderId) const {
         DocumentNode node;
         node.id = sqlite3_column_int(stmt, 0);
         node.folderId = sqlite3_column_int(stmt, 1);
-        node.title = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 2));
-        node.content = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 3));
-        QString ts = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 4));
+        node.title = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 2));
+        node.content = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 3));
+        QString ts = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 4));
         node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
         node.isFolder = false;
         nodes.append(node);
@@ -1138,12 +1161,13 @@ QList<DocumentNode> BookDatabase::getTemplates(int folderId) const {
     return nodes;
 }
 
-int BookDatabase::addDraft(int folderId, const QString& title, const QString& content, int parentId, const QString& targetType) {
+int BookDatabase::addDraft(int folderId, const QString& title, const QString& content, int parentId,
+                           const QString& targetType) {
     if (!m_isOpen) return -1;
 
     const char* sql = "INSERT INTO drafts (folder_id, title, content, parent_id, target_type) VALUES (?, ?, ?, ?, ?);";
     sqlite3_stmt* stmt;
-    int rc = sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr);
+    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return -1;
 
     sqlite3_bind_int(stmt, 1, folderId);
@@ -1158,7 +1182,7 @@ int BookDatabase::addDraft(int folderId, const QString& title, const QString& co
         return -1;
     }
 
-    int id = sqlite3_last_insert_rowid((sqlite3*)m_db);
+    int id = sqlite3_last_insert_rowid(reinterpret_cast<sqlite3*>(m_db));
     sqlite3_finalize(stmt);
     return id;
 }
@@ -1168,7 +1192,7 @@ bool BookDatabase::updateDraft(int id, const QString& newTitle, const QString& n
 
     const char* sql = "UPDATE drafts SET title = ?, content = ? WHERE id = ?;";
     sqlite3_stmt* stmt;
-    int rc = sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr);
+    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return false;
 
     sqlite3_bind_text(stmt, 1, newTitle.toUtf8().constData(), -1, SQLITE_TRANSIENT);
@@ -1189,7 +1213,7 @@ QList<DocumentNode> BookDatabase::getDrafts(int folderId) const {
     sqlStr += " ORDER BY timestamp ASC;";
 
     sqlite3_stmt* stmt;
-    int rc = sqlite3_prepare_v2((sqlite3*)m_db, sqlStr.toUtf8().constData(), -1, &stmt, nullptr);
+    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sqlStr.toUtf8().constData(), -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return nodes;
 
     if (folderId != -1) sqlite3_bind_int(stmt, 1, folderId);
@@ -1198,12 +1222,12 @@ QList<DocumentNode> BookDatabase::getDrafts(int folderId) const {
         DocumentNode node;
         node.id = sqlite3_column_int(stmt, 0);
         node.folderId = sqlite3_column_int(stmt, 1);
-        node.title = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 2));
-        node.content = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 3));
-        QString ts = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 4));
+        node.title = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 2));
+        node.content = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 3));
+        QString ts = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 4));
         node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
         node.parentId = sqlite3_column_int(stmt, 5);
-        node.targetType = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 6));
+        node.targetType = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 6));
         node.isFolder = false;
         nodes.append(node);
     }
@@ -1215,7 +1239,7 @@ bool BookDatabase::deleteDraft(int id) {
     if (!m_isOpen) return false;
     const char* sql = "DELETE FROM drafts WHERE id = ?;";
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
     sqlite3_bind_int(stmt, 1, id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
@@ -1227,7 +1251,7 @@ int BookDatabase::addFolder(int parentId, const QString& name, const QString& ty
 
     const char* sql = "INSERT INTO folders (parent_id, name, type) VALUES (?, ?, ?);";
     sqlite3_stmt* stmt;
-    int rc = sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr);
+    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return -1;
 
     sqlite3_bind_int(stmt, 1, parentId);
@@ -1240,7 +1264,7 @@ int BookDatabase::addFolder(int parentId, const QString& name, const QString& ty
         return -1;
     }
 
-    int id = sqlite3_last_insert_rowid((sqlite3*)m_db);
+    int id = sqlite3_last_insert_rowid(reinterpret_cast<sqlite3*>(m_db));
     sqlite3_finalize(stmt);
     return id;
 }
@@ -1250,7 +1274,7 @@ bool BookDatabase::updateFolder(int id, const QString& newName) {
 
     const char* sql = "UPDATE folders SET name = ? WHERE id = ?;";
     sqlite3_stmt* stmt;
-    int rc = sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr);
+    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return false;
 
     sqlite3_bind_text(stmt, 1, newName.toUtf8().constData(), -1, SQLITE_TRANSIENT);
@@ -1266,7 +1290,7 @@ bool BookDatabase::deleteFolder(int id) {
 
     const char* sql = "DELETE FROM folders WHERE id = ?;";
     sqlite3_stmt* stmt;
-    int rc = sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr);
+    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return false;
 
     sqlite3_bind_int(stmt, 1, id);
@@ -1280,7 +1304,7 @@ void BookDatabase::setFolderExpanded(int id, bool expanded) {
     if (!m_isOpen) return;
     const char* sql = "UPDATE folders SET is_expanded = ? WHERE id = ?;";
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return;
+    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return;
     sqlite3_bind_int(stmt, 1, expanded ? 1 : 0);
     sqlite3_bind_int(stmt, 2, id);
     sqlite3_step(stmt);
@@ -1291,7 +1315,7 @@ void BookDatabase::setMessageExpanded(int id, bool expanded) {
     if (!m_isOpen) return;
     const char* sql = "UPDATE messages SET is_expanded = ? WHERE id = ?;";
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return;
+    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return;
     sqlite3_bind_int(stmt, 1, expanded ? 1 : 0);
     sqlite3_bind_int(stmt, 2, id);
     sqlite3_step(stmt);
@@ -1303,10 +1327,11 @@ QList<FolderNode> BookDatabase::getFolders(const QString& type) const {
     if (!m_isOpen) return folderNodes;
 
     const char* sql =
-        "SELECT id, parent_id, name, type, timestamp, position, is_expanded FROM folders WHERE type = ? ORDER BY position ASC, name "
+        "SELECT id, parent_id, name, type, timestamp, position, is_expanded FROM folders WHERE type = ? ORDER BY "
+        "position ASC, name "
         "ASC;";
     sqlite3_stmt* stmt;
-    int rc = sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr);
+    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return folderNodes;
 
     sqlite3_bind_text(stmt, 1, type.toUtf8().constData(), -1, SQLITE_TRANSIENT);
@@ -1315,9 +1340,9 @@ QList<FolderNode> BookDatabase::getFolders(const QString& type) const {
         FolderNode node;
         node.id = sqlite3_column_int(stmt, 0);
         node.parentId = sqlite3_column_int(stmt, 1);
-        node.name = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 2));
-        node.type = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 3));
-        QString ts = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 4));
+        node.name = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 2));
+        node.type = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 3));
+        QString ts = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 4));
         node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
         node.position = sqlite3_column_int(stmt, 5);
         node.isExpanded = sqlite3_column_int(stmt, 6) != 0;
@@ -1335,7 +1360,7 @@ int BookDatabase::enqueuePrompt(int messageId, const QString& model, const QStri
         "INSERT INTO queue (message_id, model, prompt, priority, target_type, state, parent_id, target_action) VALUES "
         "(?, ?, ?, ?, ?, 'pending', ?, ?);";
     sqlite3_stmt* stmt;
-    int rc = sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr);
+    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return -1;
 
     sqlite3_bind_int(stmt, 1, messageId);
@@ -1352,7 +1377,7 @@ int BookDatabase::enqueuePrompt(int messageId, const QString& model, const QStri
         return -1;
     }
 
-    int id = sqlite3_last_insert_rowid((sqlite3*)m_db);
+    int id = sqlite3_last_insert_rowid(reinterpret_cast<sqlite3*>(m_db));
     sqlite3_finalize(stmt);
     return id;
 }
@@ -1370,7 +1395,9 @@ bool BookDatabase::updateQueueItemState(int id, const QString& state, const QStr
     sqlStr += " WHERE id = ?;";
 
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2((sqlite3*)m_db, sqlStr.toUtf8().constData(), -1, &stmt, nullptr) != SQLITE_OK) return false;
+    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sqlStr.toUtf8().constData(), -1, &stmt, nullptr) !=
+        SQLITE_OK)
+        return false;
 
     sqlite3_bind_text(stmt, 1, state.toUtf8().constData(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 2, response.toUtf8().constData(), -1, SQLITE_TRANSIENT);
@@ -1387,10 +1414,10 @@ BookDatabase::QueueStats BookDatabase::getQueueStats() const {
 
     const char* sql = "SELECT state, COUNT(*) FROM queue GROUP BY state;";
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return stats;
+    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return stats;
 
     while (sqlite3_step(stmt) == SQLITE_ROW) {
-        QString state = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 0));
+        QString state = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 0));
         int count = sqlite3_column_int(stmt, 1);
 
         if (state == "pending") {
@@ -1410,9 +1437,11 @@ BookDatabase::QueueStats BookDatabase::getQueueStats() const {
 
 bool BookDatabase::isGenerating(int targetId, const QString& targetType, const QString& targetAction) const {
     if (!m_isOpen) return false;
-    const char* sql = "SELECT COUNT(*) FROM queue WHERE message_id = ? AND target_type = ? AND target_action = ? AND state IN ('pending', 'processing');";
+    const char* sql =
+        "SELECT COUNT(*) FROM queue WHERE message_id = ? AND target_type = ? AND target_action = ? AND state IN "
+        "('pending', 'processing');";
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
 
     sqlite3_bind_int(stmt, 1, targetId);
     sqlite3_bind_text(stmt, 2, targetType.toUtf8().constData(), -1, SQLITE_TRANSIENT);
@@ -1436,29 +1465,29 @@ QList<QueueItem> BookDatabase::getQueue() const {
         "DESC, "
         "created_at DESC;";
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return items;
+    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return items;
 
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         QueueItem item;
         item.id = sqlite3_column_int(stmt, 0);
         item.messageId = sqlite3_column_int(stmt, 1);
-        item.model = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 2));
-        item.prompt = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 3));
+        item.model = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 2));
+        item.prompt = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 3));
         item.processingId = sqlite3_column_int(stmt, 4);
         const unsigned char* errorText = sqlite3_column_text(stmt, 5);
-        if (errorText) item.lastError = QString::fromUtf8((const char*)errorText);
+        if (errorText) item.lastError = QString::fromUtf8(reinterpret_cast<const char*>(errorText));
         item.priority = sqlite3_column_int(stmt, 6);
-        item.timestamp =
-            QDateTime::fromString(QString::fromUtf8((const char*)sqlite3_column_text(stmt, 7)), Qt::ISODate);
-        item.targetType = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 8));
+        item.timestamp = QDateTime::fromString(
+            QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 7)), Qt::ISODate);
+        item.targetType = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 8));
         if (item.targetType.isEmpty()) item.targetType = "message";
         const unsigned char* stateText = sqlite3_column_text(stmt, 9);
-        if (stateText) item.state = QString::fromUtf8((const char*)stateText);
+        if (stateText) item.state = QString::fromUtf8(reinterpret_cast<const char*>(stateText));
         const unsigned char* responseText = sqlite3_column_text(stmt, 10);
-        if (responseText) item.response = QString::fromUtf8((const char*)responseText);
+        if (responseText) item.response = QString::fromUtf8(reinterpret_cast<const char*>(responseText));
         item.parentId = sqlite3_column_int(stmt, 11);
         const unsigned char* actionText = sqlite3_column_text(stmt, 12);
-        if (actionText) item.targetAction = QString::fromUtf8((const char*)actionText);
+        if (actionText) item.targetAction = QString::fromUtf8(reinterpret_cast<const char*>(actionText));
 
         items.append(item);
     }
@@ -1470,7 +1499,7 @@ bool BookDatabase::updateQueueProcessingId(int id, int processingId) {
     if (!m_isOpen) return false;
     const char* sql = "UPDATE queue SET processing_id = ? WHERE id = ?;";
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
     sqlite3_bind_int(stmt, 1, processingId);
     sqlite3_bind_int(stmt, 2, id);
     int rc = sqlite3_step(stmt);
@@ -1482,7 +1511,7 @@ bool BookDatabase::updateQueueError(int id, const QString& error) {
     if (!m_isOpen) return false;
     const char* sql = "UPDATE queue SET last_error = ?, processing_id = 0, state = ? WHERE id = ?;";
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
 
     QString state = error.isEmpty() ? "pending" : "error";
 
@@ -1498,7 +1527,7 @@ bool BookDatabase::updateQueueItemPrompt(int id, const QString& prompt) {
     if (!m_isOpen) return false;
     const char* sql = "UPDATE queue SET prompt = ? WHERE id = ?;";
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
     sqlite3_bind_text(stmt, 1, prompt.toUtf8().constData(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_int(stmt, 2, id);
     int rc = sqlite3_step(stmt);
@@ -1506,12 +1535,11 @@ bool BookDatabase::updateQueueItemPrompt(int id, const QString& prompt) {
     return rc == SQLITE_DONE;
 }
 
-
 bool BookDatabase::updateQueueItemModel(int id, const QString& model) {
     if (!m_isOpen) return false;
     const char* sql = "UPDATE queue SET model = ? WHERE id = ?;";
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
     sqlite3_bind_text(stmt, 1, model.toUtf8().constData(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_int(stmt, 2, id);
     int rc = sqlite3_step(stmt);
@@ -1523,7 +1551,7 @@ bool BookDatabase::deleteQueueItem(int id) {
     if (!m_isOpen) return false;
     const char* sql = "DELETE FROM queue WHERE id = ?;";
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
     sqlite3_bind_int(stmt, 1, id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
@@ -1534,7 +1562,7 @@ int BookDatabase::addNotification(int targetId, const QString& targetType, const
     if (!m_isOpen) return -1;
     const char* sql = "INSERT INTO notifications (target_id, target_type, type) VALUES (?, ?, ?);";
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return -1;
+    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return -1;
     sqlite3_bind_int(stmt, 1, targetId);
     sqlite3_bind_text(stmt, 2, targetType.toUtf8().constData(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 3, type.toUtf8().constData(), -1, SQLITE_TRANSIENT);
@@ -1543,7 +1571,7 @@ int BookDatabase::addNotification(int targetId, const QString& targetType, const
         sqlite3_finalize(stmt);
         return -1;
     }
-    int id = sqlite3_last_insert_rowid((sqlite3*)m_db);
+    int id = sqlite3_last_insert_rowid(reinterpret_cast<sqlite3*>(m_db));
     sqlite3_finalize(stmt);
     return id;
 }
@@ -1555,16 +1583,17 @@ QList<Notification> BookDatabase::getNotifications(bool includeDismissed) const 
     if (!includeDismissed) sql += " WHERE is_dismissed = 0";
     sql += " ORDER BY created_at DESC;";
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2((sqlite3*)m_db, sql.toUtf8().constData(), -1, &stmt, nullptr) != SQLITE_OK)
+    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql.toUtf8().constData(), -1, &stmt, nullptr) != SQLITE_OK)
         return notifications;
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         Notification n;
         n.id = sqlite3_column_int(stmt, 0);
         n.targetId = sqlite3_column_int(stmt, 1);
-        n.targetType = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 2));
-        n.type = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 3));
+        n.targetType = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 2));
+        n.type = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 3));
         n.isDismissed = sqlite3_column_int(stmt, 4) != 0;
-        n.timestamp = QDateTime::fromString(QString::fromUtf8((const char*)sqlite3_column_text(stmt, 5)), Qt::ISODate);
+        n.timestamp = QDateTime::fromString(
+            QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 5)), Qt::ISODate);
         notifications.append(n);
     }
     sqlite3_finalize(stmt);
@@ -1575,7 +1604,7 @@ bool BookDatabase::dismissNotification(int id) {
     if (!m_isOpen) return false;
     const char* sql = "UPDATE notifications SET is_dismissed = 1 WHERE id = ?;";
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
     sqlite3_bind_int(stmt, 1, id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
@@ -1586,7 +1615,7 @@ bool BookDatabase::dismissNotificationByTarget(int targetId, const QString& targ
     if (!m_isOpen) return false;
     const char* sql = "UPDATE notifications SET is_dismissed = 1 WHERE target_id = ? AND target_type = ?;";
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
     sqlite3_bind_int(stmt, 1, targetId);
     sqlite3_bind_text(stmt, 2, targetType.toUtf8().constData(), -1, SQLITE_TRANSIENT);
     int rc = sqlite3_step(stmt);
@@ -1598,7 +1627,7 @@ bool BookDatabase::dismissNotificationByTargetAndType(int targetId, const QStrin
     if (!m_isOpen) return false;
     const char* sql = "UPDATE notifications SET is_dismissed = 1 WHERE target_id = ? AND target_type = ? AND type = ?;";
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
     sqlite3_bind_int(stmt, 1, targetId);
     sqlite3_bind_text(stmt, 2, targetType.toUtf8().constData(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 3, type.toUtf8().constData(), -1, SQLITE_TRANSIENT);
@@ -1613,7 +1642,7 @@ QString BookDatabase::getDatabaseDebugInfo() const {
     QString info;
     int userVersion = 0;
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2((sqlite3*)m_db, "PRAGMA user_version;", -1, &stmt, nullptr) == SQLITE_OK) {
+    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), "PRAGMA user_version;", -1, &stmt, nullptr) == SQLITE_OK) {
         if (sqlite3_step(stmt) == SQLITE_ROW) {
             userVersion = sqlite3_column_int(stmt, 0);
         }
@@ -1622,11 +1651,11 @@ QString BookDatabase::getDatabaseDebugInfo() const {
     info += QString("Schema Version: %1\n\n").arg(userVersion);
 
     info += "Tables:\n";
-    if (sqlite3_prepare_v2((sqlite3*)m_db, "SELECT name, sql FROM sqlite_master WHERE type='table';", -1, &stmt,
-                           nullptr) == SQLITE_OK) {
+    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), "SELECT name, sql FROM sqlite_master WHERE type='table';",
+                           -1, &stmt, nullptr) == SQLITE_OK) {
         while (sqlite3_step(stmt) == SQLITE_ROW) {
             const unsigned char* namePtr = sqlite3_column_text(stmt, 0);
-            QString name = namePtr ? QString::fromUtf8((const char*)namePtr) : "";
+            QString name = namePtr ? QString::fromUtf8(reinterpret_cast<const char*>(namePtr)) : "";
             info += QString("- %1\n").arg(name);
         }
         sqlite3_finalize(stmt);
@@ -1640,7 +1669,7 @@ int BookDatabase::addComment(const QString& entityType, int entityId, const QStr
 
     const char* sql = "INSERT INTO comments (entity_type, entity_id, content) VALUES (?, ?, ?);";
     sqlite3_stmt* stmt;
-    int rc = sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr);
+    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return -1;
 
     sqlite3_bind_text(stmt, 1, entityType.toUtf8().constData(), -1, SQLITE_TRANSIENT);
@@ -1653,7 +1682,7 @@ int BookDatabase::addComment(const QString& entityType, int entityId, const QStr
         return -1;
     }
 
-    int id = sqlite3_last_insert_rowid((sqlite3*)m_db);
+    int id = sqlite3_last_insert_rowid(reinterpret_cast<sqlite3*>(m_db));
     sqlite3_finalize(stmt);
     return id;
 }
@@ -1663,7 +1692,7 @@ bool BookDatabase::updateComment(int id, const QString& newContent) {
 
     const char* sql = "UPDATE comments SET content = ? WHERE id = ?;";
     sqlite3_stmt* stmt;
-    int rc = sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr);
+    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return false;
 
     sqlite3_bind_text(stmt, 1, newContent.toUtf8().constData(), -1, SQLITE_TRANSIENT);
@@ -1682,7 +1711,7 @@ QList<CommentNode> BookDatabase::getComments(const QString& entityType, int enti
         "SELECT id, entity_type, entity_id, content, created_at FROM comments WHERE entity_type = ? AND entity_id = ? "
         "ORDER BY created_at ASC;";
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return items;
+    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return items;
 
     sqlite3_bind_text(stmt, 1, entityType.toUtf8().constData(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_int(stmt, 2, entityId);
@@ -1690,11 +1719,11 @@ QList<CommentNode> BookDatabase::getComments(const QString& entityType, int enti
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         CommentNode item;
         item.id = sqlite3_column_int(stmt, 0);
-        item.entityType = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 1));
+        item.entityType = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 1));
         item.entityId = sqlite3_column_int(stmt, 2);
-        item.content = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 3));
-        item.timestamp =
-            QDateTime::fromString(QString::fromUtf8((const char*)sqlite3_column_text(stmt, 4)), Qt::ISODate);
+        item.content = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 3));
+        item.timestamp = QDateTime::fromString(
+            QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 4)), Qt::ISODate);
         items.append(item);
     }
 
@@ -1706,7 +1735,7 @@ bool BookDatabase::deleteComment(int id) {
     if (!m_isOpen) return false;
     const char* sql = "DELETE FROM comments WHERE id = ?;";
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
     sqlite3_bind_int(stmt, 1, id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
@@ -1727,22 +1756,24 @@ ChatNode BookDatabase::getChat(int messageId) const {
         "SELECT title, systemPrompt, sendBehavior, model, multiLine, draftPrompt, userNote, version FROM chats WHERE "
         "message_id = ?;";
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) == SQLITE_OK) {
         sqlite3_bind_int(stmt, 1, messageId);
 
         if (sqlite3_step(stmt) == SQLITE_ROW) {
-            if (sqlite3_column_text(stmt, 0)) chat.title = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 0));
+            if (sqlite3_column_text(stmt, 0))
+                chat.title = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 0));
             if (sqlite3_column_text(stmt, 1))
-                chat.systemPrompt = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 1));
+                chat.systemPrompt = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 1));
             if (sqlite3_column_text(stmt, 2))
-                chat.sendBehavior = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 2));
-            if (sqlite3_column_text(stmt, 3)) chat.model = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 3));
+                chat.sendBehavior = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 2));
+            if (sqlite3_column_text(stmt, 3))
+                chat.model = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 3));
             if (sqlite3_column_text(stmt, 4))
-                chat.multiLine = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 4));
+                chat.multiLine = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 4));
             if (sqlite3_column_text(stmt, 5))
-                chat.draftPrompt = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 5));
+                chat.draftPrompt = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 5));
             if (sqlite3_column_text(stmt, 6))
-                chat.userNote = QString::fromUtf8((const char*)sqlite3_column_text(stmt, 6));
+                chat.userNote = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 6));
             chat.version = sqlite3_column_int(stmt, 7);
         }
         sqlite3_finalize(stmt);
@@ -1757,7 +1788,7 @@ bool BookDatabase::updateChat(const ChatNode& chat) {
         "INSERT OR REPLACE INTO chats (message_id, title, systemPrompt, sendBehavior, model, multiLine, draftPrompt, "
         "userNote, version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);";
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) {
         return false;
     }
 
@@ -1782,7 +1813,7 @@ QSet<int> BookDatabase::getAllChatIds() const {
     if (!m_isOpen) return ids;
     const char* sql = "SELECT message_id FROM chats;";
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) == SQLITE_OK) {
         while (sqlite3_step(stmt) == SQLITE_ROW) {
             ids.insert(sqlite3_column_int(stmt, 0));
         }
@@ -1795,7 +1826,7 @@ bool BookDatabase::deleteTemplate(int id) {
     if (!m_isOpen) return false;
     const char* sql = "DELETE FROM templates WHERE id = ?;";
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2((sqlite3*)m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
     sqlite3_bind_int(stmt, 1, id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);

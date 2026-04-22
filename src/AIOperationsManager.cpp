@@ -3,8 +3,8 @@
 QList<AIOperation> AIOperationsManager::getBuiltInOperations() {
     QList<AIOperation> ops;
     ops.append({"complete", "Complete this text",
-                "Complete the following text naturally. Only output the continuation.\n\nText:\n{context}",
-                "built-in", "single"});
+                "Complete the following text naturally. Only output the continuation.\n\nText:\n{context}", "built-in",
+                "single"});
     ops.append({"replace", "Replace entirely",
                 "Rewrite the following document according to your instructions. Only output the rewritten document, "
                 "nothing else.\n\nInstructions: {textarea}\n\nDocument:\n{context}",
@@ -14,7 +14,8 @@ QList<AIOperation> AIOperationsManager::getBuiltInOperations() {
                 "else.\n\nInstructions: {textarea}\n\nText:\n{context}",
                 "built-in", "single"});
     ops.append({"merge", "Merge Documents",
-                "Merge the following documents into one coherent document:\n\n{foreach contexts}\nDocument:\n{context}\n{between}\n---\n{end}",
+                "Merge the following documents into one coherent document:\n\n{foreach "
+                "contexts}\nDocument:\n{context}\n{between}\n---\n{end}",
                 "built-in", "multiple"});
     return ops;
 }

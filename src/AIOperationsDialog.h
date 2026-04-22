@@ -18,9 +18,7 @@ struct DynamicInputInfo {
     bool operator==(const DynamicInputInfo& other) const {
         return fullMatch == other.fullMatch && type == other.type && label == other.label;
     }
-    bool operator!=(const DynamicInputInfo& other) const {
-        return !(*this == other);
-    }
+    bool operator!=(const DynamicInputInfo& other) const { return !(*this == other); }
 };
 
 class AIOperationsDialog : public QDialog {

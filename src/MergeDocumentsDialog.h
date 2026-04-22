@@ -3,14 +3,15 @@
 
 #include <QComboBox>
 #include <QDialog>
+#include <QLineEdit>
 #include <QList>
 #include <QString>
 #include <QTextEdit>
-#include <QLineEdit>
 #include <memory>
-#include "BookDatabase.h"
+
 #include "AIOperationsManager.h"
-#include "AiActionDialog.h" // For AiDynamicInputInfo
+#include "AiActionDialog.h"  // For AiDynamicInputInfo
+#include "BookDatabase.h"
 #include "OllamaModelInfo.h"
 
 class QFormLayout;
@@ -21,7 +22,9 @@ class QCheckBox;
 class MergeDocumentsDialog : public QDialog {
     Q_OBJECT
    public:
-    explicit MergeDocumentsDialog(BookDatabase* db, const QList<int>& documentIds, const QList<OllamaModelInfo>& modelInfos, const QStringList& fallbackModels, QWidget* parent = nullptr);
+    explicit MergeDocumentsDialog(BookDatabase* db, const QList<int>& documentIds,
+                                  const QList<OllamaModelInfo>& modelInfos, const QStringList& fallbackModels,
+                                  QWidget* parent = nullptr);
 
     QString getFinalPrompt() const;
     QStringList getSelectedModels() const;
@@ -82,4 +85,4 @@ class MergeDocumentsDialog : public QDialog {
     bool m_isRegenerating = false;
 };
 
-#endif // MERGEDOCUMENTSDIALOG_H
+#endif  // MERGEDOCUMENTSDIALOG_H

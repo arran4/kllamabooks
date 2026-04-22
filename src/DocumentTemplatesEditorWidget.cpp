@@ -51,7 +51,9 @@ class EditDocumentTemplateDialog : public QDialog {
         connect(saveBtn, &QPushButton::clicked, this, &QDialog::accept);
     }
 
-    DocumentTemplate getTemplate() const { return {m_idEdit->text(), m_nameEdit->text(), m_contentEdit->toPlainText(), ""}; }
+    DocumentTemplate getTemplate() const {
+        return {m_idEdit->text(), m_nameEdit->text(), m_contentEdit->toPlainText(), ""};
+    }
 
    private:
     QLineEdit* m_idEdit;
@@ -95,7 +97,7 @@ DocumentTemplatesEditorWidget::DocumentTemplatesEditorWidget(const QString& leve
 }
 
 void DocumentTemplatesEditorWidget::setTemplates(const QList<DocumentTemplate>& editableTpls,
-                                             const QList<DocumentTemplate>& inheritedTpls) {
+                                                 const QList<DocumentTemplate>& inheritedTpls) {
     m_table->setRowCount(0);
 
     for (const DocumentTemplate& tpl : editableTpls) {
@@ -145,7 +147,7 @@ QList<DocumentTemplate> DocumentTemplatesEditorWidget::getTemplates() const {
     for (int i = 0; i < m_table->rowCount(); ++i) {
         if (m_table->item(i, 2)->text() == m_level) {
             tpls.append({m_table->item(i, 0)->data(Qt::UserRole).toString(), m_table->item(i, 0)->text(),
-                        m_table->item(i, 0)->data(Qt::UserRole + 1).toString(), m_level});
+                         m_table->item(i, 0)->data(Qt::UserRole + 1).toString(), m_level});
         }
     }
     return tpls;

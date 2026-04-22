@@ -5,8 +5,8 @@
 #include <QString>
 
 class TemplateParser {
-public:
+   public:
     static QString parseMergeTemplate(QString prompt, const QList<QString>& documentContents);
 };
 
-#endif // TEMPLATEPARSER_H
+#endif  // TEMPLATEPARSER_H

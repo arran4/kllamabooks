@@ -1,11 +1,13 @@
 #include "TemplateParser.h"
+
 #include <QRegularExpression>
 
 QString TemplateParser::parseMergeTemplate(QString prompt, const QList<QString>& documentContents) {
     // Process {foreach contexts} block
     // Syntax: {foreach contexts} ... {context} ... [{between} ... ] {end}
     // Note: Use a non-greedy match for the block
-    QRegularExpression foreachRe("\\{foreach contexts\\}(.*?)\\{end\\}", QRegularExpression::DotMatchesEverythingOption);
+    QRegularExpression foreachRe("\\{foreach contexts\\}(.*?)\\{end\\}",
+                                 QRegularExpression::DotMatchesEverythingOption);
 
     int offset = 0;
     while (true) {
@@ -24,7 +26,7 @@ QString TemplateParser::parseMergeTemplate(QString prompt, const QList<QString>&
 
         if (betweenIndex != -1) {
             mainPart = innerBlock.left(betweenIndex);
-            betweenPart = innerBlock.mid(betweenIndex + 9); // length of "{between}"
+            betweenPart = innerBlock.mid(betweenIndex + 9);  // length of "{between}"
         }
 
         for (int k = 0; k < documentContents.size(); ++k) {
