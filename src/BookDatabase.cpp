@@ -574,7 +574,7 @@ QString BookDatabase::getSetting(const QString& scope, int targetId, const QStri
 
     QString result = defaultValue;
     if (sqlite3_step(stmt) == SQLITE_ROW) {
-        result = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 0));
+        result = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0)));
     }
 
     sqlite3_finalize(stmt);
@@ -677,10 +677,10 @@ std::optional<BookDatabase::DocumentMergeEntry> BookDatabase::getDocumentMerge(i
         DocumentMergeEntry entry;
         entry.id = sqlite3_column_int(stmt, 0);
         entry.documentId = sqlite3_column_int(stmt, 1);
-        entry.sourceDocumentIds = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 2));
-        entry.prompt = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 3));
-        entry.model = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 4));
-        entry.timestamp = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 5));
+        entry.sourceDocumentIds = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)));
+        entry.prompt = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)));
+        entry.model = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4)));
+        entry.timestamp = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 5)));
         entry.versionHistoryId = sqlite3_column_int(stmt, 6);
 
         sqlite3_finalize(stmt);
@@ -738,9 +738,9 @@ QList<BookDatabase::DocumentHistoryEntry> BookDatabase::getDocumentHistory(int d
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         DocumentHistoryEntry item;
         item.id = sqlite3_column_int(stmt, 0);
-        item.actionType = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 1));
-        item.content = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 2));
-        item.timestamp = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 3));
+        item.actionType = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)));
+        item.content = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)));
+        item.timestamp = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)));
         items.append(item);
     }
 
@@ -871,9 +871,9 @@ QList<MessageNode> BookDatabase::getMessages() const {
         node.id = sqlite3_column_int(stmt, 0);
         node.parentId = sqlite3_column_int(stmt, 1);
         node.folderId = sqlite3_column_int(stmt, 2);
-        node.role = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 3));
-        node.content = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 4));
-        QString ts = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 5));
+        node.role = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)));
+        node.content = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4)));
+        QString ts = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 5)));
         node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
         node.isExpanded = sqlite3_column_int(stmt, 6) != 0;
         nodes.append(node);
@@ -942,9 +942,9 @@ std::optional<DocumentNode> BookDatabase::getDocument(int id) const {
         node.isFolder = false;
         node.id = sqlite3_column_int(stmt, 0);
         node.folderId = sqlite3_column_int(stmt, 1);
-        node.title = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 2));
-        node.content = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 3));
-        QString ts = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 4));
+        node.title = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)));
+        node.content = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)));
+        QString ts = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4)));
         node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
         node.parentId = sqlite3_column_int(stmt, 5);
 
@@ -981,9 +981,9 @@ QList<DocumentNode> BookDatabase::getDocuments(int folderId) const {
         DocumentNode node;
         node.id = sqlite3_column_int(stmt, 0);
         node.folderId = sqlite3_column_int(stmt, 1);
-        node.title = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 2));
-        node.content = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 3));
-        QString ts = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 4));
+        node.title = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)));
+        node.content = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)));
+        QString ts = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4)));
         node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
         node.parentId = sqlite3_column_int(stmt, 5);
 
@@ -1071,9 +1071,9 @@ QList<NoteNode> BookDatabase::getNotes(int folderId) const {
         NoteNode node;
         node.id = sqlite3_column_int(stmt, 0);
         node.folderId = sqlite3_column_int(stmt, 1);
-        node.title = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 2));
-        node.content = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 3));
-        QString ts = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 4));
+        node.title = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)));
+        node.content = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)));
+        QString ts = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4)));
         node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
         nodes.append(node);
     }
@@ -1150,9 +1150,9 @@ QList<DocumentNode> BookDatabase::getTemplates(int folderId) const {
         DocumentNode node;
         node.id = sqlite3_column_int(stmt, 0);
         node.folderId = sqlite3_column_int(stmt, 1);
-        node.title = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 2));
-        node.content = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 3));
-        QString ts = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 4));
+        node.title = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)));
+        node.content = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)));
+        QString ts = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4)));
         node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
         node.isFolder = false;
         nodes.append(node);
@@ -1222,12 +1222,12 @@ QList<DocumentNode> BookDatabase::getDrafts(int folderId) const {
         DocumentNode node;
         node.id = sqlite3_column_int(stmt, 0);
         node.folderId = sqlite3_column_int(stmt, 1);
-        node.title = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 2));
-        node.content = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 3));
-        QString ts = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 4));
+        node.title = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)));
+        node.content = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)));
+        QString ts = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4)));
         node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
         node.parentId = sqlite3_column_int(stmt, 5);
-        node.targetType = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 6));
+        node.targetType = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 6)));
         node.isFolder = false;
         nodes.append(node);
     }
@@ -1340,9 +1340,9 @@ QList<FolderNode> BookDatabase::getFolders(const QString& type) const {
         FolderNode node;
         node.id = sqlite3_column_int(stmt, 0);
         node.parentId = sqlite3_column_int(stmt, 1);
-        node.name = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 2));
-        node.type = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 3));
-        QString ts = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 4));
+        node.name = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)));
+        node.type = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)));
+        QString ts = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4)));
         node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
         node.position = sqlite3_column_int(stmt, 5);
         node.isExpanded = sqlite3_column_int(stmt, 6) != 0;
@@ -1417,7 +1417,7 @@ BookDatabase::QueueStats BookDatabase::getQueueStats() const {
     if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return stats;
 
     while (sqlite3_step(stmt) == SQLITE_ROW) {
-        QString state = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 0));
+        QString state = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0)));
         int count = sqlite3_column_int(stmt, 1);
 
         if (state == "pending") {
@@ -1471,15 +1471,15 @@ QList<QueueItem> BookDatabase::getQueue() const {
         QueueItem item;
         item.id = sqlite3_column_int(stmt, 0);
         item.messageId = sqlite3_column_int(stmt, 1);
-        item.model = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 2));
-        item.prompt = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 3));
+        item.model = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)));
+        item.prompt = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)));
         item.processingId = sqlite3_column_int(stmt, 4);
         const unsigned char* errorText = sqlite3_column_text(stmt, 5);
         if (errorText) item.lastError = QString::fromUtf8(reinterpret_cast<const char*>(errorText));
         item.priority = sqlite3_column_int(stmt, 6);
         item.timestamp = QDateTime::fromString(
             QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 7)), Qt::ISODate);
-        item.targetType = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 8));
+        item.targetType = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 8)));
         if (item.targetType.isEmpty()) item.targetType = "message";
         const unsigned char* stateText = sqlite3_column_text(stmt, 9);
         if (stateText) item.state = QString::fromUtf8(reinterpret_cast<const char*>(stateText));
@@ -1589,8 +1589,8 @@ QList<Notification> BookDatabase::getNotifications(bool includeDismissed) const 
         Notification n;
         n.id = sqlite3_column_int(stmt, 0);
         n.targetId = sqlite3_column_int(stmt, 1);
-        n.targetType = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 2));
-        n.type = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 3));
+        n.targetType = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)));
+        n.type = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)));
         n.isDismissed = sqlite3_column_int(stmt, 4) != 0;
         n.timestamp = QDateTime::fromString(
             QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 5)), Qt::ISODate);
@@ -1719,9 +1719,9 @@ QList<CommentNode> BookDatabase::getComments(const QString& entityType, int enti
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         CommentNode item;
         item.id = sqlite3_column_int(stmt, 0);
-        item.entityType = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 1));
+        item.entityType = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)));
         item.entityId = sqlite3_column_int(stmt, 2);
-        item.content = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 3));
+        item.content = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)));
         item.timestamp = QDateTime::fromString(
             QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 4)), Qt::ISODate);
         items.append(item);
@@ -1761,19 +1761,19 @@ ChatNode BookDatabase::getChat(int messageId) const {
 
         if (sqlite3_step(stmt) == SQLITE_ROW) {
             if (sqlite3_column_text(stmt, 0))
-                chat.title = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 0));
+                chat.title = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0)));
             if (sqlite3_column_text(stmt, 1))
-                chat.systemPrompt = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 1));
+                chat.systemPrompt = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)));
             if (sqlite3_column_text(stmt, 2))
-                chat.sendBehavior = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 2));
+                chat.sendBehavior = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)));
             if (sqlite3_column_text(stmt, 3))
-                chat.model = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 3));
+                chat.model = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)));
             if (sqlite3_column_text(stmt, 4))
-                chat.multiLine = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 4));
+                chat.multiLine = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4)));
             if (sqlite3_column_text(stmt, 5))
-                chat.draftPrompt = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 5));
+                chat.draftPrompt = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 5)));
             if (sqlite3_column_text(stmt, 6))
-                chat.userNote = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text)(stmt, 6));
+                chat.userNote = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 6)));
             chat.version = sqlite3_column_int(stmt, 7);
         }
         sqlite3_finalize(stmt);

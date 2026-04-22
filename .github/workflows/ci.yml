@@ -291,7 +291,7 @@ jobs:
           git config --global --add safe.directory /__w/kllamabooks/kllamabooks
       - uses: actions/checkout@v4
       - run: sudo apt-get update
-      - run: sudo apt-get install -y cmake ninja-build build-essential qt6-base-dev qt6-svg-dev qt6-tools-dev qt6-tools-dev-tools libkf6wallet-dev libkf6notifications-dev libkf6coreaddons-dev libkf6xmlgui-dev libkf6configwidgets-dev libkf6i18n-dev clang-format cppcheck
+      - run: sudo apt-get install -y cmake ninja-build build-essential qt6-base-dev qt6-svg-dev qt6-tools-dev qt6-tools-dev-tools libkf6wallet-dev libkf6notifications-dev libkf6coreaddons-dev libkf6xmlgui-dev libkf6configwidgets-dev libkf6i18n-dev clang-format cppcheck pkg-config libsqlcipher-dev
       - name: Lint style and static checks
         run: |
           find src \( -name '*.cpp' -o -name '*.cc' -o -name '*.h' -o -name '*.hpp' \) -print0 | xargs -0 -r clang-format --dry-run --Werror || true
