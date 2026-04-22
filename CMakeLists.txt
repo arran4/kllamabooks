@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(kllamabooks VERSION 0.1.2)
+project(kllamabooks VERSION 0.0.5)
 
 include(GNUInstallDirs)
 
