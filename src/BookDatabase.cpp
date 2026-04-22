@@ -404,7 +404,6 @@ bool BookDatabase::initSchema() {
             ");";
         sqlite3_exec((sqlite3*)m_db, sql, nullptr, nullptr, nullptr);
 
-        sqlite3_stmt* stmt;
         if (sqlite3_prepare_v2((sqlite3*)m_db, "SELECT DISTINCT target_id FROM settings WHERE scope='chat';", -1, &stmt,
                                nullptr) == SQLITE_OK) {
             QList<int> messageIds;
@@ -523,7 +522,6 @@ bool BookDatabase::initSchema() {
 
         sqlite3_exec((sqlite3*)m_db, "INSERT OR REPLACE INTO schema_version (version) VALUES (19);", nullptr, nullptr, nullptr);
         sqlite3_exec((sqlite3*)m_db, "PRAGMA user_version = 19;", nullptr, nullptr, nullptr);
-        userVersion = 19;
     }
 
     return true;
@@ -933,6 +931,7 @@ std::optional<DocumentNode> BookDatabase::getDocument(int id) const {
             node.metadata = getSetting("document", node.id, "metadata");
         }
 
+        node.isFolder = false;
         sqlite3_finalize(stmt);
         return node;
     }
