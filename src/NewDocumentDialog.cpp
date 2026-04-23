@@ -30,7 +30,8 @@ NewDocumentDialog::NewDocumentDialog(std::shared_ptr<BookDatabase> db, int defau
 
     // Title
     mainLayout->addWidget(new QLabel(tr("Title:"), this));
-    m_titleEdit = new QLineEdit(tr("New Document"), this);
+    m_titleEdit = new QLineEdit(this);
+    m_titleEdit->setPlaceholderText(tr("New Document"));
     mainLayout->addWidget(m_titleEdit);
 
     // Prompt Widget (Hidden by default)
@@ -168,17 +169,11 @@ void NewDocumentDialog::onTypeChanged(int index) {
     m_draftWidget->setVisible(type == ResumeDraft);
 
     if (type == FromPrompt) {
-        if (m_titleEdit->text() == tr("New Document") || m_titleEdit->text() == tr("Document from Draft")) {
-            m_titleEdit->setText(tr("AI Generated Document"));
-        }
+        m_titleEdit->setPlaceholderText(tr("AI Generated Document"));
     } else if (type == FromTemplate) {
-        if (m_titleEdit->text() == tr("AI Generated Document") || m_titleEdit->text() == tr("Document from Draft")) {
-            m_titleEdit->setText(tr("New Document"));
-        }
+        m_titleEdit->setPlaceholderText(tr("New Document"));
     } else if (type == ResumeDraft) {
-        if (m_titleEdit->text() == tr("New Document") || m_titleEdit->text() == tr("AI Generated Document")) {
-            m_titleEdit->setText(tr("Document from Draft"));
-        }
+        m_titleEdit->setPlaceholderText(tr("Document from Draft"));
     }
 }
 
@@ -186,7 +181,10 @@ NewDocumentDialog::DocumentType NewDocumentDialog::getDocumentType() const {
     return static_cast<DocumentType>(m_typeCombo->currentData().toInt());
 }
 
-QString NewDocumentDialog::getTitle() const { return m_titleEdit->text().trimmed(); }
+QString NewDocumentDialog::getTitle() const {
+    QString text = m_titleEdit->text().trimmed();
+    return text.isEmpty() ? m_titleEdit->placeholderText() : text;
+}
 
 int NewDocumentDialog::getSelectedFolderId() const {
     QList<QTreeWidgetItem*> selected = m_folderTree->selectedItems();
