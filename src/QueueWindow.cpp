@@ -98,7 +98,7 @@ void QueueWindow::refresh() {
             if (targetTitle.isEmpty()) targetTitle = "Chat";
         }
 
-        QString text = QString("[%1] %2 | %3: %4 | %5 (%6)")
+        QString text = QString("[%1] %2\n%3: %4\nModel: %6\nPrompt: %5")
                            .arg(statusStr)
                            .arg(QFileInfo(mi.db->filepath()).fileName())
                            .arg(mi.item.targetType.toUpper())
@@ -107,7 +107,7 @@ void QueueWindow::refresh() {
                            .arg(mi.item.model);
 
         if (statusStr == "ERROR" && !mi.item.lastError.isEmpty()) {
-            text += QString(" - Error: %1").arg(mi.item.lastError);
+            text += QString("\nError: %1").arg(mi.item.lastError);
         }
 
         QListWidgetItem* listItem = new QListWidgetItem(text, m_queueList);
