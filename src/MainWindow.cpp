@@ -752,7 +752,8 @@ void MainWindow::setupUi() {
                 else if (type == "notes_folder")
                     fType = "notes";
 
-                currentDb->addFolder(parentId, name, fType);
+                currentDb->addFolder(parentId, name, fType, true);
+                currentDb->setFolderExpanded(parentId, true);
                 loadDocumentsAndNotes();
             }
         }
@@ -1804,7 +1805,8 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
                 else if (type == "chats_folder")
                     fType = "chats";
 
-                currentDb->addFolder(parentId, name, fType);
+                currentDb->addFolder(parentId, name, fType, true);
+                currentDb->setFolderExpanded(parentId, true);
                 loadDocumentsAndNotes();
             }
         } else if (importAction && selectedAction == importAction) {
