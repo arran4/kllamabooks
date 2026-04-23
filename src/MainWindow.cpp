@@ -703,17 +703,21 @@ void MainWindow::setupUi() {
     connect(newDraftMenuAction, &QAction::triggered, this, [this]() { addPhantomItem(nullptr, "drafts_folder"); });
 
     QAction* newContextItemAction = new QAction(QIcon(":/assets/context-new.svg"), tr("New Context Item"), this);
+    actionCollection()->addAction(QStringLiteral("new_context_item"), newContextItemAction);
+    actionCollection()->setDefaultShortcut(newContextItemAction, QKeySequence::New);
+    connect(newContextItemAction, &QAction::triggered, this, &MainWindow::onNewContextItemTriggered);
+
+    QAction* newContextItemToolbarAction = new QAction(QIcon(":/assets/context-new.svg"), tr("New Context Item"), this);
     QMenu* contextMenu = new QMenu(this);
     contextMenu->addAction(newChatMenuAction);
     contextMenu->addAction(newDocMenuAction);
     contextMenu->addAction(newNoteMenuAction);
     contextMenu->addAction(newTemplateMenuAction);
     contextMenu->addAction(newDraftMenuAction);
-    newContextItemAction->setMenu(contextMenu);
+    newContextItemToolbarAction->setMenu(contextMenu);
 
-    actionCollection()->addAction(QStringLiteral("new_context_item"), newContextItemAction);
-    actionCollection()->setDefaultShortcut(newContextItemAction, QKeySequence::New);
-    connect(newContextItemAction, &QAction::triggered, this, &MainWindow::onNewContextItemTriggered);
+    actionCollection()->addAction(QStringLiteral("new_context_item_toolbar"), newContextItemToolbarAction);
+    connect(newContextItemToolbarAction, &QAction::triggered, this, &MainWindow::onNewContextItemTriggered);
 
     QAction* createFolderMenuAction = new QAction(QIcon::fromTheme("folder-new"), tr("Create Folder"), this);
     actionCollection()->addAction(QStringLiteral("create_folder_menu"), createFolderMenuAction);

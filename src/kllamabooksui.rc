@@ -11,9 +11,10 @@
             <Action name="new_book" />
             <Action name="open_book" />
             <Separator />
-            <Action name="new_context_item" />
             <Menu name="new_items">
                 <text>&amp;New</text>
+                <Action name="new_context_item" />
+                <Separator />
                 <Action name="new_chat" />
                 <Action name="new_document" />
                 <Action name="new_note" />
@@ -60,7 +61,7 @@
         <Separator />
         <Action name="nav_up" />
         <Separator />
-        <Action name="new_context_item" />
+        <Action name="new_context_item_toolbar" />
         <Separator />
         <Action name="create_folder" />
         <Separator />
