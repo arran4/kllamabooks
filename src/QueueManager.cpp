@@ -54,6 +54,11 @@ void QueueManager::retryItem(std::shared_ptr<BookDatabase> db, int queueId) {
     if (db) {
         db->updateQueueError(queueId, "");
         emit queueChanged();
+
+        if (!m_isEndpointUp && m_client) {
+            m_client->fetchModels();
+        }
+
         QTimer::singleShot(0, this, &QueueManager::checkQueue);
     }
 }
