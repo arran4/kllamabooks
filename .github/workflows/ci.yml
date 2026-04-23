@@ -289,7 +289,7 @@ jobs:
         run: flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
       - name: Build Flatpak
         run: |
-          flatpak-builder --repo=repo --force-clean --install-deps-from=flathub build-dir packaging/flatpak/com.arran4.kllamabooks.yaml
+          flatpak-builder --repo=repo --user --force-clean --install-deps-from=flathub build-dir packaging/flatpak/com.arran4.kllamabooks.yaml
           flatpak build-bundle repo kllamabooks.flatpak com.arran4.kllamabooks
 
       - uses: actions/upload-artifact@v4
@@ -413,31 +413,60 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Sync version source with highest existing tag first
+      - name: Update CMake version for release
         run: |
           set -euo pipefail
-          git fetch --tags --force
           CMAKE_VERSION=$(grep -Po 'project\(kllamabooks VERSION \K[0-9]+\.[0-9]+\.[0-9]+' CMakeLists.txt)
-          TAG_VERSION=$(git tag -l "v*" | sed 's/^v//' | sort -V | tail -n 1)
-          CURRENT_VERSION=$(echo -e "$CMAKE_VERSION\n$TAG_VERSION" | sort -V | tail -n 1)
+          RELEASE_TAG="${{ needs.prepare-release-tag.outputs.release_tag }}"
+          RELEASE_VERSION="${RELEASE_TAG#v}"
 
-          # Use next_version from prepare-release-tag if available
-          NEXT_VERSION="${{ needs.prepare-release-tag.outputs.next_version }}"
-          if [[ -n "$NEXT_VERSION" ]]; then
-             NEXT_VERSION="${NEXT_VERSION%%-SNAPSHOT*}"
-             sed -i "s/project(kllamabooks VERSION $CMAKE_VERSION)/project(kllamabooks VERSION $NEXT_VERSION)/" CMakeLists.txt
-             git config --global user.email "actions@github.com"
-             git config --global user.name "GitHub Actions"
-             git add CMakeLists.txt
-             git commit -m "chore: bump version to $NEXT_VERSION" || true
+          git config --global user.email "actions@github.com"
+          git config --global user.name "GitHub Actions"
+
+          if [[ "$CMAKE_VERSION" != "$RELEASE_VERSION" ]]; then
+            sed -i "s/project(kllamabooks VERSION $CMAKE_VERSION)/project(kllamabooks VERSION $RELEASE_VERSION)/" CMakeLists.txt
+            git add CMakeLists.txt
+            git commit -m "chore: bump version to $RELEASE_VERSION for release" || true
           fi
+
       - name: Push prepared tag (retry)
         env:
           TAG: ${{ needs.prepare-release-tag.outputs.release_tag }}
         run: |
           set -euo pipefail
           git tag "$TAG"
+
           git push origin "$TAG" || { sleep 2; git push origin "$TAG"; }
+
+      - name: Create PR for next version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          NEXT_VERSION="${{ needs.prepare-release-tag.outputs.next_version }}"
+          RELEASE_TAG="${{ needs.prepare-release-tag.outputs.release_tag }}"
+          RELEASE_VERSION="${RELEASE_TAG#v}"
+
+          if [[ -n "$NEXT_VERSION" ]]; then
+            NEXT_VERSION="${NEXT_VERSION%%-SNAPSHOT*}"
+            if [[ "$RELEASE_VERSION" != "$NEXT_VERSION" ]]; then
+              sed -i "s/project(kllamabooks VERSION $RELEASE_VERSION)/project(kllamabooks VERSION $NEXT_VERSION)/" CMakeLists.txt
+              git add CMakeLists.txt
+
+              BRANCH="ci/bump-version-${NEXT_VERSION}"
+              git checkout -b "$BRANCH"
+              git commit -m "chore: bump version to $NEXT_VERSION" || true
+
+              git push origin "$BRANCH" || { sleep 2; git push origin "$BRANCH"; }
+
+              gh pr create \
+                --title "chore: bump version to $NEXT_VERSION" \
+                --body "Automated version bump for next development cycle after $RELEASE_TAG release." \
+                --base main \
+                --head "$BRANCH" || true
+            fi
+          fi
+
       - name: Create release with generated notes + discussion
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

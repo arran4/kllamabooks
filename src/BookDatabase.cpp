@@ -1246,10 +1246,10 @@ bool BookDatabase::deleteDraft(int id) {
     return rc == SQLITE_DONE;
 }
 
-int BookDatabase::addFolder(int parentId, const QString& name, const QString& type) {
+int BookDatabase::addFolder(int parentId, const QString& name, const QString& type, bool isExpanded) {
     if (!m_isOpen) return -1;
 
-    const char* sql = "INSERT INTO folders (parent_id, name, type) VALUES (?, ?, ?);";
+    const char* sql = "INSERT INTO folders (parent_id, name, type, is_expanded) VALUES (?, ?, ?, ?);";
     sqlite3_stmt* stmt;
     int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return -1;
@@ -1257,6 +1257,7 @@ int BookDatabase::addFolder(int parentId, const QString& name, const QString& ty
     sqlite3_bind_int(stmt, 1, parentId);
     sqlite3_bind_text(stmt, 2, name.toUtf8().constData(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 3, type.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 4, isExpanded ? 1 : 0);
 
     rc = sqlite3_step(stmt);
     if (rc != SQLITE_DONE) {

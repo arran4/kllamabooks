@@ -90,7 +90,7 @@ NewDocumentDialog::NewDocumentDialog(std::shared_ptr<BookDatabase> db, int defau
         populateDocuments();
     }
 
-    m_folderTree->expandAll();
+    rootItem->setExpanded(true);
     mainLayout->addWidget(m_folderTree);
 
     // Buttons
@@ -102,6 +102,8 @@ NewDocumentDialog::NewDocumentDialog(std::shared_ptr<BookDatabase> db, int defau
     connect(m_typeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &NewDocumentDialog::onTypeChanged);
 
     onTypeChanged(m_typeCombo->currentIndex());
+    // We intentionally do not connect itemExpanded / itemCollapsed to save the state,
+    // so that the user's opens and closes in this dialog do not impact the original VFS.
 }
 
 void NewDocumentDialog::populateFolders(QTreeWidgetItem* parentItem, int parentId) {
@@ -116,6 +118,9 @@ void NewDocumentDialog::populateFolders(QTreeWidgetItem* parentItem, int parentI
                 item->setSelected(true);
             }
             populateFolders(item, folder.id);
+            if (folder.isExpanded) {
+                item->setExpanded(true);
+            }
         }
     }
 }
