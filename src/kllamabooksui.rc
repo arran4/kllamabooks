@@ -61,10 +61,7 @@
         <Action name="nav_up" />
         <Separator />
         <Action name="new_chat" />
-        <Action name="new_document" />
-        <Action name="new_note" />
-        <Action name="new_template" />
-        <Action name="new_draft" />
+        <Action name="new_context_item" />
         <Separator />
         <Action name="create_folder" />
         <Separator />

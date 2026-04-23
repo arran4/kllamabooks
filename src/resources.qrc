@@ -3,6 +3,11 @@
     <qresource prefix="/">
         <file>assets/icon.png</file>
         <file>assets/icon-dotted.png</file>
+        <file>assets/chat-new.svg</file>
+        <file>assets/note-new.svg</file>
+        <file>assets/template-new.svg</file>
+        <file>assets/draft-new.svg</file>
+        <file>assets/context-new.svg</file>
         <file>kllamabooksui.rc</file>
         <file>kdocumenteditwindowui.rc</file>
         <file>kllamabooks.desktop</file>
