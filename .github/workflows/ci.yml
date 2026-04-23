@@ -289,7 +289,7 @@ jobs:
         run: flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
       - name: Build Flatpak
         run: |
-          flatpak-builder --repo=repo --force-clean --install-deps-from=flathub build-dir packaging/flatpak/com.arran4.kllamabooks.yaml
+          flatpak-builder --repo=repo --user --force-clean --install-deps-from=flathub build-dir packaging/flatpak/com.arran4.kllamabooks.yaml
           flatpak build-bundle repo kllamabooks.flatpak com.arran4.kllamabooks
 
       - uses: actions/upload-artifact@v4
