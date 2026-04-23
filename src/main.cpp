@@ -34,6 +34,7 @@ int main(int argc, char *argv[]) {
     KAboutData aboutData(QStringLiteral("kllamabooks"), QStringLiteral("KLlamaBooks"),
                          QStringLiteral(KGHN_APP_VERSION));
     aboutData.setDesktopFileName("com.arran4.kllamabooks.desktop");
+    aboutData.setLicense(KAboutLicense::GPL_V3);
     KAboutData::setApplicationData(aboutData);
 
     MainWindow *window = new MainWindow();
