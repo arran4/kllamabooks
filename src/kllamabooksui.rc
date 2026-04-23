@@ -60,7 +60,6 @@
         <Separator />
         <Action name="nav_up" />
         <Separator />
-        <Action name="new_chat" />
         <Action name="new_context_item" />
         <Separator />
         <Action name="create_folder" />
