@@ -176,7 +176,7 @@ class BookDatabase {
     bool deleteNote(int id);
 
     // Folders
-    int addFolder(int parentId, const QString& name, const QString& type);
+    int addFolder(int parentId, const QString& name, const QString& type, bool isExpanded = false);
     bool updateFolder(int id, const QString& newName);
     bool deleteFolder(int id);
     void setFolderExpanded(int id, bool expanded);
