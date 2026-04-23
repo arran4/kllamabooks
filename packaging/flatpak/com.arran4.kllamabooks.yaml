@@ -16,8 +16,8 @@ modules:
     config-opts:
       - --enable-tempstore=yes
       - --disable-tcl
-      - CFLAGS=-DSQLITE_HAS_CODEC
-      - LDFLAGS=-lcrypto
+      - CPPFLAGS=-DSQLITE_HAS_CODEC
+      - LIBS=-lcrypto
     sources:
       - type: archive
         url: https://github.com/sqlcipher/sqlcipher/archive/v4.5.5.tar.gz
