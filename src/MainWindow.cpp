@@ -58,6 +58,7 @@
 #include "MergeDocumentsDialog.h"
 #include "ModelSelectionDialog.h"
 #include "NewDocumentDialog.h"
+#include "PasswordDialog.h"
 #include "NotificationDelegate.h"
 #include "QueueManager.h"
 #include "QueueWindow.h"
@@ -1665,17 +1666,12 @@ void MainWindow::onCreateBook() {
     bool ok;
     QString bookName = QInputDialog::getText(this, "New Book", "Enter book name:", QLineEdit::Normal, "", &ok);
     if (ok && !bookName.isEmpty()) {
-        QString password =
-            QInputDialog::getText(this, "Password", "Enter password (optional):", QLineEdit::Password, "", &ok);
-        if (ok) {
+        PasswordDialog dialog("Password", "Enter password (optional):", this);
+        if (dialog.exec() == QDialog::Accepted) {
+            QString password = dialog.password();
             bool savePassword = false;
             if (!password.isEmpty()) {
-                QMessageBox::StandardButton reply =
-                    QMessageBox::question(this, "Save Password", "Do you want to save this password to KWallet?",
-                                          QMessageBox::Yes | QMessageBox::No);
-                if (reply == QMessageBox::Yes) {
-                    savePassword = true;
-                }
+                savePassword = dialog.saveToWallet();
             }
             QString fileName = bookName + ".db";
             if (savePassword) {
@@ -2241,20 +2237,18 @@ void MainWindow::onBookSelected(const QModelIndex& index) {
     } else {
         auto db = std::make_shared<BookDatabase>(filePath);
         if (!db->open(password)) {
-            bool ok;
-            password = QInputDialog::getText(this, "Unlock Book", "Enter password for " + fileName + ":",
-                                             QLineEdit::Password, "", &ok);
-            if (ok && db->open(password)) {
-                if (!password.isEmpty()) {
-                    QMessageBox::StandardButton reply =
-                        QMessageBox::question(this, "Save Password", "Do you want to save this password to KWallet?",
-                                              QMessageBox::Yes | QMessageBox::No);
-                    if (reply == QMessageBox::Yes) {
+            PasswordDialog dialog("Unlock Book", "Enter password for " + fileName + ":", this);
+            if (dialog.exec() == QDialog::Accepted) {
+                password = dialog.password();
+                if (db->open(password)) {
+                    if (!password.isEmpty() && dialog.saveToWallet()) {
                         WalletManager::savePassword(fileName, password);
                     }
+                } else {
+                    QMessageBox::warning(this, "Error", "Could not open book.");
+                    return;
                 }
             } else {
-                QMessageBox::warning(this, "Error", "Could not open book.");
                 return;
             }
         }

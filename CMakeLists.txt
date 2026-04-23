@@ -70,6 +70,8 @@ add_executable(kllamabooks
     src/DocumentHistoryDialog.h
     src/NewDocumentDialog.cpp
     src/NewDocumentDialog.h
+    src/PasswordDialog.h
+    src/PasswordDialog.cpp
     src/resources.qrc
 )
 
