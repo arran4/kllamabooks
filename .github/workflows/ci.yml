@@ -276,6 +276,28 @@ jobs:
           IFS='.' read -r maj min pat <<< "$clean_tag"
           echo "next_version=${maj:-0}.${min:-0}.$(( ${pat:-0} + 1 ))-SNAPSHOT" >> "$GITHUB_OUTPUT"
 
+  flatpak-build:
+    name: Flatpak package
+    needs: [route, discover]
+    if: ${{ needs.route.outputs.run_release == 'true' && needs.discover.outputs.has_qt_cpp == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update
+      - run: sudo apt-get install -y flatpak flatpak-builder
+      - name: Add Flathub Remote
+        run: flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+      - name: Build Flatpak
+        run: |
+          flatpak-builder --repo=repo --force-clean --install-deps-from=flathub build-dir packaging/flatpak/com.arran4.kllamabooks.yaml
+          flatpak build-bundle repo kllamabooks.flatpak com.arran4.kllamabooks
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flatpak-bundle
+          retention-days: 1
+          path: kllamabooks.flatpak
+
   cpp-qt-build-test:
     name: Qt/C++ build
     needs: [route, discover]
@@ -440,20 +462,32 @@ jobs:
 
   publish-draft:
     name: Publish draft release assets
-    needs: [cpp-qt-build-test]
-    if: ${{ needs.route.outputs.run_release == 'true' }}
+    needs: [route, discover, cpp-qt-build-test, flatpak-build]
+    if: ${{ !failure() && !cancelled() && needs.route.outputs.run_release == 'true' }}
     runs-on: ubuntu-latest
     steps:
-      - name: Collect artifacts
+      - name: Collect build artifacts
         uses: actions/download-artifact@v4
         with:
           name: build-artifacts-ubuntu-latest
+          path: dist-release/build
+      - name: Rename binary
+        run: |
+          mv dist-release/build/kllamabooks dist-release/build/kllamabooks-ubuntu-latest-amd64
+      - name: Collect flatpak bundle
+        uses: actions/download-artifact@v4
+        if: ${{ needs.discover.outputs.has_qt_cpp == 'true' }}
+        continue-on-error: true
+        with:
+          name: flatpak-bundle
           path: dist-release/build
       - name: Publish draft GitHub release
         uses: softprops/action-gh-release@v2
         with:
           draft: true
-          files: dist-release/build/kllamabooks
+          files: |
+            dist-release/build/kllamabooks-ubuntu-latest-amd64
+            dist-release/build/*.flatpak
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
