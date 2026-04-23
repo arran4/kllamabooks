@@ -3,11 +3,19 @@ runtime: org.kde.Platform
 runtime-version: '6.6'
 sdk: org.kde.Sdk
 command: kllamabooks
+finish-args:
+  - --share=ipc
+  - --socket=fallback-x11
+  - --socket=wayland
+  - --device=dri
+  - --share=network
+  - --socket=session-bus
 modules:
   - name: sqlcipher
     buildsystem: autotools
     config-opts:
       - --enable-tempstore=yes
+      - --disable-tcl
       - CFLAGS="-DSQLITE_HAS_CODEC"
       - LDFLAGS="-lcrypto"
     sources:
@@ -21,3 +29,4 @@ modules:
     sources:
       - type: dir
         path: ../../
+        exclude: [ "build", ".flatpak-builder", ".git" ]
