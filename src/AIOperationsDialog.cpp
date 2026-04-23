@@ -11,15 +11,28 @@
 #include <QSettings>
 #include <QTextEdit>
 #include <QVBoxLayout>
+#include <QSplitter>
+#include <QScrollArea>
 
 #include "AIOperationsManager.h"
+#include "ModelSelectionDialog.h"
+#include <QMessageBox>
 
-AIOperationsDialog::AIOperationsDialog(BookDatabase* db, const QString& defaultPrompt, QWidget* parent)
-    : QDialog(parent) {
+AIOperationsDialog::AIOperationsDialog(BookDatabase* db, const QString& defaultPrompt,
+                                       const QList<OllamaModelInfo>& modelInfos,
+                                       const QStringList& fallbackModels, QWidget* parent)
+    : QDialog(parent), m_db(db), m_modelInfos(modelInfos), m_fallbackModels(fallbackModels) {
     setWindowTitle(tr("AI Document Operations"));
     resize(500, 400);
 
-    QVBoxLayout* layout = new QVBoxLayout(this);
+    QVBoxLayout* mainLayout = new QVBoxLayout(this);
+
+    m_mainSplitter = new QSplitter(Qt::Vertical, this);
+
+    // Top section: Operation and Prompt Instructions
+    QWidget* topWidget = new QWidget(m_mainSplitter);
+    QVBoxLayout* topLayout = new QVBoxLayout(topWidget);
+    topLayout->setContentsMargins(0, 0, 0, 0);
 
     // Operation
     QHBoxLayout* opLayout = new QHBoxLayout();
@@ -33,17 +46,80 @@ AIOperationsDialog::AIOperationsDialog(BookDatabase* db, const QString& defaultP
     }
 
     opLayout->addWidget(m_operationCombo, 1);
-    layout->addLayout(opLayout);
+    topLayout->addLayout(opLayout);
 
     // Prompt
-    layout->addWidget(new QLabel(tr("Prompt Instructions:")));
+    QHBoxLayout* promptLabelLayout = new QHBoxLayout();
+    promptLabelLayout->addWidget(new QLabel(tr("Prompt Instructions:")));
+    promptLabelLayout->addStretch();
+
+    QPushButton* saveDraftBtn = new QPushButton(tr("Save Draft"), this);
+    QPushButton* restoreDraftBtn = new QPushButton(tr("Restore Draft"), this);
+    promptLabelLayout->addWidget(saveDraftBtn);
+    promptLabelLayout->addWidget(restoreDraftBtn);
+    topLayout->addLayout(promptLabelLayout);
+
+    connect(saveDraftBtn, &QPushButton::clicked, this, &AIOperationsDialog::onSaveDraftClicked);
+    connect(restoreDraftBtn, &QPushButton::clicked, this, &AIOperationsDialog::onRestoreDraftClicked);
+
     m_promptEdit = new QTextEdit(this);
     m_promptEdit->setPlainText(defaultPrompt);
-    layout->addWidget(m_promptEdit);
+    topLayout->addWidget(m_promptEdit);
 
-    // Dynamic Inputs
+    m_mainSplitter->addWidget(topWidget);
+
+    // Bottom section: Dynamic inputs scroll area
+    QScrollArea* scrollArea = new QScrollArea(m_mainSplitter);
+    scrollArea->setWidgetResizable(true);
+    QWidget* bottomWidget = new QWidget();
+    QVBoxLayout* bottomLayout = new QVBoxLayout(bottomWidget);
     m_dynamicInputsLayout = new QFormLayout();
-    layout->addLayout(m_dynamicInputsLayout);
+    bottomLayout->addLayout(m_dynamicInputsLayout);
+    bottomLayout->addStretch();
+    scrollArea->setWidget(bottomWidget);
+
+    m_mainSplitter->addWidget(scrollArea);
+
+    // Set stretch factors so the text edit takes most of the space initially
+    m_mainSplitter->setStretchFactor(0, 3);
+    m_mainSplitter->setStretchFactor(1, 1);
+
+    mainLayout->addWidget(m_mainSplitter);
+
+    // Models Selection
+    QHBoxLayout* modelsLayout = new QHBoxLayout();
+    modelsLayout->addWidget(new QLabel(tr("Model(s):"), this));
+    m_selectModelsBtn = new QPushButton(this);
+    modelsLayout->addWidget(m_selectModelsBtn);
+    mainLayout->addLayout(modelsLayout);
+
+    // Init models
+    QStringList availableNames;
+    for (const auto& mi : m_modelInfos) availableNames.append(mi.name);
+    if (availableNames.isEmpty()) availableNames = m_fallbackModels;
+
+    QString dbModel = m_db->getSetting("book", 0, "defaultModel", "");
+    if (!dbModel.isEmpty() && availableNames.contains(dbModel)) {
+        m_selectedModels << dbModel;
+    } else {
+        QSettings settings;
+        QString systemModel = settings.value("systemModel", "").toString();
+        if (!systemModel.isEmpty() && availableNames.contains(systemModel)) {
+            m_selectedModels << systemModel;
+        } else if (!availableNames.isEmpty()) {
+            m_selectedModels << availableNames.first();
+        }
+    }
+
+    if (m_selectedModels.isEmpty()) {
+        m_selectModelsBtn->setText(tr("Select Model(s)"));
+    } else if (m_selectedModels.size() == 1) {
+        m_selectModelsBtn->setText(m_selectedModels.first());
+    } else {
+        m_selectModelsBtn->setText(tr("%1 Models Selected").arg(m_selectedModels.size()));
+    }
+    connect(m_selectModelsBtn, &QPushButton::clicked, this, &AIOperationsDialog::onSelectModelsClicked);
+
 
     // Buttons
     QHBoxLayout* btnLayout = new QHBoxLayout();
@@ -54,7 +130,7 @@ AIOperationsDialog::AIOperationsDialog(BookDatabase* db, const QString& defaultP
     btnLayout->addStretch();
     btnLayout->addWidget(cancelBtn);
     btnLayout->addWidget(generateBtn);
-    layout->addLayout(btnLayout);
+    mainLayout->addLayout(btnLayout);
 
     connect(cancelBtn, &QPushButton::clicked, this, &QDialog::reject);
     connect(generateBtn, &QPushButton::clicked, this, &QDialog::accept);
@@ -79,6 +155,39 @@ AIOperationsDialog::~AIOperationsDialog() {}
 QString AIOperationsDialog::getOperation() const { return m_operationCombo->currentData().toString(); }
 
 QString AIOperationsDialog::getPrompt() const { return m_finalPrompt; }
+
+QStringList AIOperationsDialog::getSelectedModels() const { return m_selectedModels; }
+
+void AIOperationsDialog::onSaveDraftClicked() {
+    if (!m_db) return;
+    QString prompt = m_promptEdit->toPlainText();
+    m_db->setSetting("ai_operations", 0, "draft_prompt", prompt);
+    QMessageBox::information(this, tr("Draft Saved"), tr("Prompt instructions draft saved successfully."));
+}
+
+void AIOperationsDialog::onRestoreDraftClicked() {
+    if (!m_db) return;
+    QString prompt = m_db->getSetting("ai_operations", 0, "draft_prompt", "");
+    if (!prompt.isEmpty()) {
+        m_promptEdit->setPlainText(prompt);
+    } else {
+        QMessageBox::information(this, tr("No Draft"), tr("No saved draft found."));
+    }
+}
+
+void AIOperationsDialog::onSelectModelsClicked() {
+    ModelSelectionDialog dlg(m_modelInfos, m_fallbackModels, this);
+    if (dlg.exec() == QDialog::Accepted) {
+        m_selectedModels = dlg.selectedModels();
+        if (m_selectedModels.isEmpty()) {
+            m_selectModelsBtn->setText(tr("Select Model(s)"));
+        } else if (m_selectedModels.size() == 1) {
+            m_selectModelsBtn->setText(m_selectedModels.first());
+        } else {
+            m_selectModelsBtn->setText(tr("%1 Models Selected").arg(m_selectedModels.size()));
+        }
+    }
+}
 
 void AIOperationsDialog::setForkOnlyMode(bool enabled) {
     if (enabled) {
