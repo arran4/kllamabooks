@@ -721,6 +721,7 @@ void MainWindow::setupUi() {
 
     QAction* createFolderMenuAction = new QAction(QIcon::fromTheme("folder-new"), tr("Create Folder"), this);
     actionCollection()->addAction(QStringLiteral("create_folder_menu"), createFolderMenuAction);
+    actionCollection()->setDefaultShortcut(createFolderMenuAction, QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_F));
     connect(createFolderMenuAction, &QAction::triggered, this, [this]() {
         // Find current folder
         QModelIndex index = openBooksTree->currentIndex();
@@ -918,13 +919,8 @@ void MainWindow::setupUi() {
 
     QAction* createFolderAction = new QAction(QIcon::fromTheme("folder-new"), tr("Create Folder"), this);
     actionCollection()->addAction(QStringLiteral("create_folder"), createFolderAction);
-    connect(createFolderAction, &QAction::triggered, this, [this]() {
-        QModelIndex idx = openBooksTree->currentIndex();
-        if (idx.isValid()) {
-            QStandardItem* item = openBooksModel->itemFromIndex(idx);
-            showVfsContextMenu(openBooksTree->mapToGlobal(openBooksTree->visualRect(idx).center()));
-        }
-    });
+    actionCollection()->setDefaultShortcut(createFolderAction, QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_F));
+    connect(createFolderAction, &QAction::triggered, createFolderMenuAction, &QAction::trigger);
 
     setupGUI(Default, ":/kllamabooksui.rc");
 
