@@ -2,11 +2,15 @@
 #define NEWDOCUMENTDIALOG_H
 
 #include <QDialog>
+#include <QList>
 #include <QString>
 #include <memory>
 
+#include "OllamaModelInfo.h"
+
 class QComboBox;
 class QLineEdit;
+class QPushButton;
 class QTextEdit;
 class QTreeWidget;
 class QTreeWidgetItem;
@@ -17,7 +21,9 @@ class NewDocumentDialog : public QDialog {
    public:
     enum DocumentType { FromTemplate, FromPrompt, ResumeDraft };
 
-    explicit NewDocumentDialog(std::shared_ptr<BookDatabase> db, int defaultFolderId, QWidget* parent = nullptr);
+    explicit NewDocumentDialog(std::shared_ptr<BookDatabase> db, int defaultFolderId,
+                               const QList<OllamaModelInfo>& modelInfos, const QStringList& fallbackModels,
+                               QComboBox* mainEndpointComboBox, QWidget* parent = nullptr);
 
     DocumentType getDocumentType() const;
     QString getTitle() const;
@@ -27,10 +33,13 @@ class NewDocumentDialog : public QDialog {
     int getSelectedDraftId() const;
     bool isOverwriteDocument() const;
     int getOverwriteDocumentId() const;
+    QStringList getSelectedModels() const;
+    int getSelectedEndpointIndex() const;
 
    private slots:
     void onTypeChanged(int index);
     void onOverwriteToggled(int state);
+    void onSelectModelsClicked();
 
    private:
     void populateFolders(QTreeWidgetItem* parentItem, int parentId);
@@ -40,12 +49,17 @@ class NewDocumentDialog : public QDialog {
 
     std::shared_ptr<BookDatabase> m_db;
     int m_defaultFolderId;
+    QList<OllamaModelInfo> m_modelInfos;
+    QStringList m_fallbackModels;
+    QStringList m_selectedModels;
 
     QComboBox* m_typeCombo;
     QLineEdit* m_titleEdit;
 
     // Dynamic widgets
     QWidget* m_promptWidget;
+    QComboBox* m_endpointCombo;
+    QPushButton* m_selectModelsBtn;
     QTextEdit* m_promptEdit;
 
     QWidget* m_templateWidget;

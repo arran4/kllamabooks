@@ -5554,7 +5554,7 @@ void MainWindow::handleNewDocumentCreation(int defaultFolderId) {
         QMessageBox::warning(this, tr("No Book Open"), tr("Please open a book first to create a document."));
         return;
     }
-    NewDocumentDialog dialog(currentDb, defaultFolderId, this);
+    NewDocumentDialog dialog(currentDb, defaultFolderId, m_availableModelInfos, m_availableModels, endpointComboBox, this);
     if (dialog.exec() == QDialog::Accepted) {
         QString title = dialog.getTitle();
         int folderId = dialog.getSelectedFolderId();
@@ -5564,9 +5564,15 @@ void MainWindow::handleNewDocumentCreation(int defaultFolderId) {
         bool shouldNavigate = false;
 
         if (dialog.getDocumentType() == NewDocumentDialog::FromPrompt) {
+            int selectedEndpointIndex = dialog.getSelectedEndpointIndex();
+            if (selectedEndpointIndex != -1 && endpointComboBox->currentIndex() != selectedEndpointIndex) {
+                endpointComboBox->setCurrentIndex(selectedEndpointIndex);
+                onActiveEndpointChanged(selectedEndpointIndex);
+            }
+
             QString prompt = dialog.getPrompt();
 
-            QStringList models = m_selectedModels;
+            QStringList models = dialog.getSelectedModels();
             if (models.isEmpty() && !m_availableModels.isEmpty()) {
                 models.append(m_availableModels.first());
             }

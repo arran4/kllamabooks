@@ -3,6 +3,7 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
+#include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
@@ -12,9 +13,16 @@
 
 #include "BookDatabase.h"
 #include "DocumentTemplatesManager.h"
+#include "ModelSelectionDialog.h"
 
-NewDocumentDialog::NewDocumentDialog(std::shared_ptr<BookDatabase> db, int defaultFolderId, QWidget* parent)
-    : QDialog(parent), m_db(db), m_defaultFolderId(defaultFolderId) {
+NewDocumentDialog::NewDocumentDialog(std::shared_ptr<BookDatabase> db, int defaultFolderId,
+                                     const QList<OllamaModelInfo>& modelInfos, const QStringList& fallbackModels,
+                                     QComboBox* mainEndpointComboBox, QWidget* parent)
+    : QDialog(parent),
+      m_db(db),
+      m_defaultFolderId(defaultFolderId),
+      m_modelInfos(modelInfos),
+      m_fallbackModels(fallbackModels) {
     setWindowTitle(tr("New Document"));
     resize(450, 550);
 
@@ -37,6 +45,39 @@ NewDocumentDialog::NewDocumentDialog(std::shared_ptr<BookDatabase> db, int defau
     m_promptWidget = new QWidget(this);
     QVBoxLayout* promptLayout = new QVBoxLayout(m_promptWidget);
     promptLayout->setContentsMargins(0, 0, 0, 0);
+
+    QHBoxLayout* endpointLayout = new QHBoxLayout();
+    endpointLayout->addWidget(new QLabel(tr("Endpoint:"), m_promptWidget));
+    m_endpointCombo = new QComboBox(m_promptWidget);
+    if (mainEndpointComboBox) {
+        for (int i = 0; i < mainEndpointComboBox->count(); ++i) {
+            m_endpointCombo->addItem(mainEndpointComboBox->itemText(i), mainEndpointComboBox->itemData(i));
+        }
+        m_endpointCombo->setCurrentIndex(mainEndpointComboBox->currentIndex());
+    }
+    endpointLayout->addWidget(m_endpointCombo);
+    promptLayout->addLayout(endpointLayout);
+
+    QHBoxLayout* modelsLayout = new QHBoxLayout();
+    modelsLayout->addWidget(new QLabel(tr("Model(s):"), m_promptWidget));
+    m_selectModelsBtn = new QPushButton(m_promptWidget);
+
+    QStringList availableNames;
+    for (const auto& mi : m_modelInfos) availableNames.append(mi.name);
+    if (availableNames.isEmpty()) availableNames = m_fallbackModels;
+    if (!availableNames.isEmpty()) m_selectedModels << availableNames.first();
+
+    if (m_selectedModels.isEmpty()) {
+        m_selectModelsBtn->setText(tr("Select Model(s)"));
+    } else if (m_selectedModels.size() == 1) {
+        m_selectModelsBtn->setText(m_selectedModels.first());
+    } else {
+        m_selectModelsBtn->setText(tr("%1 Models Selected").arg(m_selectedModels.size()));
+    }
+    connect(m_selectModelsBtn, &QPushButton::clicked, this, &NewDocumentDialog::onSelectModelsClicked);
+    modelsLayout->addWidget(m_selectModelsBtn);
+    promptLayout->addLayout(modelsLayout);
+
     promptLayout->addWidget(new QLabel(tr("AI Prompt:"), m_promptWidget));
     m_promptEdit = new QTextEdit(m_promptWidget);
     promptLayout->addWidget(m_promptEdit);
@@ -187,6 +228,24 @@ void NewDocumentDialog::onTypeChanged(int index) {
         }
     }
 }
+
+void NewDocumentDialog::onSelectModelsClicked() {
+    ModelSelectionDialog dlg(m_modelInfos, m_fallbackModels, this);
+    if (dlg.exec() == QDialog::Accepted) {
+        m_selectedModels = dlg.selectedModels();
+        if (m_selectedModels.isEmpty()) {
+            m_selectModelsBtn->setText(tr("Select Model(s)"));
+        } else if (m_selectedModels.size() == 1) {
+            m_selectModelsBtn->setText(m_selectedModels.first());
+        } else {
+            m_selectModelsBtn->setText(tr("%1 Models Selected").arg(m_selectedModels.size()));
+        }
+    }
+}
+
+QStringList NewDocumentDialog::getSelectedModels() const { return m_selectedModels; }
+
+int NewDocumentDialog::getSelectedEndpointIndex() const { return m_endpointCombo->currentIndex(); }
 
 NewDocumentDialog::DocumentType NewDocumentDialog::getDocumentType() const {
     return static_cast<DocumentType>(m_typeCombo->currentData().toInt());
