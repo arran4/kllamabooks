@@ -681,7 +681,7 @@ void MainWindow::setupUi() {
     actionCollection()->addAction(QStringLiteral("open_book_location"), openBookLocationAction);
     connect(openBookLocationAction, &QAction::triggered, this, &MainWindow::onOpenBookLocation);
 
-    QAction* newChatMenuAction = new QAction(QIcon::fromTheme("chat-message-new"), tr("New Chat"), this);
+    QAction* newChatMenuAction = new QAction(QIcon(":/assets/chat-new.svg"), tr("New Chat"), this);
     actionCollection()->addAction(QStringLiteral("new_chat"), newChatMenuAction);
     connect(newChatMenuAction, &QAction::triggered, this, [this]() { addPhantomItem(nullptr, "chats_folder"); });
 
@@ -689,23 +689,35 @@ void MainWindow::setupUi() {
     actionCollection()->addAction(QStringLiteral("new_document"), newDocMenuAction);
     connect(newDocMenuAction, &QAction::triggered, this, [this]() { handleNewDocumentCreation(0); });
 
-    QAction* newNoteMenuAction = new QAction(QIcon::fromTheme("document-new"), tr("New Note"), this);
+    QAction* newNoteMenuAction = new QAction(QIcon(":/assets/note-new.svg"), tr("New Note"), this);
     actionCollection()->addAction(QStringLiteral("new_note"), newNoteMenuAction);
     connect(newNoteMenuAction, &QAction::triggered, this, [this]() { addPhantomItem(nullptr, "notes_folder"); });
 
-    QAction* newTemplateMenuAction = new QAction(QIcon::fromTheme("document-new"), tr("New Template"), this);
+    QAction* newTemplateMenuAction = new QAction(QIcon(":/assets/template-new.svg"), tr("New Template"), this);
     actionCollection()->addAction(QStringLiteral("new_template"), newTemplateMenuAction);
     connect(newTemplateMenuAction, &QAction::triggered, this,
             [this]() { addPhantomItem(nullptr, "templates_folder"); });
 
-    QAction* newDraftMenuAction = new QAction(QIcon::fromTheme("document-new"), tr("New Draft"), this);
+    QAction* newDraftMenuAction = new QAction(QIcon(":/assets/draft-new.svg"), tr("New Draft"), this);
     actionCollection()->addAction(QStringLiteral("new_draft"), newDraftMenuAction);
     connect(newDraftMenuAction, &QAction::triggered, this, [this]() { addPhantomItem(nullptr, "drafts_folder"); });
 
-    QAction* newContextItemAction = new QAction(QIcon::fromTheme("document-new"), tr("New Context Item"), this);
+    QAction* newContextItemAction = new QAction(QIcon(":/assets/context-new.svg"), tr("New Context Item"), this);
     actionCollection()->addAction(QStringLiteral("new_context_item"), newContextItemAction);
     actionCollection()->setDefaultShortcut(newContextItemAction, QKeySequence::New);
     connect(newContextItemAction, &QAction::triggered, this, &MainWindow::onNewContextItemTriggered);
+
+    QAction* newContextItemToolbarAction = new QAction(QIcon(":/assets/context-new.svg"), tr("New Context Item"), this);
+    QMenu* contextMenu = new QMenu(this);
+    contextMenu->addAction(newChatMenuAction);
+    contextMenu->addAction(newDocMenuAction);
+    contextMenu->addAction(newNoteMenuAction);
+    contextMenu->addAction(newTemplateMenuAction);
+    contextMenu->addAction(newDraftMenuAction);
+    newContextItemToolbarAction->setMenu(contextMenu);
+
+    actionCollection()->addAction(QStringLiteral("new_context_item_toolbar"), newContextItemToolbarAction);
+    connect(newContextItemToolbarAction, &QAction::triggered, this, &MainWindow::onNewContextItemTriggered);
 
     QAction* createFolderMenuAction = new QAction(QIcon::fromTheme("folder-new"), tr("Create Folder"), this);
     actionCollection()->addAction(QStringLiteral("create_folder_menu"), createFolderMenuAction);
