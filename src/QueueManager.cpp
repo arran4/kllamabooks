@@ -293,11 +293,27 @@ void QueueManager::processNext() {
                   }
               });
 
-    int tasksToStart = qMin(m_maxConcurrent - m_activeItems.size(), allPending.size());
-    for (int t = 0; t < tasksToStart; ++t) {
+    int tasksToStart = m_maxConcurrent - m_activeItems.size();
+    if (tasksToStart <= 0) return;
+
+    for (int t = 0; t < allPending.size(); ++t) {
         auto nextItem = allPending[t];
         auto db = nextItem.db;
         auto item = nextItem.item;
+
+        // Check if there is an active item with the same source (db, targetType, messageId)
+        bool sourceIsActive = false;
+        for (auto it = m_activeItems.begin(); it != m_activeItems.end(); ++it) {
+            if (it.value().db == db && it.value().item.targetType == item.targetType &&
+                it.value().item.messageId == item.messageId) {
+                sourceIsActive = true;
+                break;
+            }
+        }
+
+        if (sourceIsActive) {
+            continue;
+        }
 
         int procId = m_nextProcessingId++;
         item.processingId = procId;
@@ -310,6 +326,9 @@ void QueueManager::processNext() {
 
         emit processingStarted(db, item.messageId, item.targetType);
         emit queueChanged();
+
+        tasksToStart--;
+        if (tasksToStart <= 0) break;
 
         QString sysPrompt = db->getInheritedSetting(item.messageId, "systemPrompt");
         if (sysPrompt.isEmpty()) {

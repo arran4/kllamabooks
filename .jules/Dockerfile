@@ -1,4 +1,4 @@
-FROM mirror.gcr.io/library/debian:trixie-slim
+FROM public.ecr.aws/docker/library/debian:trixie-slim
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y \
