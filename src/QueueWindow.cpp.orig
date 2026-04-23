@@ -203,7 +203,11 @@ void QueueWindow::showContextMenu(const QPoint& pos) {
         if (mi.item.id == id && mi.db->filepath() == path) {
             isError = !mi.item.lastError.isEmpty();
 
-            if (!QueueManager::instance().isEndpointUp() && (mi.item.state.isEmpty() || mi.item.state.compare("pending", Qt::CaseInsensitive) == 0)) {
+            QString statusStr = mi.item.state.toUpper();
+            if (statusStr.isEmpty()) {
+                statusStr = "PENDING";
+            }
+            if (statusStr == "PENDING" && !QueueManager::instance().isEndpointUp()) {
                 isEndpointDown = true;
             }
             break;
