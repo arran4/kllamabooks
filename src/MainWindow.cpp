@@ -65,6 +65,8 @@
 #include "WalletManager.h"
 
 static const QString GENERATING_MERGE_TEXT = QStringLiteral("*Generating merge...*");
+static const QString GENERATING_DOC_TEXT = QStringLiteral("*Generating document...*");
+static const QString REGENERATING_TEXT = QStringLiteral("*Regenerating...*");
 
 CustomItemModel::CustomItemModel(QObject* parent) : QStandardItemModel(parent), m_mainWindow(nullptr) {}
 
@@ -3385,7 +3387,7 @@ void MainWindow::onQueueChunk(std::shared_ptr<BookDatabase> db, int messageId, c
         if (targetType == "document" && currentDocumentId == messageId) {
             documentEditorView->blockSignals(true);
             QString text = documentEditorView->toPlainText();
-            if (text == GENERATING_MERGE_TEXT) {
+            if (text == GENERATING_MERGE_TEXT || text == GENERATING_DOC_TEXT || text == REGENERATING_TEXT) {
                 documentEditorView->setPlainText("");
             }
             QTextCursor cursor = documentEditorView->textCursor();
@@ -5355,12 +5357,12 @@ void MainWindow::processMergeGeneration(const QString& finalPrompt, const QStrin
             currentDb->addDocumentMerge(existingDocId, sourceIdsStr, finalPrompt, firstModel, 0);
 
             // Set generating text and metadata
-            currentDb->updateDocument(existingDocId, docOpt->title, GENERATING_MERGE_TEXT, metaStr);
+            currentDb->updateDocument(existingDocId, docOpt->title, REGENERATING_TEXT, metaStr);
 
             if (documentEditorView && mainContentStack->currentWidget() == docContainer &&
                 currentDocumentId == existingDocId) {
                 documentEditorView->blockSignals(true);
-                documentEditorView->setPlainText(GENERATING_MERGE_TEXT);
+                documentEditorView->setPlainText(REGENERATING_TEXT);
                 documentEditorView->blockSignals(false);
                 if (regenerateMergeAction) {
                     regenerateMergeAction->setVisible(false);
@@ -5579,13 +5581,13 @@ void MainWindow::handleNewDocumentCreation(int defaultFolderId) {
                 int newFolderId = currentDb->addFolder(folderId, title, "folder");
                 for (const QString& model : models) {
                     QString docTitle = title + " (" + model + ")";
-                    newDocId = currentDb->addDocument(newFolderId, docTitle, GENERATING_MERGE_TEXT, 0, metaStr);
+                    newDocId = currentDb->addDocument(newFolderId, docTitle, GENERATING_DOC_TEXT, 0, metaStr);
                     if (newDocId != -1)
                         currentDb->enqueuePrompt(newDocId, model, prompt, 0, "document", 0, "replace_direct");
                 }
             } else {
                 QString model = models.isEmpty() ? "" : models.first();
-                newDocId = currentDb->addDocument(folderId, title, GENERATING_MERGE_TEXT, 0, metaStr);
+                newDocId = currentDb->addDocument(folderId, title, GENERATING_DOC_TEXT, 0, metaStr);
                 if (newDocId != -1)
                     currentDb->enqueuePrompt(newDocId, model, prompt, 0, "document", 0, "replace_direct");
                 shouldNavigate = true;
@@ -5678,7 +5680,8 @@ void MainWindow::updateRegenerateButtonVisibility(const DocumentNode& doc, const
         if (hasMerge || hasPrompt) {
             if (hasMerge) showSources = true;
             bool isGenerating = currentDb->isGenerating(doc.id, "document", "replace_direct");
-            if (!isGenerating && !doc.content.contains(GENERATING_MERGE_TEXT)) {
+            if (!isGenerating && !doc.content.contains(GENERATING_MERGE_TEXT) &&
+                !doc.content.contains(GENERATING_DOC_TEXT) && !doc.content.contains(REGENERATING_TEXT)) {
                 showRegenerate = true;
             }
         }
