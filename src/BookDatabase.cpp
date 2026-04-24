@@ -537,6 +537,16 @@ bool BookDatabase::initSchema() {
         sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "INSERT OR REPLACE INTO schema_version (version) VALUES (19);",
                      nullptr, nullptr, nullptr);
         sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "PRAGMA user_version = 19;", nullptr, nullptr, nullptr);
+        userVersion = 19;
+    }
+
+    if (userVersion < 20) {
+        const char* sql_alter_document_history = "ALTER TABLE document_history ADD COLUMN prompt TEXT DEFAULT '';";
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), sql_alter_document_history, nullptr, nullptr, nullptr);
+
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "INSERT OR REPLACE INTO schema_version (version) VALUES (20);",
+                     nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "PRAGMA user_version = 20;", nullptr, nullptr, nullptr);
     }
 
     return true;
@@ -709,13 +719,16 @@ bool BookDatabase::addDocumentHistory(int documentId, const QString& actionType,
 int BookDatabase::addDocumentHistoryReturningId(int documentId, const QString& actionType, const QString& content) {
     if (!m_isOpen) return -1;
 
-    const char* sql = "INSERT INTO document_history (document_id, action_type, content) VALUES (?, ?, ?);";
+    QString prompt = getDocumentPrompt(documentId);
+
+    const char* sql = "INSERT INTO document_history (document_id, action_type, content, prompt) VALUES (?, ?, ?, ?);";
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return -1;
 
     sqlite3_bind_int(stmt, 1, documentId);
     sqlite3_bind_text(stmt, 2, actionType.toUtf8().constData(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 3, content.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 4, prompt.toUtf8().constData(), -1, SQLITE_TRANSIENT);
 
     int rc = sqlite3_step(stmt);
     int id = (rc == SQLITE_DONE) ? sqlite3_last_insert_rowid(reinterpret_cast<sqlite3*>(m_db)) : -1;
@@ -723,12 +736,26 @@ int BookDatabase::addDocumentHistoryReturningId(int documentId, const QString& a
     return id;
 }
 
+QString BookDatabase::getDocumentPrompt(int documentId) const {
+    if (auto mergeOpt = getDocumentMerge(documentId)) {
+        return mergeOpt->prompt;
+    }
+    if (auto docOpt = getDocument(documentId)) {
+        if (!docOpt->metadata.isEmpty()) {
+            QJsonObject metaObj = QJsonDocument::fromJson(docOpt->metadata.toUtf8()).object();
+            if (metaObj.contains("raw_prompt")) return metaObj["raw_prompt"].toString();
+            if (metaObj.contains("prompt")) return metaObj["prompt"].toString();
+        }
+    }
+    return "";
+}
+
 QList<BookDatabase::DocumentHistoryEntry> BookDatabase::getDocumentHistory(int documentId) const {
     QList<DocumentHistoryEntry> items;
     if (!m_isOpen) return items;
 
     const char* sql =
-        "SELECT id, action_type, content, timestamp FROM document_history WHERE document_id = ? ORDER BY timestamp "
+        "SELECT id, action_type, content, timestamp, prompt FROM document_history WHERE document_id = ? ORDER BY timestamp "
         "DESC;";
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return items;
@@ -741,6 +768,9 @@ QList<BookDatabase::DocumentHistoryEntry> BookDatabase::getDocumentHistory(int d
         item.actionType = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)));
         item.content = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)));
         item.timestamp = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)));
+        if (sqlite3_column_type(stmt, 4) != SQLITE_NULL) {
+            item.prompt = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4)));
+        }
         items.append(item);
     }
 

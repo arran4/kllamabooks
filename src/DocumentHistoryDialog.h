@@ -18,6 +18,7 @@ class DocumentHistoryDialog : public QDialog {
    private slots:
     void onSelectionChanged();
     void onRestore();
+    void onViewPrompt();
 
    private:
     std::shared_ptr<BookDatabase> m_db;
@@ -25,12 +26,14 @@ class DocumentHistoryDialog : public QDialog {
 
     QListWidget* m_historyList;
     QTextEdit* m_contentView;
+    class QPushButton* m_viewPromptBtn;
 
     struct HistoryEntry {
         int id;
         QString actionType;
         QString content;
         QString timestamp;
+        QString prompt;
     };
     QList<HistoryEntry> m_entries;
 

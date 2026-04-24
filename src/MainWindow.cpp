@@ -1925,6 +1925,7 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
 
         QAction* regenerateMergeAction = nullptr;
         QAction* viewMergeSourcesAction = nullptr;
+        QAction* viewPromptAction = nullptr;
         if (type == "document" && currentDb) {
             int id = item->data(Qt::UserRole).toInt();
             bool hasMerge = currentDb->getDocumentMerge(id).has_value();
@@ -1932,6 +1933,7 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
 
             if (hasMerge || hasPrompt) {
                 regenerateMergeAction = menu.addAction(QIcon::fromTheme("view-refresh"), "Regenerate");
+                viewPromptAction = menu.addAction(QIcon::fromTheme("text-x-generic"), "View Original Prompt");
                 if (hasMerge) {
                     viewMergeSourcesAction =
                         menu.addAction(QIcon::fromTheme("document-multiple"), "View Merge Sources");
@@ -2016,6 +2018,8 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
             onDocumentAIOperations();
         } else if (regenerateMergeAction && selectedAction == regenerateMergeAction) {
             onRegenerateMerge();
+        } else if (viewPromptAction && selectedAction == viewPromptAction) {
+            onViewOriginalPrompt(item->data(Qt::UserRole).toInt());
         } else if (viewMergeSourcesAction && selectedAction == viewMergeSourcesAction) {
             onViewMergeSources();
         } else if (selectedAction == deleteAction) {
@@ -5410,6 +5414,31 @@ void MainWindow::onDocumentHistory() {
         documentEditorView->blockSignals(false);
         statusBar->showMessage(tr("Document history restored."), 3000);
     }
+}
+
+void MainWindow::onViewOriginalPrompt(int docId) {
+    if (!currentDb) return;
+    QString prompt = currentDb->getDocumentPrompt(docId);
+    if (prompt.isEmpty()) {
+        QMessageBox::information(this, tr("Original Prompt"), tr("No original prompt found for this document."));
+        return;
+    }
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(tr("Original Prompt"));
+    dialog.resize(600, 400);
+
+    QVBoxLayout* layout = new QVBoxLayout(&dialog);
+    QTextEdit* textEdit = new QTextEdit(&dialog);
+    textEdit->setReadOnly(true);
+    textEdit->setPlainText(prompt);
+    layout->addWidget(textEdit);
+
+    QDialogButtonBox* buttonBox = new QDialogButtonBox(QDialogButtonBox::Close, &dialog);
+    connect(buttonBox, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    layout->addWidget(buttonBox);
+
+    dialog.exec();
 }
 
 /**
