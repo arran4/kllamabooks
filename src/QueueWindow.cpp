@@ -198,9 +198,14 @@ void QueueWindow::showContextMenu(const QPoint& pos) {
     QString path = item->data(Qt::UserRole + 1).toString();
 
     bool isError = false;
+    bool isEndpointDown = false;
     for (const auto& mi : QueueManager::instance().getMergedQueue()) {
         if (mi.item.id == id && mi.db->filepath() == path) {
             isError = !mi.item.lastError.isEmpty();
+
+            if (!QueueManager::instance().isEndpointUp() && (mi.item.state.isEmpty() || mi.item.state.compare("pending", Qt::CaseInsensitive) == 0)) {
+                isEndpointDown = true;
+            }
             break;
         }
     }
@@ -214,7 +219,7 @@ void QueueWindow::showContextMenu(const QPoint& pos) {
     modifyAction->setEnabled(isError);
 
     QAction* retryAction = menu.addAction("Retry", this, &QueueWindow::onRetryItem);
-    retryAction->setEnabled(isError);
+    retryAction->setEnabled(isError || isEndpointDown);
 
     menu.addSeparator();
     menu.addAction("Delete", this, &QueueWindow::onCancelItem);
