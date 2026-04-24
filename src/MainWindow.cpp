@@ -5146,7 +5146,7 @@ void MainWindow::showDocumentAIToolsMenu() {}
 void MainWindow::onDocumentAIOperations() {
     if (m_isGenerating || !currentDb) return;
 
-    AIOperationsDialog dialog(currentDb.get(), "", this);
+    AIOperationsDialog dialog(currentDb.get(), "", m_availableModelInfos, m_availableModels, this);
     if (dialog.exec() == QDialog::Accepted) {
         QString op = dialog.getOperation();
         QString promptTpl = dialog.getPrompt();
@@ -5173,7 +5173,7 @@ void MainWindow::onDocumentAIOperations() {
         QString prompt = promptTpl;
         prompt.replace("{context}", contextText);
 
-        QStringList models = m_selectedModels;
+        QStringList models = dialog.getSelectedModels();
         if (models.isEmpty() && !m_availableModels.isEmpty()) {
             models.append(m_availableModels.first());
         }
