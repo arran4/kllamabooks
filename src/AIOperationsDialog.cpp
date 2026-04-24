@@ -22,6 +22,7 @@ AIOperationsDialog::AIOperationsDialog(BookDatabase* db, const QString& defaultP
                                        const QList<OllamaModelInfo>& modelInfos,
                                        const QStringList& fallbackModels, QWidget* parent)
     : QDialog(parent), m_db(db), m_modelInfos(modelInfos), m_fallbackModels(fallbackModels) {
+    Q_ASSERT(m_db != nullptr);
     setWindowTitle(tr("AI Document Operations"));
     resize(500, 400);
 
@@ -111,13 +112,7 @@ AIOperationsDialog::AIOperationsDialog(BookDatabase* db, const QString& defaultP
         }
     }
 
-    if (m_selectedModels.isEmpty()) {
-        m_selectModelsBtn->setText(tr("Select Model(s)"));
-    } else if (m_selectedModels.size() == 1) {
-        m_selectModelsBtn->setText(m_selectedModels.first());
-    } else {
-        m_selectModelsBtn->setText(tr("%1 Models Selected").arg(m_selectedModels.size()));
-    }
+    updateModelButtonText();
     connect(m_selectModelsBtn, &QPushButton::clicked, this, &AIOperationsDialog::onSelectModelsClicked);
 
 
@@ -175,17 +170,21 @@ void AIOperationsDialog::onRestoreDraftClicked() {
     }
 }
 
+void AIOperationsDialog::updateModelButtonText() {
+    if (m_selectedModels.isEmpty()) {
+        m_selectModelsBtn->setText(tr("Select Model(s)"));
+    } else if (m_selectedModels.size() == 1) {
+        m_selectModelsBtn->setText(m_selectedModels.first());
+    } else {
+        m_selectModelsBtn->setText(tr("%1 Models Selected").arg(m_selectedModels.size()));
+    }
+}
+
 void AIOperationsDialog::onSelectModelsClicked() {
     ModelSelectionDialog dlg(m_modelInfos, m_fallbackModels, this);
     if (dlg.exec() == QDialog::Accepted) {
         m_selectedModels = dlg.selectedModels();
-        if (m_selectedModels.isEmpty()) {
-            m_selectModelsBtn->setText(tr("Select Model(s)"));
-        } else if (m_selectedModels.size() == 1) {
-            m_selectModelsBtn->setText(m_selectedModels.first());
-        } else {
-            m_selectModelsBtn->setText(tr("%1 Models Selected").arg(m_selectedModels.size()));
-        }
+        updateModelButtonText();
     }
 }
 

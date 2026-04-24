@@ -63,6 +63,8 @@ class AIOperationsDialog : public QDialog {
     QPushButton* m_selectModelsBtn;
 
     QSplitter* m_mainSplitter;
+
+    void updateModelButtonText();
 };
 
 #endif  // AIOPERATIONSDIALOG_H
