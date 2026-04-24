@@ -137,13 +137,22 @@ class BookDatabase {
         QString actionType;
         QString content;
         QString timestamp;
-        QString prompt;
     };
     QList<DocumentHistoryEntry> getDocumentHistory(int documentId) const;
     int addDocumentHistoryReturningId(int documentId, const QString& actionType, const QString& content);
-    QString getDocumentPrompt(int documentId) const;
 
     // Merges
+    struct PromptHistoryEntry {
+        int id;
+        int documentId;
+        QString prompt;
+        QString model;
+        QString timestamp;
+        int queueId;
+        QString status;
+    };
+    QList<PromptHistoryEntry> getPromptHistory(int documentId) const;
+
     struct DocumentMergeEntry {
         int id;
         int documentId;

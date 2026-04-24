@@ -45,18 +45,12 @@ DocumentHistoryDialog::DocumentHistoryDialog(std::shared_ptr<BookDatabase> db, i
 
     QHBoxLayout* bottomLayout = new QHBoxLayout();
     bottomLayout->addStretch();
-
-    m_viewPromptBtn = new QPushButton(tr("View Original Prompt"), this);
-    m_viewPromptBtn->setEnabled(false);
-    connect(m_viewPromptBtn, &QPushButton::clicked, this, &DocumentHistoryDialog::onViewPrompt);
-
     QPushButton* closeBtn = new QPushButton(tr("Close"), this);
     connect(closeBtn, &QPushButton::clicked, this, &QDialog::accept);
 
     QPushButton* restoreBtn = new QPushButton(tr("Open Version in Editor"), this);
     connect(restoreBtn, &QPushButton::clicked, this, &DocumentHistoryDialog::onRestore);
 
-    bottomLayout->addWidget(m_viewPromptBtn);
     bottomLayout->addWidget(closeBtn);
     bottomLayout->addWidget(restoreBtn);
     mainLayout->addLayout(bottomLayout);
@@ -86,7 +80,6 @@ void DocumentHistoryDialog::loadHistory() {
         e.actionType = dbe.actionType;
         e.content = dbe.content;
         e.timestamp = dbe.timestamp;
-        e.prompt = dbe.prompt;
         entries.append(e);
     }
 
@@ -102,35 +95,8 @@ void DocumentHistoryDialog::onSelectionChanged() {
     int idx = m_historyList->currentRow();
     if (idx >= 0 && idx < m_entries.size()) {
         m_contentView->setPlainText(m_entries[idx].content);
-        m_viewPromptBtn->setEnabled(!m_entries[idx].prompt.isEmpty());
     } else {
         m_contentView->clear();
-        m_viewPromptBtn->setEnabled(false);
-    }
-}
-
-void DocumentHistoryDialog::onViewPrompt() {
-    int idx = m_historyList->currentRow();
-    if (idx >= 0 && idx < m_entries.size() && !m_entries[idx].prompt.isEmpty()) {
-        QDialog dialog(this);
-        dialog.setWindowTitle(tr("Original Prompt"));
-        dialog.resize(600, 400);
-
-        QVBoxLayout* layout = new QVBoxLayout(&dialog);
-        QTextEdit* textEdit = new QTextEdit(&dialog);
-        textEdit->setReadOnly(true);
-        textEdit->setPlainText(m_entries[idx].prompt);
-        layout->addWidget(textEdit);
-
-        QPushButton* closeBtn = new QPushButton(tr("Close"), &dialog);
-        connect(closeBtn, &QPushButton::clicked, &dialog, &QDialog::accept);
-
-        QHBoxLayout* btnLayout = new QHBoxLayout();
-        btnLayout->addStretch();
-        btnLayout->addWidget(closeBtn);
-        layout->addLayout(btnLayout);
-
-        dialog.exec();
     }
 }
 

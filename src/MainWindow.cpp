@@ -52,6 +52,7 @@
 #include "DatabaseSettingsDialog.h"
 #include "DocumentEditWindow.h"
 #include "DocumentHistoryDialog.h"
+#include "PromptHistoryDialog.h"
 #include "DocumentReviewDialog.h"
 #include "DocumentTemplatesManager.h"
 #include "DraftSelectionDialog.h"
@@ -1918,14 +1919,16 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
         QAction* historyAction = nullptr;
         QAction* aiAction = nullptr;
 
+        QAction* promptHistoryAction = nullptr;
+
         if (type == "document") {
-            historyAction = menu.addAction(QIcon::fromTheme("view-history"), "History");
+            historyAction = menu.addAction(QIcon::fromTheme("view-history"), "Content History");
+            promptHistoryAction = menu.addAction(QIcon::fromTheme("text-x-generic"), "Prompt History");
             aiAction = menu.addAction(QIcon::fromTheme("tools-wizard"), "AI Operations");
         }
 
         QAction* regenerateMergeAction = nullptr;
         QAction* viewMergeSourcesAction = nullptr;
-        QAction* viewPromptAction = nullptr;
         if (type == "document" && currentDb) {
             int id = item->data(Qt::UserRole).toInt();
             bool hasMerge = currentDb->getDocumentMerge(id).has_value();
@@ -1933,7 +1936,6 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
 
             if (hasMerge || hasPrompt) {
                 regenerateMergeAction = menu.addAction(QIcon::fromTheme("view-refresh"), "Regenerate");
-                viewPromptAction = menu.addAction(QIcon::fromTheme("text-x-generic"), "View Original Prompt");
                 if (hasMerge) {
                     viewMergeSourcesAction =
                         menu.addAction(QIcon::fromTheme("document-multiple"), "View Merge Sources");
@@ -2014,12 +2016,12 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
             }
         } else if (historyAction && selectedAction == historyAction) {
             onDocumentHistory();
+        } else if (promptHistoryAction && selectedAction == promptHistoryAction) {
+            onPromptHistory(item->data(Qt::UserRole).toInt());
         } else if (aiAction && selectedAction == aiAction) {
             onDocumentAIOperations();
         } else if (regenerateMergeAction && selectedAction == regenerateMergeAction) {
             onRegenerateMerge();
-        } else if (viewPromptAction && selectedAction == viewPromptAction) {
-            onViewOriginalPrompt(item->data(Qt::UserRole).toInt());
         } else if (viewMergeSourcesAction && selectedAction == viewMergeSourcesAction) {
             onViewMergeSources();
         } else if (selectedAction == deleteAction) {
@@ -5416,28 +5418,9 @@ void MainWindow::onDocumentHistory() {
     }
 }
 
-void MainWindow::onViewOriginalPrompt(int docId) {
+void MainWindow::onPromptHistory(int docId) {
     if (!currentDb) return;
-    QString prompt = currentDb->getDocumentPrompt(docId);
-    if (prompt.isEmpty()) {
-        QMessageBox::information(this, tr("Original Prompt"), tr("No original prompt found for this document."));
-        return;
-    }
-
-    QDialog dialog(this);
-    dialog.setWindowTitle(tr("Original Prompt"));
-    dialog.resize(600, 400);
-
-    QVBoxLayout* layout = new QVBoxLayout(&dialog);
-    QTextEdit* textEdit = new QTextEdit(&dialog);
-    textEdit->setReadOnly(true);
-    textEdit->setPlainText(prompt);
-    layout->addWidget(textEdit);
-
-    QDialogButtonBox* buttonBox = new QDialogButtonBox(QDialogButtonBox::Close, &dialog);
-    connect(buttonBox, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-    layout->addWidget(buttonBox);
-
+    PromptHistoryDialog dialog(currentDb, docId, this);
     dialog.exec();
 }
 
