@@ -222,7 +222,9 @@ void QueueWindow::showContextMenu(const QPoint& pos) {
     retryAction->setEnabled(isError || isEndpointDown);
 
     menu.addSeparator();
-    menu.addAction("Delete", this, &QueueWindow::onCancelItem);
+
+    QAction* stopAction = menu.addAction("Stop/Delete", this, &QueueWindow::onCancelItem);
+    stopAction->setToolTip("Cancel if pending/processing, or delete if completed/error");
 
     menu.exec(m_queueList->mapToGlobal(pos));
 }
