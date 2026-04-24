@@ -180,7 +180,7 @@ void OllamaClient::pullModel(const QString& modelName) {
  * @param onComplete Fired when the JSON EOF boolean is detected.
  * @param onError Fired on socket or HTTP error conditions.
  */
-void OllamaClient::generate(const QString& model, const QString& prompt, std::function<void(const QString&)> onChunk,
+QNetworkReply* OllamaClient::generate(const QString& model, const QString& prompt, std::function<void(const QString&)> onChunk,
                             std::function<void(const QString&)> onComplete,
                             std::function<void(QNetworkReply::NetworkError, const QString&)> onError) {
     QUrl url(m_baseUrl + "/api/generate");
@@ -256,6 +256,8 @@ void OllamaClient::generate(const QString& model, const QString& prompt, std::fu
         }
         reply->deleteLater();
     });
+
+    return reply;
 }
 
 /**
@@ -267,7 +269,7 @@ void OllamaClient::generate(const QString& model, const QString& prompt, std::fu
  * @param onComplete Fired when the JSON EOF boolean is detected.
  * @param onError Fired on socket or HTTP error conditions.
  */
-void OllamaClient::generateChat(const QString& model, const QJsonArray& messages,
+QNetworkReply* OllamaClient::generateChat(const QString& model, const QJsonArray& messages,
                                 std::function<void(const QString&)> onChunk,
                                 std::function<void(const QString&)> onComplete,
                                 std::function<void(QNetworkReply::NetworkError, const QString&)> onError) {
@@ -363,6 +365,8 @@ void OllamaClient::generateChat(const QString& model, const QJsonArray& messages
         }
         reply->deleteLater();
     });
+
+    return reply;
 }
 
 void OllamaClient::abortGenerations() {

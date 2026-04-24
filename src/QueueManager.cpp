@@ -188,7 +188,13 @@ void QueueManager::cancelItem(std::shared_ptr<BookDatabase> db, int queueId) {
         }
     }
     if (toRemoveId != -1) {
-        // Ideally we'd abort the network request here
+        if (m_activeNetworkRequests.contains(toRemoveId)) {
+            QNetworkReply* reply = m_activeNetworkRequests[toRemoveId];
+            if (reply) {
+                reply->abort();
+            }
+            m_activeNetworkRequests.remove(toRemoveId);
+        }
         m_activeItems.remove(toRemoveId);
     }
     emit queueChanged();
@@ -368,7 +374,7 @@ void QueueManager::processNext() {
                 messagesArray.append(msgObj);
             }
 
-            m_client->generateChat(
+            m_activeNetworkRequests[procId] = m_client->generateChat(
                 item.model, messagesArray,
                 [this, procId](const QString& chunk) {
                     if (!m_activeItems.contains(procId)) return;
@@ -408,6 +414,7 @@ void QueueManager::processNext() {
                     }
                     emit processingFinished(act.db, act.item.messageId, true, act.item.targetType);
                     m_activeItems.remove(procId);
+                    m_activeNetworkRequests.remove(procId);
                     emit queueChanged();
                     QTimer::singleShot(500, this, &QueueManager::checkQueue);
                 },
@@ -426,11 +433,12 @@ void QueueManager::processNext() {
                     }
                     emit processingFinished(act.db, act.item.messageId, false, act.item.targetType);
                     m_activeItems.remove(procId);
+                    m_activeNetworkRequests.remove(procId);
                     emit queueChanged();
                     QTimer::singleShot(500, this, &QueueManager::checkQueue);
                 });
         } else {
-            m_client->generate(
+            m_activeNetworkRequests[procId] = m_client->generate(
                 item.model, item.prompt,
                 [this, procId](const QString& chunk) {
                     if (!m_activeItems.contains(procId)) return;
@@ -492,6 +500,7 @@ void QueueManager::processNext() {
                     }
                     emit processingFinished(act.db, act.item.messageId, true, act.item.targetType);
                     m_activeItems.remove(procId);
+                    m_activeNetworkRequests.remove(procId);
                     emit queueChanged();
                     QTimer::singleShot(500, this, &QueueManager::checkQueue);
                 },
@@ -510,6 +519,7 @@ void QueueManager::processNext() {
                     }
                     emit processingFinished(act.db, act.item.messageId, false, act.item.targetType);
                     m_activeItems.remove(procId);
+                    m_activeNetworkRequests.remove(procId);
                     emit queueChanged();
                     QTimer::singleShot(500, this, &QueueManager::checkQueue);
                 });
