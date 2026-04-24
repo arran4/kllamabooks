@@ -17,7 +17,7 @@
 
 NewDocumentDialog::NewDocumentDialog(std::shared_ptr<BookDatabase> db, int defaultFolderId,
                                      const QList<OllamaModelInfo>& modelInfos, const QStringList& fallbackModels,
-                                     QComboBox* mainEndpointComboBox, QWidget* parent)
+                                     QComboBox* mainEndpointComboBox, const QStringList& initialModels, QWidget* parent)
     : QDialog(parent),
       m_db(db),
       m_defaultFolderId(defaultFolderId),
@@ -62,18 +62,16 @@ NewDocumentDialog::NewDocumentDialog(std::shared_ptr<BookDatabase> db, int defau
     modelsLayout->addWidget(new QLabel(tr("Model(s):"), m_promptWidget));
     m_selectModelsBtn = new QPushButton(m_promptWidget);
 
-    QStringList availableNames;
-    for (const auto& mi : m_modelInfos) availableNames.append(mi.name);
-    if (availableNames.isEmpty()) availableNames = m_fallbackModels;
-    if (!availableNames.isEmpty()) m_selectedModels << availableNames.first();
-
-    if (m_selectedModels.isEmpty()) {
-        m_selectModelsBtn->setText(tr("Select Model(s)"));
-    } else if (m_selectedModels.size() == 1) {
-        m_selectModelsBtn->setText(m_selectedModels.first());
+    if (!initialModels.isEmpty()) {
+        m_selectedModels = initialModels;
     } else {
-        m_selectModelsBtn->setText(tr("%1 Models Selected").arg(m_selectedModels.size()));
+        QStringList availableNames;
+        for (const auto& mi : m_modelInfos) availableNames.append(mi.name);
+        if (availableNames.isEmpty()) availableNames = m_fallbackModels;
+        if (!availableNames.isEmpty()) m_selectedModels << availableNames.first();
     }
+
+    updateModelButtonText();
     connect(m_selectModelsBtn, &QPushButton::clicked, this, &NewDocumentDialog::onSelectModelsClicked);
     modelsLayout->addWidget(m_selectModelsBtn);
     promptLayout->addLayout(modelsLayout);
@@ -229,17 +227,21 @@ void NewDocumentDialog::onTypeChanged(int index) {
     }
 }
 
+void NewDocumentDialog::updateModelButtonText() {
+    if (m_selectedModels.isEmpty()) {
+        m_selectModelsBtn->setText(tr("Select Model(s)"));
+    } else if (m_selectedModels.size() == 1) {
+        m_selectModelsBtn->setText(m_selectedModels.first());
+    } else {
+        m_selectModelsBtn->setText(tr("%1 Models Selected").arg(m_selectedModels.size()));
+    }
+}
+
 void NewDocumentDialog::onSelectModelsClicked() {
     ModelSelectionDialog dlg(m_modelInfos, m_fallbackModels, this);
     if (dlg.exec() == QDialog::Accepted) {
         m_selectedModels = dlg.selectedModels();
-        if (m_selectedModels.isEmpty()) {
-            m_selectModelsBtn->setText(tr("Select Model(s)"));
-        } else if (m_selectedModels.size() == 1) {
-            m_selectModelsBtn->setText(m_selectedModels.first());
-        } else {
-            m_selectModelsBtn->setText(tr("%1 Models Selected").arg(m_selectedModels.size()));
-        }
+        updateModelButtonText();
     }
 }
 

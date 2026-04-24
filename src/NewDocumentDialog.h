@@ -23,7 +23,7 @@ class NewDocumentDialog : public QDialog {
 
     explicit NewDocumentDialog(std::shared_ptr<BookDatabase> db, int defaultFolderId,
                                const QList<OllamaModelInfo>& modelInfos, const QStringList& fallbackModels,
-                               QComboBox* mainEndpointComboBox, QWidget* parent = nullptr);
+                               QComboBox* mainEndpointComboBox, const QStringList& initialModels = QStringList(), QWidget* parent = nullptr);
 
     DocumentType getDocumentType() const;
     QString getTitle() const;
@@ -46,6 +46,7 @@ class NewDocumentDialog : public QDialog {
     void populateTemplates();
     void populateDrafts();
     void populateDocuments();
+    void updateModelButtonText();
 
     std::shared_ptr<BookDatabase> m_db;
     int m_defaultFolderId;

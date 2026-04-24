@@ -5554,7 +5554,7 @@ void MainWindow::handleNewDocumentCreation(int defaultFolderId) {
         QMessageBox::warning(this, tr("No Book Open"), tr("Please open a book first to create a document."));
         return;
     }
-    NewDocumentDialog dialog(currentDb, defaultFolderId, m_availableModelInfos, m_availableModels, endpointComboBox, this);
+    NewDocumentDialog dialog(currentDb, defaultFolderId, m_availableModelInfos, m_availableModels, endpointComboBox, m_selectedModels, this);
     if (dialog.exec() == QDialog::Accepted) {
         QString title = dialog.getTitle();
         int folderId = dialog.getSelectedFolderId();
@@ -5572,10 +5572,8 @@ void MainWindow::handleNewDocumentCreation(int defaultFolderId) {
 
             QString prompt = dialog.getPrompt();
 
-            QStringList models = dialog.getSelectedModels();
-            if (models.isEmpty() && !m_availableModels.isEmpty()) {
-                models.append(m_availableModels.first());
-            }
+            m_selectedModels = dialog.getSelectedModels();
+            QStringList models = m_selectedModels;
 
             QJsonObject metaObj;
             metaObj["prompt"] = prompt;
