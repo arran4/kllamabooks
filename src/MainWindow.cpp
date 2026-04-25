@@ -3591,16 +3591,7 @@ void MainWindow::onItemChanged(QStandardItem* item) {
         getDocumentContent(id, type, outTitle, content);
         currentDb->updateDraft(id, newText, content);
     } else if (type.endsWith("_folder")) {
-        QString fType = "documents";
-        if (type == "templates_folder")
-            fType = "templates";
-        else if (type == "drafts_folder")
-            fType = "drafts";
-        else if (type == "notes_folder")
-            fType = "notes";
-        else if (type == "chats_folder")
-            fType = "chats";
-        currentDb->updateFolder(id, newText, fType);
+        currentDb->updateFolder(id, newText);
     }
 }
 
