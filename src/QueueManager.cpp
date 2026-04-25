@@ -450,22 +450,8 @@ void QueueManager::processNext() {
                     auto act = m_activeItems[procId];
                     if (act.db && act.db->isOpen()) {
                         if (act.item.targetType == "document" && act.item.targetAction == "replace_direct") {
-                            auto docs = act.db->getDocuments();
-                            QString currentContent, title, metadata;
-                            for (const auto& d : docs) {
-                                if (d.id == act.item.messageId) {
-                                    currentContent = d.content;
-                                    if (currentContent == QStringLiteral("*Generating merge...*") ||
-                                        currentContent == QStringLiteral("*Generating document...*") ||
-                                        currentContent == QStringLiteral("*Regenerating...*")) {
-                                        currentContent = "";
-                                    }
-                                    title = d.title;
-                                    metadata = d.metadata;
-                                    break;
-                                }
-                            }
-                            act.db->updateDocument(act.item.messageId, title, currentContent + chunk, metadata);
+                            // We do not append chunks to the document during generation
+                            // to ensure the old content is visible until generation is complete.
                         }
                         // For other document actions, we do not update the document directly.
                         // Just emit the chunk for the preview.
