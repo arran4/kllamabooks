@@ -1438,15 +1438,27 @@ BookDatabase::QueueStats BookDatabase::getQueueStats() const {
 
 bool BookDatabase::isGenerating(int targetId, const QString& targetType, const QString& targetAction) const {
     if (!m_isOpen) return false;
-    const char* sql =
-        "SELECT COUNT(*) FROM queue WHERE message_id = ? AND target_type = ? AND target_action = ? AND state IN "
-        "('pending', 'processing');";
-    sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
 
-    sqlite3_bind_int(stmt, 1, targetId);
-    sqlite3_bind_text(stmt, 2, targetType.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 3, targetAction.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_stmt* stmt;
+
+    if (targetAction.isNull() || targetAction.isEmpty()) {
+        const char* sql =
+            "SELECT COUNT(*) FROM queue WHERE message_id = ? AND target_type = ? AND state IN "
+            "('pending', 'processing');";
+        if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+
+        sqlite3_bind_int(stmt, 1, targetId);
+        sqlite3_bind_text(stmt, 2, targetType.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    } else {
+        const char* sql =
+            "SELECT COUNT(*) FROM queue WHERE message_id = ? AND target_type = ? AND target_action = ? AND state IN "
+            "('pending', 'processing');";
+        if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+
+        sqlite3_bind_int(stmt, 1, targetId);
+        sqlite3_bind_text(stmt, 2, targetType.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 3, targetAction.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    }
 
     bool result = false;
     if (sqlite3_step(stmt) == SQLITE_ROW) {
