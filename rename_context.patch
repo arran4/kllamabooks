@@ -1,0 +1,19 @@
+--- src/MainWindow.cpp
++++ src/MainWindow.cpp
+@@ -1902,6 +1902,7 @@
+             editLabel = "Edit Draft";
+
+         QAction* editAction = menu.addAction(QIcon::fromTheme("document-edit"), editLabel);
++        QAction* renameAction = menu.addAction(QIcon::fromTheme("edit-rename"), "Rename Item");
+
+         QAction* historyAction = nullptr;
+         QAction* aiAction = nullptr;
+@@ -1974,6 +1975,8 @@
+             } else if (type == "note") {
+                 mainContentStack->setCurrentWidget(noteContainer);
+                 noteEditorView->setFocus();
+             }
++        } else if (selectedAction == renameAction) {
++            onRenameCurrentItem();
+         } else if (gotoOriginalAction && selectedAction == gotoOriginalAction) {
+             int docId = item->data(Qt::UserRole).toInt();

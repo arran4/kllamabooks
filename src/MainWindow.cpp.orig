@@ -191,7 +191,6 @@ void MainWindow::setupUi() {
     openBooksTree->viewport()->installEventFilter(this);
     openBooksTree->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(openBooksTree, &QWidget::customContextMenuRequested, this, &MainWindow::showOpenBookContextMenu);
-    connect(openBooksModel, &QStandardItemModel::itemChanged, this, &MainWindow::onItemChanged);
 
     connect(openBooksTree, &QTreeView::doubleClicked, this, &MainWindow::onOpenBooksTreeDoubleClicked);
 
@@ -271,7 +270,6 @@ void MainWindow::setupUi() {
     vfsExplorer->viewport()->installEventFilter(this);
     mainContentStack->addWidget(vfsExplorer);
 
-    connect(vfsModel, &QStandardItemModel::itemChanged, this, &MainWindow::onItemChanged);
     connect(vfsExplorer, &QListView::doubleClicked, this, &MainWindow::onVfsExplorerDoubleClicked);
 
     chatModel = new QStandardItemModel(this);
@@ -1779,7 +1777,9 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
         }
 
         QAction* selectedAction = menu.exec(globalPos);
-        if (settingsAction && selectedAction == settingsAction) {
+        if (selectedAction == newAction) {
+            addPhantomItem(item, type);
+        } else if (settingsAction && selectedAction == settingsAction) {
             showChatSettingsDialog(item->data(Qt::UserRole).toInt());
         } else if (createFolderAction && selectedAction == createFolderAction) {
             bool ok;
@@ -1910,7 +1910,6 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
             editLabel = "Edit Draft";
 
         QAction* editAction = menu.addAction(QIcon::fromTheme("document-edit"), editLabel);
-        QAction* renameAction = menu.addAction(QIcon::fromTheme("edit-rename"), "Rename Item");
 
         QAction* historyAction = nullptr;
         QAction* aiAction = nullptr;
@@ -1986,8 +1985,6 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
                 mainContentStack->setCurrentWidget(noteContainer);
                 noteEditorView->setFocus();
             }
-        } else if (selectedAction == renameAction) {
-            onRenameCurrentItem();
         } else if (gotoOriginalAction && selectedAction == gotoOriginalAction) {
             int docId = item->data(Qt::UserRole).toInt();
             if (currentDb) {
@@ -2985,12 +2982,6 @@ void MainWindow::onBreadcrumbClicked(const QString& type, int id) {
  * that side effects map accurately to internal application models. */
 void MainWindow::onRenameCurrentItem() {
     // Enables inline rename
-    QModelIndex index = openBooksTree->currentIndex();
-    if (index.isValid()) {
-        openBooksTree->edit(index);
-    } else if (vfsExplorer->currentIndex().isValid()) {
-        vfsExplorer->edit(vfsExplorer->currentIndex());
-    }
 }
 
 /** * @brief Triggers a reload of the currently open document or note from the persistent database. *  * This function
@@ -3565,43 +3556,12 @@ void MainWindow::onPullFinished(const QString& modelName) {
 void MainWindow::onItemChanged(QStandardItem* item) {
     if (!currentDb) return;
     int id = item->data(Qt::UserRole).toInt();
-    QString type = item->data(Qt::UserRole + 1).toString();
     QString newText = item->text();
-
-    if (type == "chat_node") {
-        int bracketIndex = newText.indexOf("] ");
-        if (bracketIndex != -1) {
-            newText = newText.mid(bracketIndex + 2);
-        }
-        currentDb->updateMessage(id, newText);
-    } else if (type == "document") {
-        QString content, outTitle;
-        getDocumentContent(id, type, outTitle, content);
-        currentDb->updateDocument(id, newText, content);
-    } else if (type == "note") {
-        QString content, outTitle;
-        getDocumentContent(id, type, outTitle, content);
-        currentDb->updateNote(id, newText, content);
-    } else if (type == "template") {
-        QString content, outTitle;
-        getDocumentContent(id, type, outTitle, content);
-        currentDb->updateTemplate(id, newText, content);
-    } else if (type == "draft") {
-        QString content, outTitle;
-        getDocumentContent(id, type, outTitle, content);
-        currentDb->updateDraft(id, newText, content);
-    } else if (type.endsWith("_folder")) {
-        QString fType = "documents";
-        if (type == "templates_folder")
-            fType = "templates";
-        else if (type == "drafts_folder")
-            fType = "drafts";
-        else if (type == "notes_folder")
-            fType = "notes";
-        else if (type == "chats_folder")
-            fType = "chats";
-        currentDb->updateFolder(id, newText, fType);
+    int bracketIndex = newText.indexOf("] ");
+    if (bracketIndex != -1) {
+        newText = newText.mid(bracketIndex + 2);
     }
+    currentDb->updateMessage(id, newText);
 }
 
 /** * @brief Fires when a distinct node is focused in the chat navigation tree, refreshing the right-pane. *  * This
@@ -4328,24 +4288,6 @@ void MainWindow::getDocumentContent(int id, const QString& type, QString& outTit
             if (note.id == id) {
                 outContent = note.content;
                 outTitle = note.title;
-                return;
-            }
-        }
-    } else if (type == "template") {
-        QList<DocumentNode> templates = currentDb->getTemplates();
-        for (const auto& t : templates) {
-            if (t.id == id) {
-                outContent = t.content;
-                outTitle = t.title;
-                return;
-            }
-        }
-    } else if (type == "draft") {
-        QList<DocumentNode> drafts = currentDb->getDrafts();
-        for (const auto& d : drafts) {
-            if (d.id == id) {
-                outContent = d.content;
-                outTitle = d.title;
                 return;
             }
         }
@@ -5486,11 +5428,30 @@ void MainWindow::onOpenBooksTreeDoubleClicked(const QModelIndex& index) {
 
     QString type = item->data(Qt::UserRole + 1).toString();
     if (type == "document" || type == "template" || type == "draft") {
-        onEditDocument();
-        return;
-    } else if (type == "note") {
-        mainContentStack->setCurrentWidget(noteContainer);
-        noteEditorView->setFocus();
+        int docId = item->data(Qt::UserRole).toInt();
+
+        dismissDocumentNotifications(docId);
+
+        QList<DocumentNode> docs;
+        if (type == "document")
+            docs = currentDb->getDocuments();
+        else if (type == "template")
+            docs = currentDb->getTemplates();
+        else if (type == "draft")
+            docs = currentDb->getDrafts();
+
+        if (regenerateMergeAction) regenerateMergeAction->setVisible(false);
+        if (viewMergeSourcesAction) viewMergeSourcesAction->setVisible(false);
+        for (const auto& doc : docs) {
+            if (doc.id == docId) {
+                currentDocumentId = docId;
+                documentEditorView->setPlainText(doc.content);
+                mainContentStack->setCurrentWidget(docContainer);
+
+                updateRegenerateButtonVisibility(doc, type);
+                break;
+            }
+        }
         return;
     }
 

@@ -1,0 +1,7 @@
+--- src/MainWindow.cpp
++++ src/MainWindow.cpp
+@@ -5090,6 +5090,14 @@
+         if (copied) {
+             loadDocumentsAndNotes();
+             return true;
+         }

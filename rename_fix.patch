@@ -1,0 +1,55 @@
+--- src/MainWindow.cpp
++++ src/MainWindow.cpp
+@@ -3561,11 +3561,31 @@
+ void MainWindow::onItemChanged(QStandardItem* item) {
+     if (!currentDb) return;
+     int id = item->data(Qt::UserRole).toInt();
++    QString type = item->data(Qt::UserRole + 1).toString();
+     QString newText = item->text();
+-    int bracketIndex = newText.indexOf("] ");
+-    if (bracketIndex != -1) {
+-        newText = newText.mid(bracketIndex + 2);
+-    }
+-    currentDb->updateMessage(id, newText);
++
++    if (type == "chat_node") {
++        int bracketIndex = newText.indexOf("] ");
++        if (bracketIndex != -1) {
++            newText = newText.mid(bracketIndex + 2);
++        }
++        currentDb->updateMessage(id, newText);
++    } else if (type == "document") {
++        QString content;
++        QString outTitle;
++        getDocumentContent(id, type, outTitle, content);
++        currentDb->updateDocument(id, newText, content);
++    } else if (type == "note") {
++        QString content;
++        QString outTitle;
++        getDocumentContent(id, type, outTitle, content);
++        currentDb->updateNote(id, newText, content);
++    } else if (type == "template") {
++        QString content;
++        QString outTitle;
++        getDocumentContent(id, type, outTitle, content);
++        currentDb->updateTemplate(id, newText, content);
++    } else if (type == "draft") {
++        QString content;
++        QString outTitle;
++        getDocumentContent(id, type, outTitle, content);
++        currentDb->updateDraft(id, newText, content);
++    } else if (type.endsWith("_folder")) {
++        QString fType = "documents";
++        if (type == "templates_folder")
++            fType = "templates";
++        else if (type == "drafts_folder")
++            fType = "drafts";
++        else if (type == "notes_folder")
++            fType = "notes";
++        else if (type == "chats_folder")
++            fType = "chats";
++        currentDb->updateFolder(id, newText, fType);
++    }
+ }
+
+ /** * @brief Fires when a distinct node is focused in the chat navigation tree, refreshing the right-pane. *  * This
