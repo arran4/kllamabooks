@@ -537,6 +537,24 @@ bool BookDatabase::initSchema() {
         sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "INSERT OR REPLACE INTO schema_version (version) VALUES (19);",
                      nullptr, nullptr, nullptr);
         sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "PRAGMA user_version = 19;", nullptr, nullptr, nullptr);
+        userVersion = 19;
+    }
+
+    if (userVersion < 20) {
+        const char* sql_prompt_history =
+            "CREATE TABLE IF NOT EXISTS prompt_history ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "document_id INTEGER, "
+            "prompt TEXT, "
+            "model TEXT, "
+            "timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, "
+            "queue_id INTEGER DEFAULT 0"
+            ");";
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), sql_prompt_history, nullptr, nullptr, nullptr);
+
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "INSERT OR REPLACE INTO schema_version (version) VALUES (20);",
+                     nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "PRAGMA user_version = 20;", nullptr, nullptr, nullptr);
     }
 
     return true;
