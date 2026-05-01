@@ -552,9 +552,21 @@ bool BookDatabase::initSchema() {
             ");";
         sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), sql_prompt_history, nullptr, nullptr, nullptr);
 
+        // Backfill prompt history from existing merges and queue
+        const char* sql_backfill_merges =
+            "INSERT INTO prompt_history (document_id, prompt, model, timestamp) "
+            "SELECT document_id, prompt, model, timestamp FROM document_merges;";
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), sql_backfill_merges, nullptr, nullptr, nullptr);
+
+        const char* sql_backfill_queue =
+            "INSERT INTO prompt_history (document_id, prompt, model, timestamp, queue_id) "
+            "SELECT message_id, prompt, model, created_at, id FROM queue WHERE target_type = 'document';";
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), sql_backfill_queue, nullptr, nullptr, nullptr);
+
         sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "INSERT OR REPLACE INTO schema_version (version) VALUES (20);",
                      nullptr, nullptr, nullptr);
         sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "PRAGMA user_version = 20;", nullptr, nullptr, nullptr);
+        userVersion = 20;
     }
 
     return true;
