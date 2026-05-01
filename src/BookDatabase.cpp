@@ -1132,6 +1132,30 @@ bool BookDatabase::updateTemplate(int id, const QString& newTitle, const QString
     return rc == SQLITE_DONE;
 }
 
+std::optional<DocumentNode> BookDatabase::getTemplate(int id) const {
+    if (!m_isOpen) return std::nullopt;
+    const char* sql = "SELECT id, title, content, timestamp, folder_id, parent_id, metadata FROM templates WHERE id = ?;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return std::nullopt;
+    sqlite3_bind_int(stmt, 1, id);
+
+    std::optional<DocumentNode> result = std::nullopt;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        DocumentNode doc;
+        doc.id = sqlite3_column_int(stmt, 0);
+        doc.title = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)));
+        doc.content = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)));
+        doc.timestamp = QDateTime::fromString(QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3))), Qt::ISODate);
+        doc.folderId = sqlite3_column_int(stmt, 4);
+        doc.parentId = sqlite3_column_int(stmt, 5);
+        doc.metadata = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 6)));
+        doc.isFolder = false;
+        result = doc;
+    }
+    sqlite3_finalize(stmt);
+    return result;
+}
+
 QList<DocumentNode> BookDatabase::getTemplates(int folderId) const {
     QList<DocumentNode> nodes;
     if (!m_isOpen) return nodes;
@@ -1202,6 +1226,30 @@ bool BookDatabase::updateDraft(int id, const QString& newTitle, const QString& n
     rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
     return rc == SQLITE_DONE;
+}
+
+std::optional<DocumentNode> BookDatabase::getDraft(int id) const {
+    if (!m_isOpen) return std::nullopt;
+    const char* sql = "SELECT id, title, content, timestamp, folder_id, parent_id, metadata FROM drafts WHERE id = ?;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return std::nullopt;
+    sqlite3_bind_int(stmt, 1, id);
+
+    std::optional<DocumentNode> result = std::nullopt;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        DocumentNode doc;
+        doc.id = sqlite3_column_int(stmt, 0);
+        doc.title = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)));
+        doc.content = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)));
+        doc.timestamp = QDateTime::fromString(QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3))), Qt::ISODate);
+        doc.folderId = sqlite3_column_int(stmt, 4);
+        doc.parentId = sqlite3_column_int(stmt, 5);
+        doc.metadata = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 6)));
+        doc.isFolder = false;
+        result = doc;
+    }
+    sqlite3_finalize(stmt);
+    return result;
 }
 
 QList<DocumentNode> BookDatabase::getDrafts(int folderId) const {
@@ -1829,6 +1877,23 @@ bool BookDatabase::deleteTemplate(int id) {
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
     sqlite3_bind_int(stmt, 1, id);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
+}
+
+bool BookDatabase::updateDocumentTitle(int id, const QString& newTitle, const QString& targetType) {
+    if (!m_isOpen) return false;
+    QString table = targetType;
+    if (table != "documents" && table != "templates" && table != "drafts" && table != "notes") {
+        table += "s";
+        if (table != "documents" && table != "templates" && table != "drafts" && table != "notes") return false;
+    }
+    QString sql = QString("UPDATE %1 SET title = ? WHERE id = ?;").arg(table);
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql.toUtf8().constData(), -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, newTitle.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 2, id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
     return rc == SQLITE_DONE;

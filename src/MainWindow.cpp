@@ -3574,22 +3574,8 @@ void MainWindow::onItemChanged(QStandardItem* item) {
             newText = newText.mid(bracketIndex + 2);
         }
         currentDb->updateMessage(id, newText);
-    } else if (type == "document") {
-        QString content, outTitle;
-        getDocumentContent(id, type, outTitle, content);
-        currentDb->updateDocument(id, newText, content);
-    } else if (type == "note") {
-        QString content, outTitle;
-        getDocumentContent(id, type, outTitle, content);
-        currentDb->updateNote(id, newText, content);
-    } else if (type == "template") {
-        QString content, outTitle;
-        getDocumentContent(id, type, outTitle, content);
-        currentDb->updateTemplate(id, newText, content);
-    } else if (type == "draft") {
-        QString content, outTitle;
-        getDocumentContent(id, type, outTitle, content);
-        currentDb->updateDraft(id, newText, content);
+    } else if (type == "document" || type == "note" || type == "template" || type == "draft") {
+        currentDb->updateDocumentTitle(id, newText, type);
     } else if (type.endsWith("_folder")) {
         currentDb->updateFolder(id, newText);
     }
@@ -5111,29 +5097,29 @@ bool MainWindow::moveItemToFolder(QStandardItem* draggedItem, QStandardItem* tar
         bool copied = false;
         int newId = -1;
         if (itemType == "document" && targetType == "docs_folder") {
-            for (const auto& d : db->getDocuments(-1))
-                if (d.id == itemId) {
-                    newId = db->addDocument(targetFolderId, "Copy of " + d.title, d.content);
-                    copied = true;
-                }
+            if (auto doc = db->getDocument(itemId)) {
+                newId = db->addDocument(targetFolderId, "Copy of " + doc->title, doc->content);
+                copied = true;
+            }
         } else if (itemType == "template" && targetType == "templates_folder") {
-            for (const auto& d : db->getTemplates(-1))
-                if (d.id == itemId) {
-                    newId = db->addTemplate(targetFolderId, "Copy of " + d.title, d.content);
-                    copied = true;
-                }
+            if (auto doc = db->getTemplate(itemId)) {
+                newId = db->addTemplate(targetFolderId, "Copy of " + doc->title, doc->content);
+                copied = true;
+            }
         } else if (itemType == "draft" && targetType == "drafts_folder") {
-            for (const auto& d : db->getDrafts(-1))
-                if (d.id == itemId) {
-                    newId = db->addDraft(targetFolderId, "Copy of " + d.title, d.content);
-                    copied = true;
-                }
+            if (auto doc = db->getDraft(itemId)) {
+                newId = db->addDraft(targetFolderId, "Copy of " + doc->title, doc->content);
+                copied = true;
+            }
         } else if (itemType == "note" && targetType == "notes_folder") {
-            for (const auto& d : db->getNotes(-1))
+            QList<NoteNode> notes = db->getNotes(-1);
+            for (const auto& d : notes) {
                 if (d.id == itemId) {
                     newId = db->addNote(targetFolderId, "Copy of " + d.title, d.content);
                     copied = true;
+                    break;
                 }
+            }
         } else if ((itemType == "chat_session" || itemType == "chat_node") && targetType == "chats_folder") {
             // complex copy omitted for now
         }
