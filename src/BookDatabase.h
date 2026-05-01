@@ -159,6 +159,7 @@ class BookDatabase {
     // Templates
     int addTemplate(int folderId, const QString& title, const QString& content);
     bool updateTemplate(int id, const QString& newTitle, const QString& newContent);
+    std::optional<DocumentNode> getTemplate(int id) const;
     QList<DocumentNode> getTemplates(int folderId = -1) const;
     bool deleteTemplate(int id);
 
@@ -166,6 +167,7 @@ class BookDatabase {
     int addDraft(int folderId, const QString& title, const QString& content, int parentId = 0,
                  const QString& targetType = "document");
     bool updateDraft(int id, const QString& newTitle, const QString& newContent);
+    std::optional<DocumentNode> getDraft(int id) const;
     QList<DocumentNode> getDrafts(int folderId = -1) const;
     bool deleteDraft(int id);
 
@@ -179,6 +181,7 @@ class BookDatabase {
     int addFolder(int parentId, const QString& name, const QString& type, bool isExpanded = false);
     bool updateFolder(int id, const QString& newName);
     bool deleteFolder(int id);
+    bool updateDocumentTitle(int id, const QString& newTitle, const QString& targetType);
     void setFolderExpanded(int id, bool expanded);
     void setMessageExpanded(int id, bool expanded);
     QList<FolderNode> getFolders(const QString& type) const;

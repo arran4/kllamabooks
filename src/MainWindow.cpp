@@ -193,6 +193,7 @@ void MainWindow::setupUi() {
     openBooksTree->viewport()->installEventFilter(this);
     openBooksTree->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(openBooksTree, &QWidget::customContextMenuRequested, this, &MainWindow::showOpenBookContextMenu);
+    connect(openBooksModel, &QStandardItemModel::itemChanged, this, &MainWindow::onItemChanged);
 
     connect(openBooksTree, &QTreeView::doubleClicked, this, &MainWindow::onOpenBooksTreeDoubleClicked);
 
@@ -272,6 +273,7 @@ void MainWindow::setupUi() {
     vfsExplorer->viewport()->installEventFilter(this);
     mainContentStack->addWidget(vfsExplorer);
 
+    connect(vfsModel, &QStandardItemModel::itemChanged, this, &MainWindow::onItemChanged);
     connect(vfsExplorer, &QListView::doubleClicked, this, &MainWindow::onVfsExplorerDoubleClicked);
 
     chatModel = new QStandardItemModel(this);
@@ -1779,9 +1781,7 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
         }
 
         QAction* selectedAction = menu.exec(globalPos);
-        if (selectedAction == newAction) {
-            addPhantomItem(item, type);
-        } else if (settingsAction && selectedAction == settingsAction) {
+        if (settingsAction && selectedAction == settingsAction) {
             showChatSettingsDialog(item->data(Qt::UserRole).toInt());
         } else if (createFolderAction && selectedAction == createFolderAction) {
             bool ok;
@@ -1912,6 +1912,7 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
             editLabel = "Edit Draft";
 
         QAction* editAction = menu.addAction(QIcon::fromTheme("document-edit"), editLabel);
+        QAction* renameAction = menu.addAction(QIcon::fromTheme("edit-rename"), "Rename Item");
 
         QAction* historyAction = nullptr;
         QAction* aiAction = nullptr;
@@ -1987,6 +1988,8 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
                 mainContentStack->setCurrentWidget(noteContainer);
                 noteEditorView->setFocus();
             }
+        } else if (selectedAction == renameAction) {
+            onRenameCurrentItem();
         } else if (gotoOriginalAction && selectedAction == gotoOriginalAction) {
             int docId = item->data(Qt::UserRole).toInt();
             if (currentDb) {
@@ -2984,6 +2987,12 @@ void MainWindow::onBreadcrumbClicked(const QString& type, int id) {
  * that side effects map accurately to internal application models. */
 void MainWindow::onRenameCurrentItem() {
     // Enables inline rename
+    QModelIndex index = openBooksTree->currentIndex();
+    if (index.isValid()) {
+        openBooksTree->edit(index);
+    } else if (vfsExplorer->currentIndex().isValid()) {
+        vfsExplorer->edit(vfsExplorer->currentIndex());
+    }
 }
 
 /** * @brief Triggers a reload of the currently open document or note from the persistent database. *  * This function
@@ -3558,12 +3567,20 @@ void MainWindow::onPullFinished(const QString& modelName) {
 void MainWindow::onItemChanged(QStandardItem* item) {
     if (!currentDb) return;
     int id = item->data(Qt::UserRole).toInt();
+    QString type = item->data(Qt::UserRole + 1).toString();
     QString newText = item->text();
-    int bracketIndex = newText.indexOf("] ");
-    if (bracketIndex != -1) {
-        newText = newText.mid(bracketIndex + 2);
+
+    if (type == "chat_node") {
+        int bracketIndex = newText.indexOf("] ");
+        if (bracketIndex != -1) {
+            newText = newText.mid(bracketIndex + 2);
+        }
+        currentDb->updateMessage(id, newText);
+    } else if (type == "document" || type == "note" || type == "template" || type == "draft") {
+        currentDb->updateDocumentTitle(id, newText, type);
+    } else if (type.endsWith("_folder")) {
+        currentDb->updateFolder(id, newText);
     }
-    currentDb->updateMessage(id, newText);
 }
 
 /** * @brief Fires when a distinct node is focused in the chat navigation tree, refreshing the right-pane. *  * This
@@ -3653,7 +3670,7 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
             sourceView = qobject_cast<QAbstractItemView*>(sourceWidget->parentWidget());
         }
 
-        if (dropEvent->mimeData()->hasUrls()) {
+        if (dropEvent->mimeData()->hasUrls() && sourceView != openBooksTree && sourceView != vfsExplorer) {
             // external files
             QList<QUrl> urls = dropEvent->mimeData()->urls();
             if (!urls.isEmpty() && urls.first().isLocalFile()) {
@@ -4290,6 +4307,24 @@ void MainWindow::getDocumentContent(int id, const QString& type, QString& outTit
             if (note.id == id) {
                 outContent = note.content;
                 outTitle = note.title;
+                return;
+            }
+        }
+    } else if (type == "template") {
+        QList<DocumentNode> templates = currentDb->getTemplates();
+        for (const auto& t : templates) {
+            if (t.id == id) {
+                outContent = t.content;
+                outTitle = t.title;
+                return;
+            }
+        }
+    } else if (type == "draft") {
+        QList<DocumentNode> drafts = currentDb->getDrafts();
+        for (const auto& d : drafts) {
+            if (d.id == id) {
+                outContent = d.content;
+                outTitle = d.title;
                 return;
             }
         }
@@ -5062,35 +5097,45 @@ bool MainWindow::moveItemToFolder(QStandardItem* draggedItem, QStandardItem* tar
 
     if (isCopy) {
         bool copied = false;
+        int newId = -1;
         if (itemType == "document" && targetType == "docs_folder") {
-            for (const auto& d : db->getDocuments(-1))
-                if (d.id == itemId) {
-                    db->addDocument(targetFolderId, "Copy of " + d.title, d.content);
-                    copied = true;
-                }
+            if (auto doc = db->getDocument(itemId)) {
+                newId = db->addDocument(targetFolderId, "Copy of " + doc->title, doc->content);
+                copied = true;
+            }
         } else if (itemType == "template" && targetType == "templates_folder") {
-            for (const auto& d : db->getTemplates(-1))
-                if (d.id == itemId) {
-                    db->addTemplate(targetFolderId, "Copy of " + d.title, d.content);
-                    copied = true;
-                }
+            if (auto doc = db->getTemplate(itemId)) {
+                newId = db->addTemplate(targetFolderId, "Copy of " + doc->title, doc->content);
+                copied = true;
+            }
         } else if (itemType == "draft" && targetType == "drafts_folder") {
-            for (const auto& d : db->getDrafts(-1))
-                if (d.id == itemId) {
-                    db->addDraft(targetFolderId, "Copy of " + d.title, d.content);
-                    copied = true;
-                }
+            if (auto doc = db->getDraft(itemId)) {
+                newId = db->addDraft(targetFolderId, "Copy of " + doc->title, doc->content);
+                copied = true;
+            }
         } else if (itemType == "note" && targetType == "notes_folder") {
-            for (const auto& d : db->getNotes(-1))
+            QList<NoteNode> notes = db->getNotes(-1);
+            for (const auto& d : notes) {
                 if (d.id == itemId) {
-                    db->addNote(targetFolderId, "Copy of " + d.title, d.content);
+                    newId = db->addNote(targetFolderId, "Copy of " + d.title, d.content);
                     copied = true;
+                    break;
                 }
+            }
         } else if ((itemType == "chat_session" || itemType == "chat_node") && targetType == "chats_folder") {
             // complex copy omitted for now
         }
         if (copied) {
             loadDocumentsAndNotes();
+            if (newId > 0) {
+                QStandardItem* newItem = findItemInTree(newId, itemType);
+                if (newItem) {
+                    openBooksTree->selectionModel()->select(
+                        newItem->index(),
+                        QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Current);
+                    openBooksTree->scrollTo(newItem->index());
+                }
+            }
             return true;
         }
         return false;
@@ -5420,30 +5465,11 @@ void MainWindow::onOpenBooksTreeDoubleClicked(const QModelIndex& index) {
 
     QString type = item->data(Qt::UserRole + 1).toString();
     if (type == "document" || type == "template" || type == "draft") {
-        int docId = item->data(Qt::UserRole).toInt();
-
-        dismissDocumentNotifications(docId);
-
-        QList<DocumentNode> docs;
-        if (type == "document")
-            docs = currentDb->getDocuments();
-        else if (type == "template")
-            docs = currentDb->getTemplates();
-        else if (type == "draft")
-            docs = currentDb->getDrafts();
-
-        if (regenerateMergeAction) regenerateMergeAction->setVisible(false);
-        if (viewMergeSourcesAction) viewMergeSourcesAction->setVisible(false);
-        for (const auto& doc : docs) {
-            if (doc.id == docId) {
-                currentDocumentId = docId;
-                documentEditorView->setPlainText(doc.content);
-                mainContentStack->setCurrentWidget(docContainer);
-
-                updateRegenerateButtonVisibility(doc, type);
-                break;
-            }
-        }
+        onEditDocument();
+        return;
+    } else if (type == "note") {
+        mainContentStack->setCurrentWidget(noteContainer);
+        noteEditorView->setFocus();
         return;
     }
 
