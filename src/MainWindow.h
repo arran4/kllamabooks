@@ -99,6 +99,7 @@ class MainWindow : public KXmlGuiWindow {
     void showDocumentAIToolsMenu();
     void onDocumentAIOperations();
     void onDocumentHistory();
+    void onPromptHistory(int docId);
     void onEditDocument();
     void onRegenerateMerge();
     void onViewMergeSources();

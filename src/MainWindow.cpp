@@ -52,6 +52,7 @@
 #include "DatabaseSettingsDialog.h"
 #include "DocumentEditWindow.h"
 #include "DocumentHistoryDialog.h"
+#include "PromptHistoryDialog.h"
 #include "DocumentReviewDialog.h"
 #include "DocumentTemplatesManager.h"
 #include "DraftSelectionDialog.h"
@@ -1916,8 +1917,11 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
         QAction* historyAction = nullptr;
         QAction* aiAction = nullptr;
 
+        QAction* promptHistoryAction = nullptr;
+
         if (type == "document") {
-            historyAction = menu.addAction(QIcon::fromTheme("view-history"), "History");
+            historyAction = menu.addAction(QIcon::fromTheme("view-history"), "Content History");
+            promptHistoryAction = menu.addAction(QIcon::fromTheme("text-x-generic"), "Prompt History");
             aiAction = menu.addAction(QIcon::fromTheme("tools-wizard"), "AI Operations");
         }
 
@@ -2010,6 +2014,8 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
             }
         } else if (historyAction && selectedAction == historyAction) {
             onDocumentHistory();
+        } else if (promptHistoryAction && selectedAction == promptHistoryAction) {
+            onPromptHistory(item->data(Qt::UserRole).toInt());
         } else if (aiAction && selectedAction == aiAction) {
             onDocumentAIOperations();
         } else if (regenerateMergeAction && selectedAction == regenerateMergeAction) {
@@ -5407,6 +5413,12 @@ void MainWindow::onDocumentHistory() {
         documentEditorView->blockSignals(false);
         statusBar->showMessage(tr("Document history restored."), 3000);
     }
+}
+
+void MainWindow::onPromptHistory(int docId) {
+    if (!currentDb) return;
+    PromptHistoryDialog dialog(currentDb, docId, this);
+    dialog.exec();
 }
 
 /**
