@@ -61,7 +61,7 @@ void PromptHistoryDialog::loadHistory() {
 
     m_entries = m_db->getPromptHistory(m_documentId);
     for (const auto& e : m_entries) {
-        QDateTime dt = QDateTime::fromString(e.timestamp, Qt::ISODate);
+        QDateTime dt = QDateTime::fromString(e.timestamp, "yyyy-MM-dd HH:mm:ss");
         QString displayTime = dt.isValid() ? dt.toString("yyyy-MM-dd HH:mm:ss") : e.timestamp;
 
         QString displayStatus = e.status;
