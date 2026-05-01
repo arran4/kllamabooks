@@ -537,24 +537,6 @@ bool BookDatabase::initSchema() {
         sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "INSERT OR REPLACE INTO schema_version (version) VALUES (19);",
                      nullptr, nullptr, nullptr);
         sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "PRAGMA user_version = 19;", nullptr, nullptr, nullptr);
-        userVersion = 19;
-    }
-
-    if (userVersion < 20) {
-        const char* sql_prompt_history =
-            "CREATE TABLE IF NOT EXISTS prompt_history ("
-            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-            "document_id INTEGER, "
-            "prompt TEXT, "
-            "model TEXT, "
-            "timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, "
-            "queue_id INTEGER DEFAULT 0"
-            ");";
-        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), sql_prompt_history, nullptr, nullptr, nullptr);
-
-        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "INSERT OR REPLACE INTO schema_version (version) VALUES (20);",
-                     nullptr, nullptr, nullptr);
-        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "PRAGMA user_version = 20;", nullptr, nullptr, nullptr);
     }
 
     return true;
@@ -655,20 +637,6 @@ int BookDatabase::addMessage(int parentId, const QString& content, const QString
 
     int id = sqlite3_last_insert_rowid(reinterpret_cast<sqlite3*>(m_db));
     sqlite3_finalize(stmt);
-
-    if (targetType == "document") {
-        const char* ph_sql = "INSERT INTO prompt_history (document_id, prompt, model, queue_id) VALUES (?, ?, ?, ?);";
-        sqlite3_stmt* ph_stmt;
-        if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), ph_sql, -1, &ph_stmt, nullptr) == SQLITE_OK) {
-            sqlite3_bind_int(ph_stmt, 1, messageId);
-            sqlite3_bind_text(ph_stmt, 2, prompt.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-            sqlite3_bind_text(ph_stmt, 3, model.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-            sqlite3_bind_int(ph_stmt, 4, id);
-            sqlite3_step(ph_stmt);
-            sqlite3_finalize(ph_stmt);
-        }
-    }
-
     return id;
 }
 
@@ -1412,6 +1380,18 @@ int BookDatabase::enqueuePrompt(int messageId, const QString& model, const QStri
 
     int id = sqlite3_last_insert_rowid(reinterpret_cast<sqlite3*>(m_db));
     sqlite3_finalize(stmt);
+    if (targetType == "document") {
+        const char* ph_sql = "INSERT INTO prompt_history (document_id, prompt, model, queue_id) VALUES (?, ?, ?, ?);";
+        sqlite3_stmt* ph_stmt;
+        if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), ph_sql, -1, &ph_stmt, nullptr) == SQLITE_OK) {
+            sqlite3_bind_int(ph_stmt, 1, messageId);
+            sqlite3_bind_text(ph_stmt, 2, prompt.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(ph_stmt, 3, model.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_int(ph_stmt, 4, id);
+            sqlite3_step(ph_stmt);
+            sqlite3_finalize(ph_stmt);
+        }
+    }
     return id;
 }
 
@@ -1864,40 +1844,4 @@ bool BookDatabase::deleteTemplate(int id) {
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
     return rc == SQLITE_DONE;
-}
-
-QList<BookDatabase::PromptHistoryEntry> BookDatabase::getPromptHistory(int documentId) const {
-    QList<PromptHistoryEntry> items;
-    if (!m_isOpen) return items;
-
-    const char* sql =
-        "SELECT p.id, p.prompt, p.model, p.timestamp, p.queue_id, q.state "
-        "FROM prompt_history p "
-        "LEFT JOIN queue q ON p.queue_id = q.id "
-        "WHERE p.document_id = ? ORDER BY p.timestamp DESC;";
-
-    sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return items;
-
-    sqlite3_bind_int(stmt, 1, documentId);
-
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
-        PromptHistoryEntry e;
-        e.id = sqlite3_column_int(stmt, 0);
-        e.documentId = documentId;
-        e.prompt = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)));
-        e.model = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)));
-        e.timestamp = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)));
-        e.queueId = sqlite3_column_int(stmt, 4);
-
-        if (sqlite3_column_type(stmt, 5) != SQLITE_NULL) {
-            e.status = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 5)));
-        } else {
-            e.status = ""; // Indicates completed/removed from queue
-        }
-
-        items.append(e);
-    }
-    sqlite3_finalize(stmt);
-    return items;
 }
