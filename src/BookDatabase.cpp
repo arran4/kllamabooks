@@ -1845,3 +1845,39 @@ bool BookDatabase::deleteTemplate(int id) {
     sqlite3_finalize(stmt);
     return rc == SQLITE_DONE;
 }
+
+QList<BookDatabase::PromptHistoryEntry> BookDatabase::getPromptHistory(int documentId) const {
+    QList<PromptHistoryEntry> items;
+    if (!m_isOpen) return items;
+
+    const char* sql =
+        "SELECT p.id, p.prompt, p.model, p.timestamp, p.queue_id, q.state "
+        "FROM prompt_history p "
+        "LEFT JOIN queue q ON p.queue_id = q.id "
+        "WHERE p.document_id = ? ORDER BY p.timestamp DESC;";
+
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return items;
+
+    sqlite3_bind_int(stmt, 1, documentId);
+
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        PromptHistoryEntry e;
+        e.id = sqlite3_column_int(stmt, 0);
+        e.documentId = documentId;
+        e.prompt = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)));
+        e.model = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)));
+        e.timestamp = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)));
+        e.queueId = sqlite3_column_int(stmt, 4);
+
+        if (sqlite3_column_type(stmt, 5) != SQLITE_NULL) {
+            e.status = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 5)));
+        } else {
+            e.status = ""; // Indicates completed/removed from queue
+        }
+
+        items.append(e);
+    }
+    sqlite3_finalize(stmt);
+    return items;
+}
