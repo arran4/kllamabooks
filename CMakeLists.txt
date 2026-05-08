@@ -120,6 +120,11 @@ add_executable(test_TemplateParser tests/test_TemplateParser.cpp src/TemplatePar
 target_link_libraries(test_TemplateParser Qt6::Test Qt6::Core)
 add_test(NAME test_TemplateParser COMMAND test_TemplateParser)
 
+add_executable(test_BookDatabase tests/test_BookDatabase.cpp src/BookDatabase.cpp)
+target_link_libraries(test_BookDatabase Qt6::Test Qt6::Core Qt6::Widgets Qt6::Sql ${SQLCIPHER_LIBRARIES})
+target_include_directories(test_BookDatabase PRIVATE ${SQLCIPHER_INCLUDE_DIRS})
+add_test(NAME test_BookDatabase COMMAND test_BookDatabase)
+
 install(FILES src/assets/icon.png
     DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/512x512/apps
     RENAME kllamabooks.png
