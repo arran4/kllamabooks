@@ -600,8 +600,7 @@ bool BookDatabase::moveItem(const QString& table, int id, int newFolderId) {
     }
 
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK)
-        return false;
+    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
 
     sqlite3_bind_int(stmt, 1, newFolderId);
     sqlite3_bind_int(stmt, 2, id);

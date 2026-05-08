@@ -58,8 +58,8 @@
 #include "MergeDocumentsDialog.h"
 #include "ModelSelectionDialog.h"
 #include "NewDocumentDialog.h"
-#include "PasswordDialog.h"
 #include "NotificationDelegate.h"
+#include "PasswordDialog.h"
 #include "QueueManager.h"
 #include "QueueWindow.h"
 #include "WalletManager.h"
@@ -5089,7 +5089,8 @@ bool MainWindow::moveItemToFolder(QStandardItem* draggedItem, QStandardItem* tar
         } else if ((itemType == "chat_session" || itemType == "chat_node") && targetType == "chats_folder") {
             bool canCopy = true;
             if (itemType == "chat_node") {
-                if (!draggedItem->parent() || draggedItem->parent()->data(Qt::UserRole + 1).toString() != "chats_folder") {
+                if (!draggedItem->parent() ||
+                    draggedItem->parent()->data(Qt::UserRole + 1).toString() != "chats_folder") {
                     canCopy = false;
                 }
             }
@@ -5596,7 +5597,8 @@ void MainWindow::handleNewDocumentCreation(int defaultFolderId) {
         QMessageBox::warning(this, tr("No Book Open"), tr("Please open a book first to create a document."));
         return;
     }
-    NewDocumentDialog dialog(currentDb, defaultFolderId, m_availableModelInfos, m_availableModels, endpointComboBox, m_selectedModels, this);
+    NewDocumentDialog dialog(currentDb, defaultFolderId, m_availableModelInfos, m_availableModels, endpointComboBox,
+                             m_selectedModels, this);
     if (dialog.exec() == QDialog::Accepted) {
         QString title = dialog.getTitle();
         int folderId = dialog.getSelectedFolderId();
