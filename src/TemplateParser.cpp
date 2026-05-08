@@ -6,8 +6,8 @@ QString TemplateParser::parseMergeTemplate(QString prompt, const QList<QString>&
     // Process {foreach contexts} block
     // Syntax: {foreach contexts} ... {context} ... [{between} ... ] {end}
     // Note: Use a non-greedy match for the block
-    static const QRegularExpression foreachRe("\\{foreach contexts\\}(.*?)\\{end\\}",
-                                 QRegularExpression::DotMatchesEverythingOption);
+    static const QRegularExpression foreachRe(R"(\{foreach contexts\}(.*?)\{end\})",
+                                              QRegularExpression::DotMatchesEverythingOption);
 
     int offset = 0;
     while (true) {
