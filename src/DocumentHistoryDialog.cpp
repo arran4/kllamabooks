@@ -65,7 +65,6 @@ DocumentHistoryDialog::~DocumentHistoryDialog() {}
 void DocumentHistoryDialog::loadHistory() {
     if (!m_db || !m_db->isOpen()) return;
 
-    m_entries.clear();
     m_historyList->clear();
 
     m_entries = m_db->getDocumentHistory(m_documentId);
