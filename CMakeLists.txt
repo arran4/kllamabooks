@@ -115,7 +115,7 @@ install(FILES src/com.arran4.kllamabooks.metainfo.xml
 
 # Tests
 enable_testing()
-find_package(Qt6 COMPONENTS Test REQUIRED)
+find_package(Qt6 COMPONENTS Test Sql REQUIRED)
 add_executable(test_TemplateParser tests/test_TemplateParser.cpp src/TemplateParser.cpp)
 target_link_libraries(test_TemplateParser Qt6::Test Qt6::Core)
 add_test(NAME test_TemplateParser COMMAND test_TemplateParser)

@@ -40,7 +40,7 @@ void TestBookDatabase::testAddDocumentHappyPath() {
     int docId = db.addDocument(realFolderId, title, content, parentId, metadata);
     QVERIFY(docId > 0);
 
-    std::optional<BookDatabase::DocumentNode> retrievedDoc = db.getDocument(docId);
+    std::optional<DocumentNode> retrievedDoc = db.getDocument(docId);
     QVERIFY(retrievedDoc.has_value());
     QCOMPARE(retrievedDoc->id, docId);
     QCOMPARE(retrievedDoc->folderId, realFolderId);
@@ -69,7 +69,7 @@ void TestBookDatabase::testAddDocumentWithParent() {
     int childId = db.addDocument(1, "Child Doc", "Child Content", rootId, "{}");
     QVERIFY(childId > 0);
 
-    std::optional<BookDatabase::DocumentNode> retrievedChild = db.getDocument(childId);
+    std::optional<DocumentNode> retrievedChild = db.getDocument(childId);
     QVERIFY(retrievedChild.has_value());
     QCOMPARE(retrievedChild->parentId, rootId);
 
