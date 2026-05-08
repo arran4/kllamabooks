@@ -1,5 +1,4 @@
 #include <QtTest>
-#include <QTemporaryFile>
 #include "../src/BookDatabase.h"
 
 class TestBookDatabase : public QObject {
