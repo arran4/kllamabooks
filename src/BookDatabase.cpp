@@ -31,12 +31,10 @@ bool BookDatabase::open(const QString& password) {
     }
 
     if (!password.isEmpty()) {
-        QString keyPragma = QString("PRAGMA key = '%1';").arg(password);
-        char* errMsg = nullptr;
-        rc = sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), keyPragma.toUtf8().constData(), nullptr, nullptr, &errMsg);
+        QByteArray passwordBytes = password.toUtf8();
+        rc = sqlite3_key(reinterpret_cast<sqlite3*>(m_db), passwordBytes.constData(), passwordBytes.size());
         if (rc != SQLITE_OK) {
-            qWarning() << "Failed to set key: " << errMsg;
-            sqlite3_free(errMsg);
+            qWarning() << "Failed to set key: " << sqlite3_errmsg(reinterpret_cast<sqlite3*>(m_db));
             close();
             return false;
         }
