@@ -22,21 +22,16 @@ QueueWindow::QueueWindow(QWidget* parent) : QWidget(parent, Qt::Window) {
     connect(m_queueList, &QWidget::customContextMenuRequested, this, &QueueWindow::showContextMenu);
 
     QHBoxLayout* btnLayout = new QHBoxLayout();
-    m_upBtn = new QPushButton("Move Up", this);
-    m_downBtn = new QPushButton("Move Down", this);
     m_clearBtn = new QPushButton("Clear Completed", this);
 
     QPushButton* pauseBtn = new QPushButton(QueueManager::instance().isPaused() ? "Resume Queue" : "Pause Queue", this);
 
-    btnLayout->addWidget(m_upBtn);
-    btnLayout->addWidget(m_downBtn);
     btnLayout->addWidget(pauseBtn);
     btnLayout->addStretch();
     btnLayout->addWidget(m_clearBtn);
     layout->addLayout(btnLayout);
 
     connect(m_clearBtn, &QPushButton::clicked, this, &QueueWindow::onClearCompleted);
-    connect(m_queueList, &QListWidget::itemSelectionChanged, this, &QueueWindow::updateButtons);
 
     connect(m_queueList, &QListWidget::itemDoubleClicked, this, [this](QListWidgetItem*) { onJumpItem(); });
 
@@ -52,16 +47,7 @@ QueueWindow::QueueWindow(QWidget* parent) : QWidget(parent, Qt::Window) {
 
     connect(&QueueManager::instance(), &QueueManager::queueChanged, this, &QueueWindow::refresh);
 
-    // Disable up/down for now as it needs more logic for priority across DBs
-    m_upBtn->setEnabled(false);
-    m_downBtn->setEnabled(false);
-
-    updateButtons();
     refresh();
-}
-
-void QueueWindow::updateButtons() {
-    // Only used to update bulk buttons like up/down now if we enable them
 }
 
 void QueueWindow::refresh() {
@@ -124,7 +110,6 @@ void QueueWindow::refresh() {
             listItem->setBackground(Qt::yellow);
         }
     }
-    updateButtons();
 }
 
 void QueueWindow::onRetryItem() {
@@ -183,12 +168,6 @@ void QueueWindow::onCancelItem() {
 }
 
 void QueueWindow::onClearCompleted() { QueueManager::instance().clearCompleted(); }
-
-void QueueWindow::onMoveUp() {
-    // Priority reordering would go here
-}
-
-void QueueWindow::onMoveDown() {}
 
 void QueueWindow::showContextMenu(const QPoint& pos) {
     auto item = m_queueList->itemAt(pos);

@@ -20,8 +20,6 @@ class QueueWindow : public QWidget {
     void onCancelItem();
     void onRetryItem();
     void onModifyItem();
-    void onMoveUp();
-    void onMoveDown();
     void onClearCompleted();
     void onJumpItem();
     void showContextMenu(const QPoint& pos);
@@ -29,11 +27,7 @@ class QueueWindow : public QWidget {
 
    private:
     QListWidget* m_queueList;
-    QPushButton* m_upBtn;
-    QPushButton* m_downBtn;
     QPushButton* m_clearBtn;
-
-    void updateButtons();
 };
 
 #endif  // QUEUEWINDOW_H
