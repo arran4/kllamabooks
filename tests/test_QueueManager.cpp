@@ -41,9 +41,15 @@ void TestQueueManager::init() {
 }
 
 void TestQueueManager::cleanup() {
+    QueueManager& qm = QueueManager::instance();
     if (m_db) {
+        qm.removeDatabase(m_db);
         m_db->close();
     }
+    qm.setClient(nullptr);
+    qm.resumeQueue();
+    qm.setMaxConcurrent(1); // Reset to default value
+
     QFile::remove(m_testDbPath);
 }
 
@@ -83,8 +89,6 @@ void TestQueueManager::testGetQueueStats() {
 
     stats = qm.getQueueStats();
     QCOMPARE(stats.pending, 1);
-
-    qm.removeDatabase(m_db);
 }
 
 void TestQueueManager::testCheckQueueIsPaused() {
@@ -104,8 +108,13 @@ void TestQueueManager::testCheckQueueIsPaused() {
     QCOMPARE(stats.processing, 0); // No items should move to processing since queue is paused
 
     qm.resumeQueue();
-    qm.setClient(nullptr);
-    qm.removeDatabase(m_db);
+
+    // Wait for the asynchronous checkQueue to run and process the item.
+    QTest::qWait(100);
+
+    stats = qm.getQueueStats();
+    QCOMPARE(stats.pending, 0);
+    QCOMPARE(stats.processing, 1);
 }
 
 void TestQueueManager::testEndpointDownPreventsProcessing() {
@@ -131,16 +140,38 @@ void TestQueueManager::testEndpointDownPreventsProcessing() {
     emit client.connectionStatusChanged(true);
     QVERIFY(qm.isEndpointUp());
 
-    stats = qm.getQueueStats();
+    // Wait for async checkQueue to run
+    QTest::qWait(100);
 
-    qm.setClient(nullptr);
-    qm.removeDatabase(m_db);
+    stats = qm.getQueueStats();
+    QCOMPARE(stats.pending, 0);
+    QCOMPARE(stats.processing, 1);
 }
 
 void TestQueueManager::testMaxConcurrentLimits() {
     QueueManager& qm = QueueManager::instance();
-    qm.setMaxConcurrent(3);
-    QCOMPARE(qm.maxConcurrent(), 3);
+    qm.addDatabase(m_db);
+    OllamaClient client;
+    qm.setClient(&client);
+    qm.resumeQueue();
+
+    qm.setMaxConcurrent(1);
+    QCOMPARE(qm.maxConcurrent(), 1);
+
+    // Enqueue more items than the concurrent limit
+    m_db->enqueuePrompt(1, "test_model", "test_prompt_1");
+    m_db->enqueuePrompt(2, "test_model", "test_prompt_2");
+
+    QueueManager::QueueStats stats = qm.getQueueStats();
+    QCOMPARE(stats.pending, 2);
+    QCOMPARE(stats.processing, 0);
+
+    qm.checkQueue();
+
+    // After checkQueue, one item should be processing and one pending.
+    stats = qm.getQueueStats();
+    QCOMPARE(stats.pending, 1);
+    QCOMPARE(stats.processing, 1);
 }
 
 QTEST_MAIN(TestQueueManager)
