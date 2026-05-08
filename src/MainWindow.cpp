@@ -5087,7 +5087,52 @@ bool MainWindow::moveItemToFolder(QStandardItem* draggedItem, QStandardItem* tar
                     copied = true;
                 }
         } else if ((itemType == "chat_session" || itemType == "chat_node") && targetType == "chats_folder") {
-            // complex copy omitted for now
+            bool canCopy = true;
+            if (itemType == "chat_node") {
+                if (!draggedItem->parent() || draggedItem->parent()->data(Qt::UserRole + 1).toString() != "chats_folder") {
+                    canCopy = false;
+                }
+            }
+
+            if (canCopy) {
+                QList<MessageNode> allMsgs = db->getMessages();
+                QList<MessageNode> path;
+                getPathToRoot(itemId, allMsgs, path);
+                if (!path.isEmpty()) {
+                    int rootId = path.first().id;
+
+                    QMap<int, QList<MessageNode>> childrenMap;
+                    QMap<int, MessageNode> nodeMap;
+                    for (const auto& m : allMsgs) {
+                        if (m.parentId != 0) {
+                            childrenMap[m.parentId].append(m);
+                        }
+                        nodeMap[m.id] = m;
+                    }
+
+                    auto copySubtree = [&](auto& self, int oldId, int newParentId, int newFolderId) -> void {
+                        if (!nodeMap.contains(oldId)) return;
+                        MessageNode m = nodeMap[oldId];
+
+                        int newId = db->addMessage(newParentId, m.content, m.role, newFolderId);
+
+                        ChatNode cn = db->getChat(oldId);
+                        cn.id = newId;
+                        if (newParentId == 0) {
+                            QString displayTitle = getChatNodeTitle(oldId, allMsgs);
+                            cn.title = "Copy of " + displayTitle;
+                        }
+                        db->updateChat(cn);
+
+                        for (const auto& child : childrenMap[oldId]) {
+                            self(self, child.id, newId, 0);
+                        }
+                    };
+
+                    copySubtree(copySubtree, rootId, 0, targetFolderId);
+                    copied = true;
+                }
+            }
         }
         if (copied) {
             loadDocumentsAndNotes();
