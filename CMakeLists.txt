@@ -95,7 +95,7 @@ target_link_libraries(kllamabooks
 
 target_include_directories(kllamabooks PRIVATE ${SQLCIPHER_INCLUDE_DIRS})
 
-target_compile_definitions(kllamabooks PRIVATE KGHN_APP_VERSION="${PROJECT_VERSION}")
+target_compile_definitions(kllamabooks PRIVATE KGHN_APP_VERSION="${PROJECT_VERSION}" SQLITE_HAS_CODEC)
 
 
 # Installation
