@@ -948,7 +948,6 @@ std::optional<DocumentNode> BookDatabase::getDocument(int id) const {
 
     if (sqlite3_step(stmt) == SQLITE_ROW) {
         DocumentNode node;
-        node.isFolder = false;
         node.id = sqlite3_column_int(stmt, 0);
         node.folderId = sqlite3_column_int(stmt, 1);
         node.title = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)));
@@ -1004,7 +1003,6 @@ QList<DocumentNode> BookDatabase::getDocuments(int folderId) const {
             node.metadata = getSetting("document", node.id, "metadata");
         }
 
-        node.isFolder = false;
         nodes.append(node);
     }
     sqlite3_finalize(stmt);
@@ -1084,6 +1082,7 @@ QList<NoteNode> BookDatabase::getNotes(int folderId) const {
         node.content = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)));
         QString ts = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4)));
         node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
+        node.parentId = 0;
         nodes.append(node);
     }
     sqlite3_finalize(stmt);
@@ -1163,7 +1162,6 @@ QList<DocumentNode> BookDatabase::getTemplates(int folderId) const {
         node.content = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)));
         QString ts = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4)));
         node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
-        node.isFolder = false;
         nodes.append(node);
     }
     sqlite3_finalize(stmt);
@@ -1237,7 +1235,6 @@ QList<DocumentNode> BookDatabase::getDrafts(int folderId) const {
         node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
         node.parentId = sqlite3_column_int(stmt, 5);
         node.targetType = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 6)));
-        node.isFolder = false;
         nodes.append(node);
     }
     sqlite3_finalize(stmt);
