@@ -2,6 +2,8 @@
 #include <KLocalizedString>
 #include <QApplication>
 #include <QCommandLineOption>
+#include <QSslConfiguration>
+#include <QSslSocket>
 #include <QCommandLineParser>
 #include <QDebug>
 #include <QDir>
@@ -25,6 +27,11 @@ int main(int argc, char *argv[]) {
     QCoreApplication::setApplicationName("kllamabooks");
     QCoreApplication::setApplicationVersion(QStringLiteral(KGHN_APP_VERSION));
     QGuiApplication::setDesktopFileName("com.arran4.kllamabooks.desktop");
+
+    QSslConfiguration sslConfig = QSslConfiguration::defaultConfiguration();
+    sslConfig.setPeerVerifyMode(QSslSocket::VerifyPeer);
+    sslConfig.setProtocol(QSsl::TlsV1_2OrLater);
+    QSslConfiguration::setDefaultConfiguration(sslConfig);
 
     QApplication app(argc, argv);
     QApplication::setWindowIcon(QIcon::fromTheme("kllamabooks", QIcon(":/assets/icon.png")));
