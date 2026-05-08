@@ -257,7 +257,7 @@ void QueueManager::processNext() {
     if (allPending.isEmpty()) return;
 
     auto getModelSize = [](const QString& model) -> double {
-        QRegularExpression re("([0-9]+(?:\\.[0-9]+)?)[bB]");
+        static const QRegularExpression re("([0-9]+(?:\\.[0-9]+)?)[bB]");
         QRegularExpressionMatch match = re.match(model);
         if (match.hasMatch()) {
             return match.captured(1).toDouble();

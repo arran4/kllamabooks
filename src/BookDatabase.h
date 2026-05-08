@@ -24,7 +24,6 @@ struct DocumentNode {
     QString title;
     QString content;
     QDateTime timestamp;
-    bool isFolder;  // Deprecated, but keeping for compatibility during migration if needed
     QString metadata;
     QString targetType;  // Optional, e.g., 'document', 'note', 'template'
 };
