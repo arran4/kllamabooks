@@ -9,6 +9,8 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QSslConfiguration>
+#include <QSslSocket>
 #include <QSpinBox>
 #include <QTabWidget>
 
@@ -81,6 +83,12 @@ void ConnectionDialog::onTestConnection() {
     urlStr += "api/tags";
 
     QNetworkRequest request((QUrl(urlStr)));
+
+    QSslConfiguration sslConfig = QSslConfiguration::defaultConfiguration();
+    sslConfig.setPeerVerifyMode(QSslSocket::VerifyPeer);
+    sslConfig.setProtocol(QSsl::TlsV1_2OrLater);
+    request.setSslConfiguration(sslConfig);
+
     if (!authKey.isEmpty()) {
         request.setRawHeader("Authorization", ("Bearer " + authKey).toUtf8());
     }
@@ -348,6 +356,12 @@ void SettingsDialog::onTestConnection() {
     urlStr += "api/tags";
 
     QNetworkRequest request((QUrl(urlStr)));
+
+    QSslConfiguration sslConfig = QSslConfiguration::defaultConfiguration();
+    sslConfig.setPeerVerifyMode(QSslSocket::VerifyPeer);
+    sslConfig.setProtocol(QSsl::TlsV1_2OrLater);
+    request.setSslConfiguration(sslConfig);
+
     if (!authKey.isEmpty()) {
         request.setRawHeader("Authorization", ("Bearer " + authKey).toUtf8());
     }
