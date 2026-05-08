@@ -583,15 +583,24 @@ QString BookDatabase::getSetting(const QString& scope, int targetId, const QStri
 
 bool BookDatabase::moveItem(const QString& table, int id, int newFolderId) {
     if (!m_isOpen) return false;
-    // Map of safe table names to prevent injection
-    QString safeTable = table;
-    if (table != "messages" && table != "documents" && table != "templates" && table != "drafts" && table != "notes") {
+
+    const char* sql = nullptr;
+    if (table == "messages") {
+        sql = "UPDATE messages SET folder_id = ? WHERE id = ?;";
+    } else if (table == "documents") {
+        sql = "UPDATE documents SET folder_id = ? WHERE id = ?;";
+    } else if (table == "templates") {
+        sql = "UPDATE templates SET folder_id = ? WHERE id = ?;";
+    } else if (table == "drafts") {
+        sql = "UPDATE drafts SET folder_id = ? WHERE id = ?;";
+    } else if (table == "notes") {
+        sql = "UPDATE notes SET folder_id = ? WHERE id = ?;";
+    } else {
         return false;
     }
 
-    QString sql = QString("UPDATE %1 SET folder_id = ? WHERE id = ?;").arg(safeTable);
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql.toUtf8().constData(), -1, &stmt, nullptr) != SQLITE_OK)
+    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK)
         return false;
 
     sqlite3_bind_int(stmt, 1, newFolderId);
