@@ -26,13 +26,7 @@ class DocumentHistoryDialog : public QDialog {
     QListWidget* m_historyList;
     QTextEdit* m_contentView;
 
-    struct HistoryEntry {
-        int id;
-        QString actionType;
-        QString content;
-        QString timestamp;
-    };
-    QList<HistoryEntry> m_entries;
+    QList<BookDatabase::DocumentHistoryEntry> m_entries;
 
     void loadHistory();
 };
