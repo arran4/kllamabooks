@@ -81,6 +81,7 @@ void ConnectionDialog::onTestConnection() {
     urlStr += "api/tags";
 
     QNetworkRequest request((QUrl(urlStr)));
+
     if (!authKey.isEmpty()) {
         request.setRawHeader("Authorization", ("Bearer " + authKey).toUtf8());
     }
@@ -348,6 +349,7 @@ void SettingsDialog::onTestConnection() {
     urlStr += "api/tags";
 
     QNetworkRequest request((QUrl(urlStr)));
+
     if (!authKey.isEmpty()) {
         request.setRawHeader("Authorization", ("Bearer " + authKey).toUtf8());
     }

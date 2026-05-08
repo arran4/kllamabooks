@@ -98,6 +98,10 @@ target_include_directories(kllamabooks PRIVATE ${SQLCIPHER_INCLUDE_DIRS})
 target_compile_definitions(kllamabooks PRIVATE KGHN_APP_VERSION="${PROJECT_VERSION}" SQLITE_HAS_CODEC)
 
 
+# Tests
+enable_testing()
+add_compile_definitions(SQLITE_HAS_CODEC)
+
 # Installation
 install(TARGETS kllamabooks
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
@@ -113,8 +117,6 @@ install(FILES src/com.arran4.kllamabooks.metainfo.xml
     DESTINATION ${CMAKE_INSTALL_DATADIR}/metainfo
 )
 
-# Tests
-enable_testing()
 find_package(Qt6 COMPONENTS Test REQUIRED)
 add_executable(test_TemplateParser tests/test_TemplateParser.cpp src/TemplateParser.cpp)
 target_link_libraries(test_TemplateParser Qt6::Test Qt6::Core)
@@ -140,3 +142,8 @@ install(FILES src/kdocumenteditwindowui.rc
 install(FILES src/com.arran4.kllamabooks.metainfo.xml
     DESTINATION ${CMAKE_INSTALL_DATADIR}/metainfo
 )
+
+add_executable(test_QueueManager tests/test_QueueManager.cpp src/QueueManager.cpp src/BookDatabase.cpp src/OllamaClient.cpp src/NotificationDelegate.cpp src/DocumentTemplatesManager.cpp src/AIOperationsManager.cpp src/TemplateParser.cpp)
+target_include_directories(test_QueueManager PRIVATE ${SQLCIPHER_INCLUDE_DIRS})
+target_link_libraries(test_QueueManager Qt6::Test Qt6::Core Qt6::Widgets Qt6::Network ${SQLCIPHER_LIBRARIES})
+add_test(NAME test_QueueManager COMMAND test_QueueManager)
