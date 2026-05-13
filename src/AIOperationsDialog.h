@@ -4,10 +4,15 @@
 #include <QDialog>
 #include <QString>
 
+#include "OllamaModelInfo.h"
+
 class QComboBox;
+class QPushButton;
 class QTextEdit;
 class BookDatabase;
 class QFormLayout;
+class QSplitter;
+class QScrollArea;
 
 struct DynamicInputInfo {
     QString fullMatch;
@@ -24,11 +29,14 @@ struct DynamicInputInfo {
 class AIOperationsDialog : public QDialog {
     Q_OBJECT
    public:
-    explicit AIOperationsDialog(BookDatabase* db, const QString& defaultPrompt = "", QWidget* parent = nullptr);
+    explicit AIOperationsDialog(BookDatabase* db, const QString& defaultPrompt,
+                                const QList<OllamaModelInfo>& modelInfos,
+                                const QStringList& fallbackModels, QWidget* parent = nullptr);
     ~AIOperationsDialog() override;
 
     QString getOperation() const;
     QString getPrompt() const;
+    QStringList getSelectedModels() const;
 
     void setForkOnlyMode(bool enabled);
 
@@ -37,13 +45,26 @@ class AIOperationsDialog : public QDialog {
 
    private slots:
     void updateDynamicInputs();
+    void onSelectModelsClicked();
+    void onSaveDraftClicked();
+    void onRestoreDraftClicked();
 
    private:
+    BookDatabase* m_db;
+    QList<OllamaModelInfo> m_modelInfos;
+    QStringList m_fallbackModels;
+    QStringList m_selectedModels;
+
     QComboBox* m_operationCombo;
     QTextEdit* m_promptEdit;
     QFormLayout* m_dynamicInputsLayout;
     QList<DynamicInputInfo> m_currentDynamicInputs;
     QString m_finalPrompt;
+    QPushButton* m_selectModelsBtn;
+
+    QSplitter* m_mainSplitter;
+
+    void updateModelButtonText();
 };
 
 #endif  // AIOPERATIONSDIALOG_H

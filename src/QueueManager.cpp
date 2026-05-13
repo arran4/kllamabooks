@@ -54,6 +54,11 @@ void QueueManager::retryItem(std::shared_ptr<BookDatabase> db, int queueId) {
     if (db) {
         db->updateQueueError(queueId, "");
         emit queueChanged();
+
+        if (!m_isEndpointUp && m_client) {
+            m_client->fetchModels();
+        }
+
         QTimer::singleShot(0, this, &QueueManager::checkQueue);
     }
 }
@@ -188,7 +193,13 @@ void QueueManager::cancelItem(std::shared_ptr<BookDatabase> db, int queueId) {
         }
     }
     if (toRemoveId != -1) {
-        // Ideally we'd abort the network request here
+        if (m_activeNetworkRequests.contains(toRemoveId)) {
+            QNetworkReply* reply = m_activeNetworkRequests[toRemoveId];
+            if (reply) {
+                reply->abort();
+            }
+            m_activeNetworkRequests.remove(toRemoveId);
+        }
         m_activeItems.remove(toRemoveId);
     }
     emit queueChanged();
@@ -246,7 +257,7 @@ void QueueManager::processNext() {
     if (allPending.isEmpty()) return;
 
     auto getModelSize = [](const QString& model) -> double {
-        QRegularExpression re("([0-9]+(?:\\.[0-9]+)?)[bB]");
+        static const QRegularExpression re("([0-9]+(?:\\.[0-9]+)?)[bB]");
         QRegularExpressionMatch match = re.match(model);
         if (match.hasMatch()) {
             return match.captured(1).toDouble();
@@ -368,7 +379,7 @@ void QueueManager::processNext() {
                 messagesArray.append(msgObj);
             }
 
-            m_client->generateChat(
+            m_activeNetworkRequests[procId] = m_client->generateChat(
                 item.model, messagesArray,
                 [this, procId](const QString& chunk) {
                     if (!m_activeItems.contains(procId)) return;
@@ -408,6 +419,7 @@ void QueueManager::processNext() {
                     }
                     emit processingFinished(act.db, act.item.messageId, true, act.item.targetType);
                     m_activeItems.remove(procId);
+                    m_activeNetworkRequests.remove(procId);
                     emit queueChanged();
                     QTimer::singleShot(500, this, &QueueManager::checkQueue);
                 },
@@ -426,11 +438,12 @@ void QueueManager::processNext() {
                     }
                     emit processingFinished(act.db, act.item.messageId, false, act.item.targetType);
                     m_activeItems.remove(procId);
+                    m_activeNetworkRequests.remove(procId);
                     emit queueChanged();
                     QTimer::singleShot(500, this, &QueueManager::checkQueue);
                 });
         } else {
-            m_client->generate(
+            m_activeNetworkRequests[procId] = m_client->generate(
                 item.model, item.prompt,
                 [this, procId](const QString& chunk) {
                     if (!m_activeItems.contains(procId)) return;
@@ -442,7 +455,11 @@ void QueueManager::processNext() {
                             for (const auto& d : docs) {
                                 if (d.id == act.item.messageId) {
                                     currentContent = d.content;
-                                    if (currentContent == QStringLiteral("*Generating merge...*")) currentContent = "";
+                                    if (currentContent == QStringLiteral("*Generating merge...*") ||
+                                        currentContent == QStringLiteral("*Generating document...*") ||
+                                        currentContent == QStringLiteral("*Regenerating...*")) {
+                                        currentContent = "";
+                                    }
                                     title = d.title;
                                     metadata = d.metadata;
                                     break;
@@ -492,6 +509,7 @@ void QueueManager::processNext() {
                     }
                     emit processingFinished(act.db, act.item.messageId, true, act.item.targetType);
                     m_activeItems.remove(procId);
+                    m_activeNetworkRequests.remove(procId);
                     emit queueChanged();
                     QTimer::singleShot(500, this, &QueueManager::checkQueue);
                 },
@@ -510,6 +528,7 @@ void QueueManager::processNext() {
                     }
                     emit processingFinished(act.db, act.item.messageId, false, act.item.targetType);
                     m_activeItems.remove(procId);
+                    m_activeNetworkRequests.remove(procId);
                     emit queueChanged();
                     QTimer::singleShot(500, this, &QueueManager::checkQueue);
                 });

@@ -98,7 +98,7 @@ void QueueWindow::refresh() {
             if (targetTitle.isEmpty()) targetTitle = "Chat";
         }
 
-        QString text = QString("[%1] %2 | %3: %4 | %5 (%6)")
+        QString text = QString("[%1] %2\n%3: %4\nModel: %6\nPrompt: %5")
                            .arg(statusStr)
                            .arg(QFileInfo(mi.db->filepath()).fileName())
                            .arg(mi.item.targetType.toUpper())
@@ -107,7 +107,7 @@ void QueueWindow::refresh() {
                            .arg(mi.item.model);
 
         if (statusStr == "ERROR" && !mi.item.lastError.isEmpty()) {
-            text += QString(" - Error: %1").arg(mi.item.lastError);
+            text += QString("\nError: %1").arg(mi.item.lastError);
         }
 
         QListWidgetItem* listItem = new QListWidgetItem(text, m_queueList);
@@ -198,9 +198,14 @@ void QueueWindow::showContextMenu(const QPoint& pos) {
     QString path = item->data(Qt::UserRole + 1).toString();
 
     bool isError = false;
+    bool isEndpointDown = false;
     for (const auto& mi : QueueManager::instance().getMergedQueue()) {
         if (mi.item.id == id && mi.db->filepath() == path) {
             isError = !mi.item.lastError.isEmpty();
+
+            if (!QueueManager::instance().isEndpointUp() && (mi.item.state.isEmpty() || mi.item.state.compare("pending", Qt::CaseInsensitive) == 0)) {
+                isEndpointDown = true;
+            }
             break;
         }
     }
@@ -214,10 +219,12 @@ void QueueWindow::showContextMenu(const QPoint& pos) {
     modifyAction->setEnabled(isError);
 
     QAction* retryAction = menu.addAction("Retry", this, &QueueWindow::onRetryItem);
-    retryAction->setEnabled(isError);
+    retryAction->setEnabled(isError || isEndpointDown);
 
     menu.addSeparator();
-    menu.addAction("Delete", this, &QueueWindow::onCancelItem);
+
+    QAction* stopAction = menu.addAction("Stop/Delete", this, &QueueWindow::onCancelItem);
+    stopAction->setToolTip("Cancel if pending/processing, or delete if completed/error");
 
     menu.exec(m_queueList->mapToGlobal(pos));
 }

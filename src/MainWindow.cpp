@@ -59,12 +59,15 @@
 #include "MergeDocumentsDialog.h"
 #include "ModelSelectionDialog.h"
 #include "NewDocumentDialog.h"
+#include "PasswordDialog.h"
 #include "NotificationDelegate.h"
 #include "QueueManager.h"
 #include "QueueWindow.h"
 #include "WalletManager.h"
 
 static const QString GENERATING_MERGE_TEXT = QStringLiteral("*Generating merge...*");
+static const QString GENERATING_DOC_TEXT = QStringLiteral("*Generating document...*");
+static const QString REGENERATING_TEXT = QStringLiteral("*Regenerating...*");
 
 CustomItemModel::CustomItemModel(QObject* parent) : QStandardItemModel(parent), m_mainWindow(nullptr) {}
 
@@ -1666,17 +1669,12 @@ void MainWindow::onCreateBook() {
     bool ok;
     QString bookName = QInputDialog::getText(this, "New Book", "Enter book name:", QLineEdit::Normal, "", &ok);
     if (ok && !bookName.isEmpty()) {
-        QString password =
-            QInputDialog::getText(this, "Password", "Enter password (optional):", QLineEdit::Password, "", &ok);
-        if (ok) {
+        PasswordDialog dialog("Password", "Enter password (optional):", this);
+        if (dialog.exec() == QDialog::Accepted) {
+            QString password = dialog.password();
             bool savePassword = false;
             if (!password.isEmpty()) {
-                QMessageBox::StandardButton reply =
-                    QMessageBox::question(this, "Save Password", "Do you want to save this password to KWallet?",
-                                          QMessageBox::Yes | QMessageBox::No);
-                if (reply == QMessageBox::Yes) {
-                    savePassword = true;
-                }
+                savePassword = dialog.saveToWallet();
             }
             QString fileName = bookName + ".db";
             if (savePassword) {
@@ -2247,17 +2245,16 @@ void MainWindow::onBookSelected(const QModelIndex& index) {
     } else {
         auto db = std::make_shared<BookDatabase>(filePath);
         if (!db->open(password)) {
-            bool ok;
-            password = QInputDialog::getText(this, "Unlock Book", "Enter password for " + fileName + ":",
-                                             QLineEdit::Password, "", &ok);
-            if (ok && db->open(password)) {
-                if (!password.isEmpty()) {
-                    QMessageBox::StandardButton reply =
-                        QMessageBox::question(this, "Save Password", "Do you want to save this password to KWallet?",
-                                              QMessageBox::Yes | QMessageBox::No);
-                    if (reply == QMessageBox::Yes) {
+            PasswordDialog dialog("Unlock Book", "Enter password for " + fileName + ":", this);
+            if (dialog.exec() == QDialog::Accepted) {
+                password = dialog.password();
+                if (db->open(password)) {
+                    if (!password.isEmpty() && dialog.saveToWallet()) {
                         WalletManager::savePassword(fileName, password);
                     }
+                } else {
+                    QMessageBox::warning(this, "Error", "Could not open book.");
+                    return;
                 }
             } else {
                 QMessageBox::warning(this, "Error", "Could not open book.");
@@ -3396,7 +3393,7 @@ void MainWindow::onQueueChunk(std::shared_ptr<BookDatabase> db, int messageId, c
         if (targetType == "document" && currentDocumentId == messageId) {
             documentEditorView->blockSignals(true);
             QString text = documentEditorView->toPlainText();
-            if (text == GENERATING_MERGE_TEXT) {
+            if (text == GENERATING_MERGE_TEXT || text == GENERATING_DOC_TEXT || text == REGENERATING_TEXT) {
                 documentEditorView->setPlainText("");
             }
             QTextCursor cursor = documentEditorView->textCursor();
@@ -5157,7 +5154,7 @@ void MainWindow::showDocumentAIToolsMenu() {}
 void MainWindow::onDocumentAIOperations() {
     if (m_isGenerating || !currentDb) return;
 
-    AIOperationsDialog dialog(currentDb.get(), "", this);
+    AIOperationsDialog dialog(currentDb.get(), "", m_availableModelInfos, m_availableModels, this);
     if (dialog.exec() == QDialog::Accepted) {
         QString op = dialog.getOperation();
         QString promptTpl = dialog.getPrompt();
@@ -5184,7 +5181,7 @@ void MainWindow::onDocumentAIOperations() {
         QString prompt = promptTpl;
         prompt.replace("{context}", contextText);
 
-        QStringList models = m_selectedModels;
+        QStringList models = dialog.getSelectedModels();
         if (models.isEmpty() && !m_availableModels.isEmpty()) {
             models.append(m_availableModels.first());
         }
@@ -5366,12 +5363,12 @@ void MainWindow::processMergeGeneration(const QString& finalPrompt, const QStrin
             currentDb->addDocumentMerge(existingDocId, sourceIdsStr, finalPrompt, firstModel, 0);
 
             // Set generating text and metadata
-            currentDb->updateDocument(existingDocId, docOpt->title, GENERATING_MERGE_TEXT, metaStr);
+            currentDb->updateDocument(existingDocId, docOpt->title, REGENERATING_TEXT, metaStr);
 
             if (documentEditorView && mainContentStack->currentWidget() == docContainer &&
                 currentDocumentId == existingDocId) {
                 documentEditorView->blockSignals(true);
-                documentEditorView->setPlainText(GENERATING_MERGE_TEXT);
+                documentEditorView->setPlainText(REGENERATING_TEXT);
                 documentEditorView->blockSignals(false);
                 if (regenerateMergeAction) {
                     regenerateMergeAction->setVisible(false);
@@ -5566,7 +5563,7 @@ void MainWindow::handleNewDocumentCreation(int defaultFolderId) {
         QMessageBox::warning(this, tr("No Book Open"), tr("Please open a book first to create a document."));
         return;
     }
-    NewDocumentDialog dialog(currentDb, defaultFolderId, this);
+    NewDocumentDialog dialog(currentDb, defaultFolderId, m_availableModelInfos, m_availableModels, endpointComboBox, m_selectedModels, this);
     if (dialog.exec() == QDialog::Accepted) {
         QString title = dialog.getTitle();
         int folderId = dialog.getSelectedFolderId();
@@ -5576,12 +5573,16 @@ void MainWindow::handleNewDocumentCreation(int defaultFolderId) {
         bool shouldNavigate = false;
 
         if (dialog.getDocumentType() == NewDocumentDialog::FromPrompt) {
+            int selectedEndpointIndex = dialog.getSelectedEndpointIndex();
+            if (selectedEndpointIndex != -1 && endpointComboBox->currentIndex() != selectedEndpointIndex) {
+                endpointComboBox->setCurrentIndex(selectedEndpointIndex);
+                onActiveEndpointChanged(selectedEndpointIndex);
+            }
+
             QString prompt = dialog.getPrompt();
 
+            m_selectedModels = dialog.getSelectedModels();
             QStringList models = m_selectedModels;
-            if (models.isEmpty() && !m_availableModels.isEmpty()) {
-                models.append(m_availableModels.first());
-            }
 
             QJsonObject metaObj;
             metaObj["prompt"] = prompt;
@@ -5592,13 +5593,13 @@ void MainWindow::handleNewDocumentCreation(int defaultFolderId) {
                 int newFolderId = currentDb->addFolder(folderId, title, "folder");
                 for (const QString& model : models) {
                     QString docTitle = title + " (" + model + ")";
-                    newDocId = currentDb->addDocument(newFolderId, docTitle, GENERATING_MERGE_TEXT, 0, metaStr);
+                    newDocId = currentDb->addDocument(newFolderId, docTitle, GENERATING_DOC_TEXT, 0, metaStr);
                     if (newDocId != -1)
                         currentDb->enqueuePrompt(newDocId, model, prompt, 0, "document", 0, "replace_direct");
                 }
             } else {
                 QString model = models.isEmpty() ? "" : models.first();
-                newDocId = currentDb->addDocument(folderId, title, GENERATING_MERGE_TEXT, 0, metaStr);
+                newDocId = currentDb->addDocument(folderId, title, GENERATING_DOC_TEXT, 0, metaStr);
                 if (newDocId != -1)
                     currentDb->enqueuePrompt(newDocId, model, prompt, 0, "document", 0, "replace_direct");
                 shouldNavigate = true;
@@ -5691,7 +5692,8 @@ void MainWindow::updateRegenerateButtonVisibility(const DocumentNode& doc, const
         if (hasMerge || hasPrompt) {
             if (hasMerge) showSources = true;
             bool isGenerating = currentDb->isGenerating(doc.id, "document", "replace_direct");
-            if (!isGenerating && !doc.content.contains(GENERATING_MERGE_TEXT)) {
+            if (!isGenerating && !doc.content.contains(GENERATING_MERGE_TEXT) &&
+                !doc.content.contains(GENERATING_DOC_TEXT) && !doc.content.contains(REGENERATING_TEXT)) {
                 showRegenerate = true;
             }
         }

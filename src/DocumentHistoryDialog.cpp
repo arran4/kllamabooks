@@ -65,25 +65,10 @@ DocumentHistoryDialog::~DocumentHistoryDialog() {}
 void DocumentHistoryDialog::loadHistory() {
     if (!m_db || !m_db->isOpen()) return;
 
-    m_entries.clear();
     m_historyList->clear();
 
-    // Use raw query for now since we haven't written a BookDatabase fetcher for history
-    // Since we only need to read it, doing it here is a quick approach.
-    // However, it's better to ask m_db for it.
+    m_entries = m_db->getDocumentHistory(m_documentId);
 
-    QList<HistoryEntry> entries;
-    auto dbEntries = m_db->getDocumentHistory(m_documentId);
-    for (const auto& dbe : dbEntries) {
-        HistoryEntry e;
-        e.id = dbe.id;
-        e.actionType = dbe.actionType;
-        e.content = dbe.content;
-        e.timestamp = dbe.timestamp;
-        entries.append(e);
-    }
-
-    m_entries = entries;
     for (const auto& e : m_entries) {
         QDateTime dt = QDateTime::fromString(e.timestamp, Qt::ISODate);
         QString displayTime = dt.isValid() ? dt.toString("yyyy-MM-dd HH:mm:ss") : e.timestamp;

@@ -3,6 +3,7 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
+#include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
@@ -12,9 +13,16 @@
 
 #include "BookDatabase.h"
 #include "DocumentTemplatesManager.h"
+#include "ModelSelectionDialog.h"
 
-NewDocumentDialog::NewDocumentDialog(std::shared_ptr<BookDatabase> db, int defaultFolderId, QWidget* parent)
-    : QDialog(parent), m_db(db), m_defaultFolderId(defaultFolderId) {
+NewDocumentDialog::NewDocumentDialog(std::shared_ptr<BookDatabase> db, int defaultFolderId,
+                                     const QList<OllamaModelInfo>& modelInfos, const QStringList& fallbackModels,
+                                     QComboBox* mainEndpointComboBox, const QStringList& initialModels, QWidget* parent)
+    : QDialog(parent),
+      m_db(db),
+      m_defaultFolderId(defaultFolderId),
+      m_modelInfos(modelInfos),
+      m_fallbackModels(fallbackModels) {
     setWindowTitle(tr("New Document"));
     resize(450, 550);
 
@@ -30,18 +38,48 @@ NewDocumentDialog::NewDocumentDialog(std::shared_ptr<BookDatabase> db, int defau
 
     // Title
     mainLayout->addWidget(new QLabel(tr("Title:"), this));
-    m_titleEdit = new QLineEdit(tr("New Document"), this);
+    m_titleEdit = new QLineEdit(this);
     mainLayout->addWidget(m_titleEdit);
 
     // Prompt Widget (Hidden by default)
     m_promptWidget = new QWidget(this);
     QVBoxLayout* promptLayout = new QVBoxLayout(m_promptWidget);
     promptLayout->setContentsMargins(0, 0, 0, 0);
+
+    QHBoxLayout* endpointLayout = new QHBoxLayout();
+    endpointLayout->addWidget(new QLabel(tr("Endpoint:"), m_promptWidget));
+    m_endpointCombo = new QComboBox(m_promptWidget);
+    if (mainEndpointComboBox) {
+        for (int i = 0; i < mainEndpointComboBox->count(); ++i) {
+            m_endpointCombo->addItem(mainEndpointComboBox->itemText(i), mainEndpointComboBox->itemData(i));
+        }
+        m_endpointCombo->setCurrentIndex(mainEndpointComboBox->currentIndex());
+    }
+    endpointLayout->addWidget(m_endpointCombo);
+    promptLayout->addLayout(endpointLayout);
+
+    QHBoxLayout* modelsLayout = new QHBoxLayout();
+    modelsLayout->addWidget(new QLabel(tr("Model(s):"), m_promptWidget));
+    m_selectModelsBtn = new QPushButton(m_promptWidget);
+
+    if (!initialModels.isEmpty()) {
+        m_selectedModels = initialModels;
+    } else {
+        QStringList availableNames;
+        for (const auto& mi : m_modelInfos) availableNames.append(mi.name);
+        if (availableNames.isEmpty()) availableNames = m_fallbackModels;
+        if (!availableNames.isEmpty()) m_selectedModels << availableNames.first();
+    }
+
+    updateModelButtonText();
+    connect(m_selectModelsBtn, &QPushButton::clicked, this, &NewDocumentDialog::onSelectModelsClicked);
+    modelsLayout->addWidget(m_selectModelsBtn);
+    promptLayout->addLayout(modelsLayout);
+
     promptLayout->addWidget(new QLabel(tr("AI Prompt:"), m_promptWidget));
     m_promptEdit = new QTextEdit(m_promptWidget);
     promptLayout->addWidget(m_promptEdit);
     mainLayout->addWidget(m_promptWidget);
-    m_promptWidget->hide();
 
     // Template Widget
     m_templateWidget = new QWidget(this);
@@ -70,7 +108,6 @@ NewDocumentDialog::NewDocumentDialog(std::shared_ptr<BookDatabase> db, int defau
     connect(m_overwriteCheck, &QCheckBox::checkStateChanged, this, &NewDocumentDialog::onOverwriteToggled);
 
     mainLayout->addWidget(m_draftWidget);
-    m_draftWidget->hide();
 
     // Folder Selection
     mainLayout->addWidget(new QLabel(tr("Location:"), this));
@@ -103,6 +140,7 @@ NewDocumentDialog::NewDocumentDialog(std::shared_ptr<BookDatabase> db, int defau
     connect(buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
     connect(m_typeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &NewDocumentDialog::onTypeChanged);
 
+    onTypeChanged(m_typeCombo->currentIndex());
     // We intentionally do not connect itemExpanded / itemCollapsed to save the state,
     // so that the user's opens and closes in this dialog do not impact the original VFS.
 }
@@ -173,26 +211,49 @@ void NewDocumentDialog::onTypeChanged(int index) {
     m_templateWidget->setVisible(type == FromTemplate);
     m_draftWidget->setVisible(type == ResumeDraft);
 
-    if (type == FromPrompt) {
-        if (m_titleEdit->text() == tr("New Document") || m_titleEdit->text() == tr("Document from Draft")) {
-            m_titleEdit->setText(tr("AI Generated Document"));
-        }
-    } else if (type == FromTemplate) {
-        if (m_titleEdit->text() == tr("AI Generated Document") || m_titleEdit->text() == tr("Document from Draft")) {
-            m_titleEdit->setText(tr("New Document"));
-        }
-    } else if (type == ResumeDraft) {
-        if (m_titleEdit->text() == tr("New Document") || m_titleEdit->text() == tr("AI Generated Document")) {
-            m_titleEdit->setText(tr("Document from Draft"));
-        }
+    switch (type) {
+        case FromPrompt:
+            m_titleEdit->setPlaceholderText(tr("AI Generated Document"));
+            break;
+        case FromTemplate:
+            m_titleEdit->setPlaceholderText(tr("New Document"));
+            break;
+        case ResumeDraft:
+            m_titleEdit->setPlaceholderText(tr("Document from Draft"));
+            break;
     }
 }
+
+void NewDocumentDialog::updateModelButtonText() {
+    if (m_selectedModels.isEmpty()) {
+        m_selectModelsBtn->setText(tr("Select Model(s)"));
+    } else if (m_selectedModels.size() == 1) {
+        m_selectModelsBtn->setText(m_selectedModels.first());
+    } else {
+        m_selectModelsBtn->setText(tr("%1 Models Selected").arg(m_selectedModels.size()));
+    }
+}
+
+void NewDocumentDialog::onSelectModelsClicked() {
+    ModelSelectionDialog dlg(m_modelInfos, m_fallbackModels, this);
+    if (dlg.exec() == QDialog::Accepted) {
+        m_selectedModels = dlg.selectedModels();
+        updateModelButtonText();
+    }
+}
+
+QStringList NewDocumentDialog::getSelectedModels() const { return m_selectedModels; }
+
+int NewDocumentDialog::getSelectedEndpointIndex() const { return m_endpointCombo->currentIndex(); }
 
 NewDocumentDialog::DocumentType NewDocumentDialog::getDocumentType() const {
     return static_cast<DocumentType>(m_typeCombo->currentData().toInt());
 }
 
-QString NewDocumentDialog::getTitle() const { return m_titleEdit->text().trimmed(); }
+QString NewDocumentDialog::getTitle() const {
+    QString text = m_titleEdit->text().trimmed();
+    return text.isEmpty() ? m_titleEdit->placeholderText() : text;
+}
 
 int NewDocumentDialog::getSelectedFolderId() const {
     QList<QTreeWidgetItem*> selected = m_folderTree->selectedItems();
