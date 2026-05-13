@@ -43,6 +43,7 @@ struct ChatNode {
 struct NoteNode {
     int id;
     int folderId;  // 0 if root
+    int parentId;  // Workaround for upstream main branch compile error
     QString title;
     QString content;
     QDateTime timestamp;
