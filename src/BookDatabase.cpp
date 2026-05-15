@@ -865,6 +865,37 @@ QString BookDatabase::getInheritedSetting(int messageId, const QString& key) con
     return inheritedValue;
 }
 
+std::optional<MessageNode> BookDatabase::getMessage(int id) const {
+    if (!m_isOpen) return std::nullopt;
+
+    QString sqlStr = "SELECT id, parent_id, folder_id, role, content, timestamp, is_expanded FROM messages WHERE id = ?;";
+    sqlite3_stmt* stmt;
+    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sqlStr.toUtf8().constData(), -1, &stmt, nullptr);
+    if (rc != SQLITE_OK) return std::nullopt;
+
+    sqlite3_bind_int(stmt, 1, id);
+
+    std::optional<MessageNode> result = std::nullopt;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        MessageNode node;
+        node.id = sqlite3_column_int(stmt, 0);
+        node.parentId = sqlite3_column_int(stmt, 1);
+        node.folderId = sqlite3_column_int(stmt, 2);
+        const unsigned char* roleText = sqlite3_column_text(stmt, 3);
+        node.role = roleText ? QString::fromUtf8(reinterpret_cast<const char*>(roleText)) : "";
+        const unsigned char* contentText = sqlite3_column_text(stmt, 4);
+        node.content = contentText ? QString::fromUtf8(reinterpret_cast<const char*>(contentText)) : "";
+        const unsigned char* timestampText = sqlite3_column_text(stmt, 5);
+        QString tsStr = timestampText ? QString::fromUtf8(reinterpret_cast<const char*>(timestampText)) : "";
+        node.timestamp = QDateTime::fromString(tsStr, Qt::ISODate);
+        node.isExpanded = sqlite3_column_int(stmt, 6) != 0;
+        result = node;
+    }
+
+    sqlite3_finalize(stmt);
+    return result;
+}
+
 QList<MessageNode> BookDatabase::getMessages() const {
     QList<MessageNode> nodes;
     if (!m_isOpen) return nodes;
