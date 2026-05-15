@@ -78,7 +78,7 @@ class QueueManager : public QObject {
     OllamaClient* m_client = nullptr;
     QTimer* m_timer;
 
-    QMap<int, MergedQueueItem> m_activeItems;  // Map processingId to QueueItem
+    QMap<int, MergedQueueItem> m_activeItems;           // Map processingId to QueueItem
     QMap<int, QNetworkReply*> m_activeNetworkRequests;  // Map processingId to QNetworkReply
     int m_maxConcurrent = 1;
     bool m_isPaused = false;
