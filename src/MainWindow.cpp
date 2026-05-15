@@ -387,12 +387,8 @@ void MainWindow::setupUi() {
                 }
             } else {
                 QString dbText;
-                QList<NoteNode> notes = currentDb->getNotes();
-                for (const auto& note : notes) {
-                    if (note.id == currentNoteId) {
-                        dbText = note.content;
-                        break;
-                    }
+                if (auto noteOpt = currentDb->getNote(currentNoteId)) {
+                    dbText = noteOpt->content;
                 }
                 if (currentText != dbText) {
                     hasChanges = true;
@@ -4095,13 +4091,9 @@ void MainWindow::onOpenBooksSelectionChanged(const QItemSelection& selected, con
                 // For notes, we just use the selected item's text if possible,
                 // but let's fetch content from DB to be sure
                 if (currentDb) {
-                    QList<NoteNode> notes = currentDb->getNotes();
-                    for (const auto& note : notes) {
-                        if (note.id == currentNoteId) {
-                            noteEditorView->setPlainText(note.content);
-                            mainContentStack->setCurrentWidget(noteContainer);
-                            break;
-                        }
+                    if (auto noteOpt = currentDb->getNote(currentNoteId)) {
+                        noteEditorView->setPlainText(noteOpt->content);
+                        mainContentStack->setCurrentWidget(noteContainer);
                     }
                 }
             }
@@ -4285,13 +4277,10 @@ void MainWindow::getDocumentContent(int id, const QString& type, QString& outTit
             }
         }
     } else if (type == "note") {
-        QList<NoteNode> notes = currentDb->getNotes();
-        for (const auto& note : notes) {
-            if (note.id == id) {
-                outContent = note.content;
-                outTitle = note.title;
-                return;
-            }
+        if (auto noteOpt = currentDb->getNote(id)) {
+            outContent = noteOpt->content;
+            outTitle = noteOpt->title;
+            return;
         }
     }
 }

@@ -5,6 +5,7 @@
 #include <QList>
 #include <QSet>
 #include <QString>
+#include <optional>
 
 struct MessageNode {
     int id;
@@ -172,6 +173,7 @@ class BookDatabase {
     int addNote(int folderId, const QString& title, const QString& content);
     bool updateNote(int id, const QString& newTitle, const QString& newContent);
     QList<NoteNode> getNotes(int folderId = -1) const;
+    std::optional<NoteNode> getNote(int id) const;
     bool deleteNote(int id);
 
     // Folders
