@@ -1498,8 +1498,50 @@ QList<QueueItem> BookDatabase::getQueue() const {
 
         items.append(item);
     }
+
     sqlite3_finalize(stmt);
     return items;
+}
+
+std::optional<QueueItem> BookDatabase::getQueueItem(int id) const {
+    if (!m_isOpen) return std::nullopt;
+
+    const char* sql =
+        "SELECT id, message_id, model, prompt, processing_id, last_error, priority, created_at, target_type, state, "
+        "response, parent_id, target_action FROM queue WHERE id = ?;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return std::nullopt;
+
+    sqlite3_bind_int(stmt, 1, id);
+
+    std::optional<QueueItem> result = std::nullopt;
+
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        QueueItem item;
+        item.id = sqlite3_column_int(stmt, 0);
+        item.messageId = sqlite3_column_int(stmt, 1);
+        item.model = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)));
+        item.prompt = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)));
+        item.processingId = sqlite3_column_int(stmt, 4);
+        const unsigned char* errorText = sqlite3_column_text(stmt, 5);
+        if (errorText) item.lastError = QString::fromUtf8(reinterpret_cast<const char*>(errorText));
+        item.priority = sqlite3_column_int(stmt, 6);
+        item.timestamp = QDateTime::fromString(
+            QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 7))), Qt::ISODate);
+        item.targetType = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 8)));
+        if (item.targetType.isEmpty()) item.targetType = "message";
+        const unsigned char* stateText = sqlite3_column_text(stmt, 9);
+        if (stateText) item.state = QString::fromUtf8(reinterpret_cast<const char*>(stateText));
+        const unsigned char* responseText = sqlite3_column_text(stmt, 10);
+        if (responseText) item.response = QString::fromUtf8(reinterpret_cast<const char*>(responseText));
+        item.parentId = sqlite3_column_int(stmt, 11);
+        const unsigned char* actionText = sqlite3_column_text(stmt, 12);
+        if (actionText) item.targetAction = QString::fromUtf8(reinterpret_cast<const char*>(actionText));
+
+        result = item;
+    }
+    sqlite3_finalize(stmt);
+    return result;
 }
 
 bool BookDatabase::updateQueueProcessingId(int id, int processingId) {

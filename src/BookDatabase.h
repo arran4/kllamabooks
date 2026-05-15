@@ -5,6 +5,7 @@
 #include <QList>
 #include <QSet>
 #include <QString>
+#include <optional>
 
 struct MessageNode {
     int id;
@@ -189,6 +190,7 @@ class BookDatabase {
     int enqueuePrompt(int messageId, const QString& model, const QString& prompt, int priority = 0,
                       const QString& targetType = "message", int parentId = 0, const QString& targetAction = "");
     QList<QueueItem> getQueue() const;
+    std::optional<QueueItem> getQueueItem(int id) const;
 
     struct QueueStats {
         int pending = 0;
