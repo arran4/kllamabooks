@@ -1090,6 +1090,34 @@ bool BookDatabase::updateNote(int id, const QString& newTitle, const QString& ne
     return rc == SQLITE_DONE;
 }
 
+std::optional<NoteNode> BookDatabase::getNote(int id) const {
+    if (!m_isOpen) return std::nullopt;
+
+    QString sqlStr = "SELECT id, folder_id, title, content, timestamp FROM notes WHERE id = ?;";
+    sqlite3_stmt* stmt;
+    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sqlStr.toUtf8().constData(), -1, &stmt, nullptr);
+    if (rc != SQLITE_OK) return std::nullopt;
+
+    sqlite3_bind_int(stmt, 1, id);
+
+    std::optional<NoteNode> result = std::nullopt;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        NoteNode node;
+        node.id = sqlite3_column_int(stmt, 0);
+        node.folderId = sqlite3_column_int(stmt, 1);
+        const char* titleText = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
+        node.title = titleText ? QString::fromUtf8(titleText) : QString();
+        const char* contentText = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
+        node.content = contentText ? QString::fromUtf8(contentText) : QString();
+        const char* tsText = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4));
+        QString ts = tsText ? QString::fromUtf8(tsText) : QString();
+        node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
+        result = node;
+    }
+    sqlite3_finalize(stmt);
+    return result;
+}
+
 QList<NoteNode> BookDatabase::getNotes(int folderId) const {
     QList<NoteNode> nodes;
     if (!m_isOpen) return nodes;
@@ -1112,6 +1140,7 @@ QList<NoteNode> BookDatabase::getNotes(int folderId) const {
         node.content = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)));
         QString ts = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4)));
         node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
+
         nodes.append(node);
     }
     sqlite3_finalize(stmt);
