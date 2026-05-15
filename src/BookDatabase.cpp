@@ -1082,7 +1082,7 @@ QList<NoteNode> BookDatabase::getNotes(int folderId) const {
         node.content = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)));
         QString ts = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4)));
         node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
-        node.parentId = 0;
+
         nodes.append(node);
     }
     sqlite3_finalize(stmt);
