@@ -6,21 +6,21 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
-#include <QMessageBox>
 #include <QPushButton>
 #include <QRegularExpression>
-#include <QScrollArea>
 #include <QSettings>
-#include <QSplitter>
 #include <QTextEdit>
 #include <QVBoxLayout>
+#include <QSplitter>
+#include <QScrollArea>
 
 #include "AIOperationsManager.h"
 #include "ModelSelectionDialog.h"
+#include <QMessageBox>
 
 AIOperationsDialog::AIOperationsDialog(BookDatabase* db, const QString& defaultPrompt,
-                                       const QList<OllamaModelInfo>& modelInfos, const QStringList& fallbackModels,
-                                       QWidget* parent)
+                                       const QList<OllamaModelInfo>& modelInfos,
+                                       const QStringList& fallbackModels, QWidget* parent)
     : QDialog(parent), m_db(db), m_modelInfos(modelInfos), m_fallbackModels(fallbackModels) {
     Q_ASSERT(m_db != nullptr);
     setWindowTitle(tr("AI Document Operations"));
@@ -114,6 +114,7 @@ AIOperationsDialog::AIOperationsDialog(BookDatabase* db, const QString& defaultP
 
     updateModelButtonText();
     connect(m_selectModelsBtn, &QPushButton::clicked, this, &AIOperationsDialog::onSelectModelsClicked);
+
 
     // Buttons
     QHBoxLayout* btnLayout = new QHBoxLayout();

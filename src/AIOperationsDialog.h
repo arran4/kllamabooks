@@ -30,8 +30,8 @@ class AIOperationsDialog : public QDialog {
     Q_OBJECT
    public:
     explicit AIOperationsDialog(BookDatabase* db, const QString& defaultPrompt,
-                                const QList<OllamaModelInfo>& modelInfos, const QStringList& fallbackModels,
-                                QWidget* parent = nullptr);
+                                const QList<OllamaModelInfo>& modelInfos,
+                                const QStringList& fallbackModels, QWidget* parent = nullptr);
     ~AIOperationsDialog() override;
 
     QString getOperation() const;

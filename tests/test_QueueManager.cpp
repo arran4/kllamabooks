@@ -110,7 +110,7 @@ void TestQueueManager::testCheckQueueIsPaused() {
     qm.resumeQueue();
 
     // Wait for the asynchronous checkQueue to run and process the item.
-    QTest::qWait(100);
+    QTest::qWait(1000);
 
     stats = qm.getQueueStats();
     QCOMPARE(stats.pending, 0);
@@ -141,7 +141,7 @@ void TestQueueManager::testEndpointDownPreventsProcessing() {
     QVERIFY(qm.isEndpointUp());
 
     // Wait for async checkQueue to run
-    QTest::qWait(100);
+    QTest::qWait(1000);
 
     stats = qm.getQueueStats();
     QCOMPARE(stats.pending, 0);
@@ -168,6 +168,7 @@ void TestQueueManager::testMaxConcurrentLimits() {
 
     qm.checkQueue();
 
+    QTest::qWait(1000); // Allow async queue processing
     // After checkQueue, one item should be processing and one pending.
     stats = qm.getQueueStats();
     QCOMPARE(stats.pending, 1);

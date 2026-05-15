@@ -1074,9 +1074,12 @@ std::optional<NoteNode> BookDatabase::getNote(int id) const {
         NoteNode node;
         node.id = sqlite3_column_int(stmt, 0);
         node.folderId = sqlite3_column_int(stmt, 1);
-        node.title = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)));
-        node.content = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)));
-        QString ts = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4)));
+        const char* titleText = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
+        node.title = titleText ? QString::fromUtf8(titleText) : QString();
+        const char* contentText = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
+        node.content = contentText ? QString::fromUtf8(contentText) : QString();
+        const char* tsText = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4));
+        QString ts = tsText ? QString::fromUtf8(tsText) : QString();
         node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
         result = node;
     }
