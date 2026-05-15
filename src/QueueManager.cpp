@@ -450,22 +450,16 @@ void QueueManager::processNext() {
                     auto act = m_activeItems[procId];
                     if (act.db && act.db->isOpen()) {
                         if (act.item.targetType == "document" && act.item.targetAction == "replace_direct") {
-                            auto docs = act.db->getDocuments();
-                            QString currentContent, title, metadata;
-                            for (const auto& d : docs) {
-                                if (d.id == act.item.messageId) {
-                                    currentContent = d.content;
-                                    if (currentContent == QStringLiteral("*Generating merge...*") ||
-                                        currentContent == QStringLiteral("*Generating document...*") ||
-                                        currentContent == QStringLiteral("*Regenerating...*")) {
-                                        currentContent = "";
-                                    }
-                                    title = d.title;
-                                    metadata = d.metadata;
-                                    break;
+                            auto optDoc = act.db->getDocument(act.item.messageId);
+                            if (optDoc) {
+                                QString currentContent = optDoc->content;
+                                if (currentContent == QStringLiteral("*Generating merge...*") ||
+                                    currentContent == QStringLiteral("*Generating document...*") ||
+                                    currentContent == QStringLiteral("*Regenerating...*")) {
+                                    currentContent = "";
                                 }
+                                act.db->updateDocument(act.item.messageId, optDoc->title, currentContent + chunk, optDoc->metadata);
                             }
-                            act.db->updateDocument(act.item.messageId, title, currentContent + chunk, metadata);
                         }
                         // For other document actions, we do not update the document directly.
                         // Just emit the chunk for the preview.
@@ -478,16 +472,10 @@ void QueueManager::processNext() {
                     if (act.db && act.db->isOpen()) {
                         if (act.item.targetType == "document" && act.item.targetAction == "replace_direct") {
                             // Directly replace content without review.
-                            auto docs = act.db->getDocuments();
-                            QString title, metadata;
-                            for (const auto& d : docs) {
-                                if (d.id == act.item.messageId) {
-                                    title = d.title;
-                                    metadata = d.metadata;
-                                    break;
-                                }
+                            auto optDoc = act.db->getDocument(act.item.messageId);
+                            if (optDoc) {
+                                act.db->updateDocument(act.item.messageId, optDoc->title, response, optDoc->metadata);
                             }
-                            act.db->updateDocument(act.item.messageId, title, response, metadata);
                             act.db->deleteQueueItem(act.item.id);
                             act.db->addNotification(act.item.messageId, act.item.targetType, "finished_generation");
                         } else {
