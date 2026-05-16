@@ -41,7 +41,7 @@ void TestQueueManager::init() {
 }
 
 void TestQueueManager::cleanup() {
-    QTest::qWait(100);
+    QTest::qWait(200);
     QueueManager& qm = QueueManager::instance();
     if (m_db) {
         qm.removeDatabase(m_db);
@@ -112,7 +112,7 @@ void TestQueueManager::testCheckQueueIsPaused() {
     qm.resumeQueue();
 
     // Wait for the asynchronous checkQueue to run and process the item.
-    QTest::qWait(100);
+    QTest::qWait(200);
 
     stats = qm.getQueueStats();
     QCOMPARE(stats.pending, 0);
@@ -143,7 +143,7 @@ void TestQueueManager::testEndpointDownPreventsProcessing() {
     QVERIFY(qm.isEndpointUp());
 
     // Wait for async checkQueue to run
-    QTest::qWait(100);
+    QTest::qWait(200);
 
     stats = qm.getQueueStats();
     QCOMPARE(stats.pending, 0);
@@ -170,6 +170,7 @@ void TestQueueManager::testMaxConcurrentLimits() {
     QCOMPARE(stats.processing, 0);
 
     qm.checkQueue();
+    QTest::qWait(200);
 
     // After checkQueue, one item should be processing and one pending.
     stats = qm.getQueueStats();
