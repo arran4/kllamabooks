@@ -1407,7 +1407,7 @@ void MainWindow::showChatSettingsDialog(int messageId) {
 /** * @brief Synchronizes the UI logic based on whether multi-line chat input is activated. *  * This function is an
  * integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal
  * application models. */
-void MainWindow::updateInputBehavior() {
+void MainWindow::updateInputBehavior(const QList<MessageNode>* msgs) {
     QString behaviorStr = "EnterToSend";  // Ultimate default
 
     QSettings settings;
@@ -1420,9 +1420,9 @@ void MainWindow::updateInputBehavior() {
         bookSetting = currentDb->getSetting("book", 0, "sendBehavior", "default");
         int rootId = 0;
         if (currentLastNodeId != 0) {
-            QList<MessageNode> msgs = currentDb->getMessages();
+            QList<MessageNode> messagesToUse = msgs ? *msgs : currentDb->getMessages();
             QList<MessageNode> path;
-            getPathToRoot(currentLastNodeId, msgs, path);
+            getPathToRoot(currentLastNodeId, messagesToUse, path);
             if (!path.isEmpty()) {
                 rootId = path.first().id;
             }
@@ -3575,8 +3575,9 @@ void MainWindow::onChatNodeSelected(const QModelIndex& current, const QModelInde
     if (item) {
         int previewNodeId = item->data(Qt::UserRole).toInt();
         if (currentDb) {
-            updateLinearChatView(previewNodeId, currentDb->getMessages());
-            updateInputBehavior();  // Keep it updated when selecting nodes/chats
+            QList<MessageNode> msgs = currentDb->getMessages();
+            updateLinearChatView(previewNodeId, msgs);
+            updateInputBehavior(&msgs);  // Keep it updated when selecting nodes/chats
         }
     }
 }
@@ -4114,9 +4115,10 @@ void MainWindow::onOpenBooksSelectionChanged(const QItemSelection& selected, con
                 currentChatFolderId = item->parent()->data(Qt::UserRole).toInt();
             }
             if (currentDb) {
-                updateLinearChatView(currentLastNodeId, currentDb->getMessages());
+                QList<MessageNode> msgs = currentDb->getMessages();
+                updateLinearChatView(currentLastNodeId, msgs);
                 mainContentStack->setCurrentWidget(chatWindowView);
-                updateInputBehavior();
+                updateInputBehavior(&msgs);
             }
         }
     }
@@ -4184,7 +4186,8 @@ void MainWindow::loadDocumentsAndNotes() {
         }
         if (chatsFolder) {
             chatsFolder->removeRows(0, chatsFolder->rowCount());
-            populateChatFolders(chatsFolder, 0, currentDb->getMessages(), db.get());
+            QList<MessageNode> msgs = currentDb->getMessages();
+            populateChatFolders(chatsFolder, 0, msgs, db.get());
         }
     }
 
@@ -5101,8 +5104,9 @@ bool MainWindow::moveItemToFolder(QStandardItem* draggedItem, QStandardItem* tar
     if ((itemType == "chat_session" || itemType == "chat_node") && targetType == "chats_folder") {
         if (itemType == "chat_node") {
             if (draggedItem->parent() && draggedItem->parent()->data(Qt::UserRole + 1).toString() == "chats_folder") {
+                QList<MessageNode> msgs = currentDb->getMessages();
                 QList<MessageNode> path;
-                getPathToRoot(itemId, currentDb->getMessages(), path);
+                getPathToRoot(itemId, msgs, path);
                 if (!path.isEmpty()) {
                     dbItemId = path.first().id;
                 } else {
@@ -5989,9 +5993,10 @@ void MainWindow::onChatTextAreaContextMenu(const QPoint& pos) {
         currentLastNodeId = currentChatPath[msgIndex].id;
         if (currentDb) {
             loadDocumentsAndNotes();
-            updateLinearChatView(currentLastNodeId, currentDb->getMessages());
+            QList<MessageNode> msgs = currentDb->getMessages();
+            updateLinearChatView(currentLastNodeId, msgs);
             mainContentStack->setCurrentWidget(chatWindowView);
-            updateInputBehavior();
+            updateInputBehavior(&msgs);
         }
         if (!toggleInputModeBtn->isChecked()) {
             inputField->setFocus();
@@ -6096,9 +6101,10 @@ void MainWindow::onChatForkExplorerDoubleClicked(const QModelIndex& index) {
     if (nodeId != currentLastNodeId) {
         currentLastNodeId = nodeId;
         if (currentDb) {
-            updateLinearChatView(currentLastNodeId, currentDb->getMessages());
+            QList<MessageNode> msgs = currentDb->getMessages();
+            updateLinearChatView(currentLastNodeId, msgs);
             chatTextArea->setFocus();
-            updateInputBehavior();
+            updateInputBehavior(&msgs);
         }
     }
 }
@@ -6150,8 +6156,9 @@ void MainWindow::onChatForkExplorerContextMenu(const QPoint& pos) {
 
             currentLastNodeId = nodeId;
             if (currentDb) {
-                updateLinearChatView(currentLastNodeId, currentDb->getMessages());
-                updateInputBehavior();
+                QList<MessageNode> msgs = currentDb->getMessages();
+                updateLinearChatView(currentLastNodeId, msgs);
+                updateInputBehavior(&msgs);
             }
         }
     }
