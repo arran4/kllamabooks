@@ -114,7 +114,7 @@ class MainWindow : public KXmlGuiWindow {
                                 int existingDocId = 0, const QList<int>& docsToDelete = QList<int>());
     void showInputSettingsMenu();
     void showChatSettingsDialog(int messageId);
-    void updateInputBehavior();
+    void updateInputBehavior(const QList<MessageNode>* msgs = nullptr);
     void updateApplicationFont();
     void zoomIn();
     void zoomOut();

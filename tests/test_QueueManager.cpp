@@ -41,6 +41,7 @@ void TestQueueManager::init() {
 }
 
 void TestQueueManager::cleanup() {
+    QTest::qWait(200);
     QueueManager& qm = QueueManager::instance();
     if (m_db) {
         qm.removeDatabase(m_db);
@@ -98,6 +99,7 @@ void TestQueueManager::testCheckQueueIsPaused() {
     OllamaClient client;
     qm.setClient(&client);
 
+    emit client.connectionStatusChanged(true); // default queue test state
     qm.pauseQueue();
     m_db->enqueuePrompt(1, "test_model", "test_prompt");
 
@@ -110,7 +112,7 @@ void TestQueueManager::testCheckQueueIsPaused() {
     qm.resumeQueue();
 
     // Wait for the asynchronous checkQueue to run and process the item.
-    QTest::qWait(1000);
+    QTest::qWait(200);
 
     stats = qm.getQueueStats();
     QCOMPARE(stats.pending, 0);
@@ -141,7 +143,7 @@ void TestQueueManager::testEndpointDownPreventsProcessing() {
     QVERIFY(qm.isEndpointUp());
 
     // Wait for async checkQueue to run
-    QTest::qWait(1000);
+    QTest::qWait(200);
 
     stats = qm.getQueueStats();
     QCOMPARE(stats.pending, 0);
@@ -153,6 +155,7 @@ void TestQueueManager::testMaxConcurrentLimits() {
     qm.addDatabase(m_db);
     OllamaClient client;
     qm.setClient(&client);
+    emit client.connectionStatusChanged(true); // default queue test state
     qm.resumeQueue();
 
     qm.setMaxConcurrent(1);
@@ -167,6 +170,7 @@ void TestQueueManager::testMaxConcurrentLimits() {
     QCOMPARE(stats.processing, 0);
 
     qm.checkQueue();
+    QTest::qWait(200);
 
     QTest::qWait(1000); // Allow async queue processing
     // After checkQueue, one item should be processing and one pending.
