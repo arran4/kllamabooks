@@ -172,6 +172,7 @@ void TestQueueManager::testMaxConcurrentLimits() {
     qm.checkQueue();
     QTest::qWait(200);
 
+    QTest::qWait(1000); // Allow async queue processing
     // After checkQueue, one item should be processing and one pending.
     stats = qm.getQueueStats();
     QCOMPARE(stats.pending, 1);

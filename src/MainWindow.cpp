@@ -58,8 +58,8 @@
 #include "MergeDocumentsDialog.h"
 #include "ModelSelectionDialog.h"
 #include "NewDocumentDialog.h"
-#include "PasswordDialog.h"
 #include "NotificationDelegate.h"
+#include "PasswordDialog.h"
 #include "QueueManager.h"
 #include "QueueWindow.h"
 #include "WalletManager.h"
@@ -387,12 +387,8 @@ void MainWindow::setupUi() {
                 }
             } else {
                 QString dbText;
-                QList<NoteNode> notes = currentDb->getNotes();
-                for (const auto& note : notes) {
-                    if (note.id == currentNoteId) {
-                        dbText = note.content;
-                        break;
-                    }
+                if (auto noteOpt = currentDb->getNote(currentNoteId)) {
+                    dbText = noteOpt->content;
                 }
                 if (currentText != dbText) {
                     hasChanges = true;
@@ -4089,13 +4085,9 @@ void MainWindow::onOpenBooksSelectionChanged(const QItemSelection& selected, con
                 // For notes, we just use the selected item's text if possible,
                 // but let's fetch content from DB to be sure
                 if (currentDb) {
-                    QList<NoteNode> notes = currentDb->getNotes();
-                    for (const auto& note : notes) {
-                        if (note.id == currentNoteId) {
-                            noteEditorView->setPlainText(note.content);
-                            mainContentStack->setCurrentWidget(noteContainer);
-                            break;
-                        }
+                    if (auto noteOpt = currentDb->getNote(currentNoteId)) {
+                        noteEditorView->setPlainText(noteOpt->content);
+                        mainContentStack->setCurrentWidget(noteContainer);
                     }
                 }
             }
@@ -4281,13 +4273,10 @@ void MainWindow::getDocumentContent(int id, const QString& type, QString& outTit
             }
         }
     } else if (type == "note") {
-        QList<NoteNode> notes = currentDb->getNotes();
-        for (const auto& note : notes) {
-            if (note.id == id) {
-                outContent = note.content;
-                outTitle = note.title;
-                return;
-            }
+        if (auto noteOpt = currentDb->getNote(id)) {
+            outContent = noteOpt->content;
+            outTitle = noteOpt->title;
+            return;
         }
     }
 }
@@ -5548,7 +5537,8 @@ void MainWindow::handleNewDocumentCreation(int defaultFolderId) {
         QMessageBox::warning(this, tr("No Book Open"), tr("Please open a book first to create a document."));
         return;
     }
-    NewDocumentDialog dialog(currentDb, defaultFolderId, m_availableModelInfos, m_availableModels, endpointComboBox, m_selectedModels, this);
+    NewDocumentDialog dialog(currentDb, defaultFolderId, m_availableModelInfos, m_availableModels, endpointComboBox,
+                             m_selectedModels, this);
     if (dialog.exec() == QDialog::Accepted) {
         QString title = dialog.getTitle();
         int folderId = dialog.getSelectedFolderId();

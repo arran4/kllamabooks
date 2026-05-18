@@ -180,9 +180,10 @@ void OllamaClient::pullModel(const QString& modelName) {
  * @param onComplete Fired when the JSON EOF boolean is detected.
  * @param onError Fired on socket or HTTP error conditions.
  */
-QNetworkReply* OllamaClient::generate(const QString& model, const QString& prompt, std::function<void(const QString&)> onChunk,
-                            std::function<void(const QString&)> onComplete,
-                            std::function<void(QNetworkReply::NetworkError, const QString&)> onError) {
+QNetworkReply* OllamaClient::generate(const QString& model, const QString& prompt,
+                                      std::function<void(const QString&)> onChunk,
+                                      std::function<void(const QString&)> onComplete,
+                                      std::function<void(QNetworkReply::NetworkError, const QString&)> onError) {
     QUrl url(m_baseUrl + "/api/generate");
     QNetworkRequest request(url);
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
@@ -270,9 +271,9 @@ QNetworkReply* OllamaClient::generate(const QString& model, const QString& promp
  * @param onError Fired on socket or HTTP error conditions.
  */
 QNetworkReply* OllamaClient::generateChat(const QString& model, const QJsonArray& messages,
-                                std::function<void(const QString&)> onChunk,
-                                std::function<void(const QString&)> onComplete,
-                                std::function<void(QNetworkReply::NetworkError, const QString&)> onError) {
+                                          std::function<void(const QString&)> onChunk,
+                                          std::function<void(const QString&)> onComplete,
+                                          std::function<void(QNetworkReply::NetworkError, const QString&)> onError) {
     QUrl url(m_baseUrl + "/api/chat");
     QNetworkRequest request(url);
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");

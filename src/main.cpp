@@ -2,14 +2,14 @@
 #include <KLocalizedString>
 #include <QApplication>
 #include <QCommandLineOption>
-#include <QSslConfiguration>
-#include <QSslSocket>
 #include <QCommandLineParser>
 #include <QDebug>
 #include <QDir>
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QMessageBox>
+#include <QSslConfiguration>
+#include <QSslSocket>
 #include <QStandardPaths>
 #include <QTimer>
 #include <QtDBus/QDBusConnection>

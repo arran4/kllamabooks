@@ -1,12 +1,12 @@
 #include "PasswordDialog.h"
-#include <QVBoxLayout>
-#include <QLabel>
-#include <QLineEdit>
+
 #include <QCheckBox>
 #include <QDialogButtonBox>
+#include <QLabel>
+#include <QLineEdit>
+#include <QVBoxLayout>
 
-PasswordDialog::PasswordDialog(const QString& title, const QString& labelText, QWidget* parent)
-    : QDialog(parent) {
+PasswordDialog::PasswordDialog(const QString& title, const QString& labelText, QWidget* parent) : QDialog(parent) {
     setWindowTitle(title);
 
     QVBoxLayout* layout = new QVBoxLayout(this);
@@ -19,7 +19,7 @@ PasswordDialog::PasswordDialog(const QString& title, const QString& labelText, Q
     layout->addWidget(m_passwordEdit);
 
     m_saveWalletCheckBox = new QCheckBox(tr("Save this password to kwallet"), this);
-    m_saveWalletCheckBox->setChecked(true); // Default to checked
+    m_saveWalletCheckBox->setChecked(true);  // Default to checked
     layout->addWidget(m_saveWalletCheckBox);
 
     QDialogButtonBox* buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
@@ -28,10 +28,6 @@ PasswordDialog::PasswordDialog(const QString& title, const QString& labelText, Q
     layout->addWidget(buttonBox);
 }
 
-QString PasswordDialog::password() const {
-    return m_passwordEdit->text();
-}
+QString PasswordDialog::password() const { return m_passwordEdit->text(); }
 
-bool PasswordDialog::saveToWallet() const {
-    return m_saveWalletCheckBox->isChecked();
-}
+bool PasswordDialog::saveToWallet() const { return m_saveWalletCheckBox->isChecked(); }

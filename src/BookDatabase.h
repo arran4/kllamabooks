@@ -5,6 +5,7 @@
 #include <QList>
 #include <QSet>
 #include <QString>
+#include <optional>
 
 struct MessageNode {
     int id;
@@ -109,6 +110,7 @@ class BookDatabase {
     bool updateMessage(int id, const QString& newContent);
     bool deleteMessage(int id);
     QList<MessageNode> getMessages() const;
+    std::optional<MessageNode> getMessage(int id) const;
     int getRootMessageId(int messageId) const;
     QString getInheritedSetting(int messageId, const QString& key) const;
 
@@ -172,6 +174,7 @@ class BookDatabase {
     int addNote(int folderId, const QString& title, const QString& content);
     bool updateNote(int id, const QString& newTitle, const QString& newContent);
     QList<NoteNode> getNotes(int folderId = -1) const;
+    std::optional<NoteNode> getNote(int id) const;
     bool deleteNote(int id);
 
     // Folders

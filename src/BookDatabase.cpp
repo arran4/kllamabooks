@@ -600,8 +600,7 @@ bool BookDatabase::moveItem(const QString& table, int id, int newFolderId) {
     }
 
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK)
-        return false;
+    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
 
     sqlite3_bind_int(stmt, 1, newFolderId);
     sqlite3_bind_int(stmt, 2, id);
@@ -865,6 +864,37 @@ QString BookDatabase::getInheritedSetting(int messageId, const QString& key) con
     return inheritedValue;
 }
 
+std::optional<MessageNode> BookDatabase::getMessage(int id) const {
+    if (!m_isOpen) return std::nullopt;
+
+    QString sqlStr = "SELECT id, parent_id, folder_id, role, content, timestamp, is_expanded FROM messages WHERE id = ?;";
+    sqlite3_stmt* stmt;
+    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sqlStr.toUtf8().constData(), -1, &stmt, nullptr);
+    if (rc != SQLITE_OK) return std::nullopt;
+
+    sqlite3_bind_int(stmt, 1, id);
+
+    std::optional<MessageNode> result = std::nullopt;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        MessageNode node;
+        node.id = sqlite3_column_int(stmt, 0);
+        node.parentId = sqlite3_column_int(stmt, 1);
+        node.folderId = sqlite3_column_int(stmt, 2);
+        const unsigned char* roleText = sqlite3_column_text(stmt, 3);
+        node.role = roleText ? QString::fromUtf8(reinterpret_cast<const char*>(roleText)) : "";
+        const unsigned char* contentText = sqlite3_column_text(stmt, 4);
+        node.content = contentText ? QString::fromUtf8(reinterpret_cast<const char*>(contentText)) : "";
+        const unsigned char* timestampText = sqlite3_column_text(stmt, 5);
+        QString tsStr = timestampText ? QString::fromUtf8(reinterpret_cast<const char*>(timestampText)) : "";
+        node.timestamp = QDateTime::fromString(tsStr, Qt::ISODate);
+        node.isExpanded = sqlite3_column_int(stmt, 6) != 0;
+        result = node;
+    }
+
+    sqlite3_finalize(stmt);
+    return result;
+}
+
 QList<MessageNode> BookDatabase::getMessages() const {
     QList<MessageNode> nodes;
     if (!m_isOpen) return nodes;
@@ -1060,6 +1090,34 @@ bool BookDatabase::updateNote(int id, const QString& newTitle, const QString& ne
     return rc == SQLITE_DONE;
 }
 
+std::optional<NoteNode> BookDatabase::getNote(int id) const {
+    if (!m_isOpen) return std::nullopt;
+
+    QString sqlStr = "SELECT id, folder_id, title, content, timestamp FROM notes WHERE id = ?;";
+    sqlite3_stmt* stmt;
+    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sqlStr.toUtf8().constData(), -1, &stmt, nullptr);
+    if (rc != SQLITE_OK) return std::nullopt;
+
+    sqlite3_bind_int(stmt, 1, id);
+
+    std::optional<NoteNode> result = std::nullopt;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        NoteNode node;
+        node.id = sqlite3_column_int(stmt, 0);
+        node.folderId = sqlite3_column_int(stmt, 1);
+        const char* titleText = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
+        node.title = titleText ? QString::fromUtf8(titleText) : QString();
+        const char* contentText = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
+        node.content = contentText ? QString::fromUtf8(contentText) : QString();
+        const char* tsText = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4));
+        QString ts = tsText ? QString::fromUtf8(tsText) : QString();
+        node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
+        result = node;
+    }
+    sqlite3_finalize(stmt);
+    return result;
+}
+
 QList<NoteNode> BookDatabase::getNotes(int folderId) const {
     QList<NoteNode> nodes;
     if (!m_isOpen) return nodes;
@@ -1082,7 +1140,7 @@ QList<NoteNode> BookDatabase::getNotes(int folderId) const {
         node.content = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)));
         QString ts = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4)));
         node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
-        node.parentId = 0;
+
         nodes.append(node);
     }
     sqlite3_finalize(stmt);
