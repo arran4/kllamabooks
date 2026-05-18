@@ -1418,14 +1418,7 @@ void MainWindow::updateInputBehavior(const QList<MessageNode>* msgs) {
 
     if (currentDb && currentDb->isOpen()) {
         bookSetting = currentDb->getSetting("book", 0, "sendBehavior", "default");
-        int rootId = 0;
         if (currentLastNodeId != 0) {
-            QList<MessageNode> messagesToUse = msgs ? *msgs : currentDb->getMessages();
-            QList<MessageNode> path;
-            getPathToRoot(currentLastNodeId, messagesToUse, path);
-            if (!path.isEmpty()) {
-                rootId = path.first().id;
-            }
             chatSetting = currentDb->getInheritedSetting(currentLastNodeId, "sendBehavior");
             if (chatSetting.isEmpty()) {
                 chatSetting = "default";
@@ -4186,7 +4179,7 @@ void MainWindow::loadDocumentsAndNotes() {
         }
         if (chatsFolder) {
             chatsFolder->removeRows(0, chatsFolder->rowCount());
-            QList<MessageNode> msgs = currentDb->getMessages();
+            QList<MessageNode> msgs = db->getMessages();
             populateChatFolders(chatsFolder, 0, msgs, db.get());
         }
     }
@@ -5104,7 +5097,7 @@ bool MainWindow::moveItemToFolder(QStandardItem* draggedItem, QStandardItem* tar
     if ((itemType == "chat_session" || itemType == "chat_node") && targetType == "chats_folder") {
         if (itemType == "chat_node") {
             if (draggedItem->parent() && draggedItem->parent()->data(Qt::UserRole + 1).toString() == "chats_folder") {
-                QList<MessageNode> msgs = currentDb->getMessages();
+                QList<MessageNode> msgs = db->getMessages();
                 QList<MessageNode> path;
                 getPathToRoot(itemId, msgs, path);
                 if (!path.isEmpty()) {
