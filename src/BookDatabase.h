@@ -174,6 +174,7 @@ class BookDatabase {
     // Notes
     int addNote(int folderId, const QString& title, const QString& content);
     bool updateNote(int id, const QString& newTitle, const QString& newContent);
+    std::optional<NoteNode> getNote(int id) const;
     QList<NoteNode> getNotes(int folderId = -1) const;
     bool deleteNote(int id);
 
