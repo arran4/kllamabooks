@@ -45,6 +45,7 @@ class QueueManager : public QObject {
     void retryItem(std::shared_ptr<BookDatabase> db, int queueId);
     void modifyItem(std::shared_ptr<BookDatabase> db, int queueId, const QString& newPrompt,
                     const QString& newModel = QString());
+    void changeItemPriority(std::shared_ptr<BookDatabase> db, int queueId, int delta);
 
     void clearCompleted();
     void pauseQueue();

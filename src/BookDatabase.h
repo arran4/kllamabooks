@@ -205,6 +205,7 @@ class BookDatabase {
     bool updateQueueItemPrompt(int id, const QString& prompt);
     bool updateQueueItemModel(int id, const QString& model);
     bool updateQueueItemState(int id, const QString& state, const QString& response = "");
+    bool updateQueueItemPriority(int id, int priority);
     bool deleteQueueItem(int id);
 
     // Comments

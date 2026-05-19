@@ -22,16 +22,23 @@ QueueWindow::QueueWindow(QWidget* parent) : QWidget(parent, Qt::Window) {
     connect(m_queueList, &QWidget::customContextMenuRequested, this, &QueueWindow::showContextMenu);
 
     QHBoxLayout* btnLayout = new QHBoxLayout();
+    m_upBtn = new QPushButton("Move Up", this);
+    m_downBtn = new QPushButton("Move Down", this);
     m_clearBtn = new QPushButton("Clear Completed", this);
 
     QPushButton* pauseBtn = new QPushButton(QueueManager::instance().isPaused() ? "Resume Queue" : "Pause Queue", this);
 
+    btnLayout->addWidget(m_upBtn);
+    btnLayout->addWidget(m_downBtn);
     btnLayout->addWidget(pauseBtn);
     btnLayout->addStretch();
     btnLayout->addWidget(m_clearBtn);
     layout->addLayout(btnLayout);
 
+    connect(m_upBtn, &QPushButton::clicked, this, &QueueWindow::onMoveUp);
+    connect(m_downBtn, &QPushButton::clicked, this, &QueueWindow::onMoveDown);
     connect(m_clearBtn, &QPushButton::clicked, this, &QueueWindow::onClearCompleted);
+    connect(m_queueList, &QListWidget::itemSelectionChanged, this, &QueueWindow::updateButtons);
 
     connect(m_queueList, &QListWidget::itemDoubleClicked, this, [this](QListWidgetItem*) { onJumpItem(); });
 
@@ -47,7 +54,33 @@ QueueWindow::QueueWindow(QWidget* parent) : QWidget(parent, Qt::Window) {
 
     connect(&QueueManager::instance(), &QueueManager::queueChanged, this, &QueueWindow::refresh);
 
+    updateButtons();
     refresh();
+}
+
+void QueueWindow::updateButtons() {
+    auto item = m_queueList->currentItem();
+    if (!item) {
+        m_upBtn->setEnabled(false);
+        m_downBtn->setEnabled(false);
+        return;
+    }
+
+    int id = item->data(Qt::UserRole).toInt();
+    QString path = item->data(Qt::UserRole + 1).toString();
+
+    bool isPending = false;
+    for (const auto& mi : QueueManager::instance().getMergedQueue()) {
+        if (mi.item.id == id && mi.db->filepath() == path) {
+            if (mi.item.state.isEmpty() || mi.item.state.compare("pending", Qt::CaseInsensitive) == 0) {
+                isPending = true;
+            }
+            break;
+        }
+    }
+
+    m_upBtn->setEnabled(isPending);
+    m_downBtn->setEnabled(isPending);
 }
 
 void QueueWindow::refresh() {
@@ -110,6 +143,7 @@ void QueueWindow::refresh() {
             listItem->setBackground(Qt::yellow);
         }
     }
+    updateButtons();
 }
 
 void QueueWindow::onRetryItem() {
@@ -168,6 +202,36 @@ void QueueWindow::onCancelItem() {
 }
 
 void QueueWindow::onClearCompleted() { QueueManager::instance().clearCompleted(); }
+
+void QueueWindow::onMoveUp() {
+    auto item = m_queueList->currentItem();
+    if (!item) return;
+
+    int id = item->data(Qt::UserRole).toInt();
+    QString path = item->data(Qt::UserRole + 1).toString();
+
+    for (auto db : QueueManager::instance().databases()) {
+        if (db->filepath() == path) {
+            QueueManager::instance().changeItemPriority(db, id, 1);
+            break;
+        }
+    }
+}
+
+void QueueWindow::onMoveDown() {
+    auto item = m_queueList->currentItem();
+    if (!item) return;
+
+    int id = item->data(Qt::UserRole).toInt();
+    QString path = item->data(Qt::UserRole + 1).toString();
+
+    for (auto db : QueueManager::instance().databases()) {
+        if (db->filepath() == path) {
+            QueueManager::instance().changeItemPriority(db, id, -1);
+            break;
+        }
+    }
+}
 
 void QueueWindow::showContextMenu(const QPoint& pos) {
     auto item = m_queueList->itemAt(pos);
