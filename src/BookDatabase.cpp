@@ -25,16 +25,18 @@ bool BookDatabase::open(const QString& password) {
     if (m_isOpen) return true;
 
     int rc = sqlite3_open(m_filepath.toUtf8().constData(), reinterpret_cast<sqlite3**>(&m_db));
+    sqlite3* db = reinterpret_cast<sqlite3*>(m_db);
+
     if (rc != SQLITE_OK) {
-        qWarning() << "Cannot open database: " << sqlite3_errmsg(reinterpret_cast<sqlite3*>(m_db));
+        qWarning() << "Cannot open database: " << sqlite3_errmsg(db);
         return false;
     }
 
     if (!password.isEmpty()) {
         QByteArray passwordBytes = password.toUtf8();
-        rc = sqlite3_key(reinterpret_cast<sqlite3*>(m_db), passwordBytes.constData(), passwordBytes.size());
+        rc = sqlite3_key(db, passwordBytes.constData(), passwordBytes.size());
         if (rc != SQLITE_OK) {
-            qWarning() << "Failed to set key: " << sqlite3_errmsg(reinterpret_cast<sqlite3*>(m_db));
+            qWarning() << "Failed to set key: " << sqlite3_errmsg(db);
             close();
             return false;
         }
@@ -42,7 +44,7 @@ bool BookDatabase::open(const QString& password) {
 
     // Verify key works
     char* errMsg = nullptr;
-    rc = sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "SELECT count(*) FROM sqlite_master;", nullptr, nullptr,
+    rc = sqlite3_exec(db, "SELECT count(*) FROM sqlite_master;", nullptr, nullptr,
                       &errMsg);
     if (rc != SQLITE_OK) {
         qWarning() << "Invalid password or corrupted database: " << errMsg;
