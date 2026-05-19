@@ -385,15 +385,14 @@ void QueueManager::processNext() {
                     if (!m_activeItems.contains(procId)) return;
                     auto act = m_activeItems[procId];
                     if (act.db && act.db->isOpen()) {
-                        QString currentContent;
-                        auto messages = act.db->getMessages();
-                        for (const auto& m : messages) {
-                            if (m.id == act.item.messageId) {
-                                currentContent = m.content;
-                                break;
-                            }
+                        if (act.accumulatedContent.isNull()) {
+                            auto optMsg = act.db->getMessage(act.item.messageId);
+                            if (optMsg) act.accumulatedContent = optMsg->content;
+                            else act.accumulatedContent = "";
                         }
-                        act.db->updateMessage(act.item.messageId, currentContent + chunk);
+                        act.accumulatedContent += chunk;
+                        m_activeItems[procId] = act;
+                        act.db->updateMessage(act.item.messageId, act.accumulatedContent);
                         emit processingChunk(act.db, act.item.messageId, chunk, act.item.targetType);
                     }
                 },
@@ -450,16 +449,24 @@ void QueueManager::processNext() {
                     auto act = m_activeItems[procId];
                     if (act.db && act.db->isOpen()) {
                         if (act.item.targetType == "document" && act.item.targetAction == "replace_direct") {
-                            auto optDoc = act.db->getDocument(act.item.messageId);
-                            if (optDoc) {
-                                QString currentContent = optDoc->content;
-                                if (currentContent == QStringLiteral("*Generating merge...*") ||
-                                    currentContent == QStringLiteral("*Generating document...*") ||
-                                    currentContent == QStringLiteral("*Regenerating...*")) {
-                                    currentContent = "";
+                            if (act.accumulatedContent.isNull()) {
+                                auto optDoc = act.db->getDocument(act.item.messageId);
+                                if (optDoc) {
+                                    act.title = optDoc->title;
+                                    act.metadata = optDoc->metadata;
+                                    act.accumulatedContent = optDoc->content;
+                                    if (act.accumulatedContent == QStringLiteral("*Generating merge...*") ||
+                                        act.accumulatedContent == QStringLiteral("*Generating document...*") ||
+                                        act.accumulatedContent == QStringLiteral("*Regenerating...*")) {
+                                        act.accumulatedContent = "";
+                                    }
+                                } else {
+                                    act.accumulatedContent = "";
                                 }
-                                act.db->updateDocument(act.item.messageId, optDoc->title, currentContent + chunk, optDoc->metadata);
                             }
+                            act.accumulatedContent += chunk;
+                            m_activeItems[procId] = act;
+                            act.db->updateDocument(act.item.messageId, act.title, act.accumulatedContent, act.metadata);
                         }
                         // For other document actions, we do not update the document directly.
                         // Just emit the chunk for the preview.
@@ -472,9 +479,13 @@ void QueueManager::processNext() {
                     if (act.db && act.db->isOpen()) {
                         if (act.item.targetType == "document" && act.item.targetAction == "replace_direct") {
                             // Directly replace content without review.
-                            auto optDoc = act.db->getDocument(act.item.messageId);
-                            if (optDoc) {
-                                act.db->updateDocument(act.item.messageId, optDoc->title, response, optDoc->metadata);
+                            if (!act.title.isNull()) {
+                                act.db->updateDocument(act.item.messageId, act.title, response, act.metadata);
+                            } else {
+                                auto optDoc = act.db->getDocument(act.item.messageId);
+                                if (optDoc) {
+                                    act.db->updateDocument(act.item.messageId, optDoc->title, response, optDoc->metadata);
+                                }
                             }
                             act.db->deleteQueueItem(act.item.id);
                             act.db->addNotification(act.item.messageId, act.item.targetType, "finished_generation");

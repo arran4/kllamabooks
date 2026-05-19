@@ -30,6 +30,9 @@ class QueueManager : public QObject {
     struct MergedQueueItem {
         std::shared_ptr<BookDatabase> db;
         QueueItem item;
+        QString accumulatedContent;
+        QString title;
+        QString metadata;
     };
     QList<MergedQueueItem> getMergedQueue() const;
 
