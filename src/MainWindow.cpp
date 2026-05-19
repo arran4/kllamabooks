@@ -5665,7 +5665,7 @@ void MainWindow::updateRegenerateButtonVisibility(const DocumentNode& doc, const
 
         if (hasMerge || hasPrompt) {
             if (hasMerge) showSources = true;
-            bool isGenerating = currentDb->isGenerating(doc.id, "document", "replace_direct");
+            bool isGenerating = currentDb->isGenerating(doc.id, "document", "");
             if (!isGenerating) {
                 showRegenerate = true;
             }
