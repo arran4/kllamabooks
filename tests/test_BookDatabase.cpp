@@ -15,20 +15,25 @@ private slots:
 
         QString debugInfo = db.getDatabaseDebugInfo();
         QVERIFY(debugInfo.contains("Schema Version: 19"));
-        QVERIFY(debugInfo.contains("schema_version"));
-        QVERIFY(debugInfo.contains("messages"));
-        QVERIFY(debugInfo.contains("documents"));
-        QVERIFY(debugInfo.contains("templates"));
-        QVERIFY(debugInfo.contains("drafts"));
-        QVERIFY(debugInfo.contains("notes"));
-        QVERIFY(debugInfo.contains("folders"));
-        QVERIFY(debugInfo.contains("settings"));
-        QVERIFY(debugInfo.contains("queue"));
-        QVERIFY(debugInfo.contains("notifications"));
-        QVERIFY(debugInfo.contains("comments"));
-        QVERIFY(debugInfo.contains("document_history"));
-        QVERIFY(debugInfo.contains("document_merges"));
-        QVERIFY(debugInfo.contains("chats"));
+        QVERIFY(debugInfo.contains("- schema_version\n"));
+        QVERIFY(debugInfo.contains("- messages\n"));
+        QVERIFY(debugInfo.contains("- documents\n"));
+        QVERIFY(debugInfo.contains("- templates\n"));
+        QVERIFY(debugInfo.contains("- drafts\n"));
+        QVERIFY(debugInfo.contains("- notes\n"));
+        QVERIFY(debugInfo.contains("- folders\n"));
+        QVERIFY(debugInfo.contains("- settings\n"));
+        QVERIFY(debugInfo.contains("- queue\n"));
+        QVERIFY(debugInfo.contains("- notifications\n"));
+        QVERIFY(debugInfo.contains("- comments\n"));
+        QVERIFY(debugInfo.contains("- document_history\n"));
+        QVERIFY(debugInfo.contains("- document_merges\n"));
+        QVERIFY(debugInfo.contains("- chats\n"));
+
+        // Let's also check one of the table schemas contains columns we expect
+        QVERIFY(debugInfo.contains("CREATE TABLE messages"));
+        QVERIFY(debugInfo.contains("id INTEGER PRIMARY KEY"));
+        QVERIFY(debugInfo.contains("parent_id INTEGER"));
 
         db.close();
     }
