@@ -109,8 +109,8 @@ void TestQueueManager::testCheckQueueIsPaused() {
 
     qm.resumeQueue();
 
-    // Wait for the asynchronous checkQueue to run and process the item.
-    QTest::qWait(100);
+    // Force synchronous processing before the event loop can process network errors.
+    qm.checkQueue();
 
     stats = qm.getQueueStats();
     QCOMPARE(stats.pending, 0);
@@ -140,8 +140,8 @@ void TestQueueManager::testEndpointDownPreventsProcessing() {
     emit client.connectionStatusChanged(true);
     QVERIFY(qm.isEndpointUp());
 
-    // Wait for async checkQueue to run
-    QTest::qWait(100);
+    // Force synchronous processing before network errors revert the state.
+    qm.checkQueue();
 
     stats = qm.getQueueStats();
     QCOMPARE(stats.pending, 0);
@@ -154,6 +154,9 @@ void TestQueueManager::testMaxConcurrentLimits() {
     OllamaClient client;
     qm.setClient(&client);
     qm.resumeQueue();
+
+    // Explicitly set endpoint to true to override any state leaked from previous tests
+    emit client.connectionStatusChanged(true);
 
     qm.setMaxConcurrent(1);
     QCOMPARE(qm.maxConcurrent(), 1);
