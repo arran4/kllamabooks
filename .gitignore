@@ -10,3 +10,4 @@ kllamabooks
 *.db
 /.idea/
 .flatpak-builder
+Testing/

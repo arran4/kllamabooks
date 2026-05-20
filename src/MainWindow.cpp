@@ -5096,11 +5096,9 @@ bool MainWindow::moveItemToFolder(QStandardItem* draggedItem, QStandardItem* tar
             }
 
             if (canCopy) {
-                QList<MessageNode> allMsgs = db->getMessages();
-                QList<MessageNode> path;
-                getPathToRoot(itemId, allMsgs, path);
-                if (!path.isEmpty()) {
-                    int rootId = path.first().id;
+                int rootId = db->getRootMessageId(itemId);
+                if (rootId != 0) {
+                    QList<MessageNode> allMsgs = db->getMessageSubtree(rootId);
 
                     QMap<int, QList<MessageNode>> childrenMap;
                     QMap<int, MessageNode> nodeMap;

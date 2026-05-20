@@ -1837,3 +1837,38 @@ bool BookDatabase::deleteTemplate(int id) {
     sqlite3_finalize(stmt);
     return rc == SQLITE_DONE;
 }
+
+QList<MessageNode> BookDatabase::getMessageSubtree(int rootId) const {
+    QList<MessageNode> nodes;
+    if (!m_isOpen) return nodes;
+
+    const char* sql =
+        "WITH RECURSIVE subtree(id) AS ("
+        "  SELECT id FROM messages WHERE id = ?"
+        "  UNION ALL"
+        "  SELECT m.id FROM messages m INNER JOIN subtree s ON m.parent_id = s.id"
+        ") "
+        "SELECT id, parent_id, folder_id, role, content, timestamp, is_expanded FROM messages WHERE id IN subtree "
+        "ORDER BY id;";
+
+    sqlite3_stmt* stmt;
+    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr);
+    if (rc != SQLITE_OK) return nodes;
+
+    sqlite3_bind_int(stmt, 1, rootId);
+
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        MessageNode node;
+        node.id = sqlite3_column_int(stmt, 0);
+        node.parentId = sqlite3_column_int(stmt, 1);
+        node.folderId = sqlite3_column_int(stmt, 2);
+        node.role = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)));
+        node.content = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4)));
+        QString ts = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 5)));
+        node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
+        node.isExpanded = sqlite3_column_int(stmt, 6) != 0;
+        nodes.append(node);
+    }
+    sqlite3_finalize(stmt);
+    return nodes;
+}

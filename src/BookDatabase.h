@@ -109,6 +109,7 @@ class BookDatabase {
     bool updateMessage(int id, const QString& newContent);
     bool deleteMessage(int id);
     QList<MessageNode> getMessages() const;
+    QList<MessageNode> getMessageSubtree(int rootId) const;
     int getRootMessageId(int messageId) const;
     QString getInheritedSetting(int messageId, const QString& key) const;
 

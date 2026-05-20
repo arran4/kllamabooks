@@ -107,10 +107,11 @@ void TestQueueManager::testCheckQueueIsPaused() {
     QCOMPARE(stats.pending, 1);
     QCOMPARE(stats.processing, 0); // No items should move to processing since queue is paused
 
+    QSignalSpy spy(&qm, &QueueManager::processingStarted);
     qm.resumeQueue();
 
     // Wait for the asynchronous checkQueue to run and process the item.
-    QTest::qWait(100);
+    QVERIFY(spy.wait());
 
     stats = qm.getQueueStats();
     QCOMPARE(stats.pending, 0);
@@ -137,11 +138,12 @@ void TestQueueManager::testEndpointDownPreventsProcessing() {
     QCOMPARE(stats.processing, 0); // No items should process since endpoint is down
 
     // Simulate endpoint coming up, checkQueue is called automatically via signal
+    QSignalSpy spy(&qm, &QueueManager::processingStarted);
     emit client.connectionStatusChanged(true);
     QVERIFY(qm.isEndpointUp());
 
     // Wait for async checkQueue to run
-    QTest::qWait(100);
+    QVERIFY(spy.wait());
 
     stats = qm.getQueueStats();
     QCOMPARE(stats.pending, 0);
