@@ -100,7 +100,6 @@ target_compile_definitions(kllamabooks PRIVATE KGHN_APP_VERSION="${PROJECT_VERSI
 
 # Tests
 enable_testing()
-add_compile_definitions(SQLITE_HAS_CODEC)
 
 # Installation
 install(TARGETS kllamabooks
@@ -146,4 +145,5 @@ install(FILES src/com.arran4.kllamabooks.metainfo.xml
 add_executable(test_QueueManager tests/test_QueueManager.cpp src/QueueManager.cpp src/BookDatabase.cpp src/OllamaClient.cpp src/NotificationDelegate.cpp src/DocumentTemplatesManager.cpp src/AIOperationsManager.cpp src/TemplateParser.cpp)
 target_include_directories(test_QueueManager PRIVATE ${SQLCIPHER_INCLUDE_DIRS})
 target_link_libraries(test_QueueManager Qt6::Test Qt6::Core Qt6::Widgets Qt6::Network ${SQLCIPHER_LIBRARIES})
+target_compile_definitions(test_QueueManager PRIVATE SQLITE_HAS_CODEC)
 add_test(NAME test_QueueManager COMMAND test_QueueManager)
