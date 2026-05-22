@@ -2223,30 +2223,30 @@ void MainWindow::onBookSelected(const QModelIndex& index) {
             }
         }
         return;
-    } else {
-        QString password = WalletManager::loadPassword(fileName);
-        auto db = std::make_shared<BookDatabase>(filePath);
-        if (!db->open(password)) {
-            PasswordDialog dialog("Unlock Book", "Enter password for " + fileName + ":", this);
-            if (dialog.exec() == QDialog::Accepted) {
-                password = dialog.password();
-                if (db->open(password)) {
-                    if (!password.isEmpty() && dialog.saveToWallet()) {
-                        WalletManager::savePassword(fileName, password);
-                    }
-                } else {
-                    QMessageBox::warning(this, "Error", "Could not open book.");
-                    return;
+    }
+
+    QString password = WalletManager::loadPassword(fileName);
+    auto db = std::make_shared<BookDatabase>(filePath);
+    if (!db->open(password)) {
+        PasswordDialog dialog("Unlock Book", "Enter password for " + fileName + ":", this);
+        if (dialog.exec() == QDialog::Accepted) {
+            password = dialog.password();
+            if (db->open(password)) {
+                if (!password.isEmpty() && dialog.saveToWallet()) {
+                    WalletManager::savePassword(fileName, password);
                 }
             } else {
                 QMessageBox::warning(this, "Error", "Could not open book.");
                 return;
             }
+        } else {
+            QMessageBox::warning(this, "Error", "Could not open book.");
+            return;
         }
-        m_openDatabases[fileName] = db;
-        currentDb = db;
-        QueueManager::instance().addDatabase(db);
     }
+    m_openDatabases[fileName] = db;
+    currentDb = db;
+    QueueManager::instance().addDatabase(db);
 
     QueueManager::instance().setActiveDatabase(currentDb);
 
