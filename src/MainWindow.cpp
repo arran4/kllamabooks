@@ -2212,8 +2212,6 @@ void MainWindow::onBookSelected(const QModelIndex& index) {
     QString fileName = bookList->item(index.row())->text();
     QString filePath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + "/" + fileName;
 
-    QString password = WalletManager::loadPassword(fileName);
-
     if (m_openDatabases.contains(fileName)) {
         currentDb = m_openDatabases[fileName];
         QueueManager::instance().setActiveDatabase(currentDb);
@@ -2226,6 +2224,7 @@ void MainWindow::onBookSelected(const QModelIndex& index) {
         }
         return;
     } else {
+        QString password = WalletManager::loadPassword(fileName);
         auto db = std::make_shared<BookDatabase>(filePath);
         if (!db->open(password)) {
             PasswordDialog dialog("Unlock Book", "Enter password for " + fileName + ":", this);
