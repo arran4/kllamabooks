@@ -149,8 +149,10 @@ class MainWindow : public KXmlGuiWindow {
     void loadSession(int rootId);
     void populateTree(QStandardItem* parentItem, int parentId, const QList<MessageNode>& allMessages);
     void populateChatFolders(QStandardItem* parentItem, int folderId, const QList<MessageNode>& allMessages,
-                             BookDatabase* db);
-    void populateMessageForks(QStandardItem* parentItem, int parentId, const QList<MessageNode>& allMessages);
+                             BookDatabase* db, const QHash<int, const MessageNode*>& msgMap,
+                             const QMap<int, QString>& chatTitles);
+    void populateMessageForks(QStandardItem* parentItem, int parentId, const QList<MessageNode>& allMessages,
+                              const QHash<int, const MessageNode*>& msgMap, const QMap<int, QString>& chatTitles);
     void populateDocumentFolders(QStandardItem* parentItem, int folderId, const QString& type, BookDatabase* db);
     void populateDraftsFolders(QStandardItem* parentItem, int folderId, const QString& underlyingType,
                                BookDatabase* db);
@@ -158,7 +160,8 @@ class MainWindow : public KXmlGuiWindow {
     void updateLinearChatView(int tailNodeId, const QList<MessageNode>& allMessages);
     void getPathToRoot(int nodeId, const QList<MessageNode>& allMessages, QList<MessageNode>& path);
     int getEndOfLinearPath(int startId, const QList<MessageNode>& allMessages, QList<MessageNode>& outChildren);
-    QString getChatNodeTitle(int nodeId, const QList<MessageNode>& allMessages);
+    QString getChatNodeTitle(int nodeId, const QHash<int, const MessageNode*>& msgMap,
+                             const QMap<int, QString>& chatTitles);
    public slots:
     void loadDocumentsAndNotes();
 

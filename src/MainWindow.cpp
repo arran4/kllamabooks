@@ -2278,7 +2278,12 @@ void MainWindow::onBookSelected(const QModelIndex& index) {
 
     auto dbPtr = currentDb;  // Keep shared_ptr to avoid issues during iteration
     QList<MessageNode> msgs = currentDb->getMessages();
-    populateChatFolders(chatsItem, 0, msgs, dbPtr.get());
+    QHash<int, const MessageNode*> msgMap;
+    for (const auto& msg : msgs) {
+        msgMap[msg.id] = &msg;
+    }
+    QMap<int, QString> chatTitles = currentDb->getAllChatTitles();
+    populateChatFolders(chatsItem, 0, msgs, dbPtr.get(), msgMap, chatTitles);
 
     populateDocumentFolders(docsItem, 0, "documents", dbPtr.get());
     populateDocumentFolders(templatesItem, 0, "templates", dbPtr.get());
@@ -2450,7 +2455,12 @@ void MainWindow::loadSession(int rootId) {
 
     QList<MessageNode> msgs = currentDb->getMessages();
     QStandardItem* rootItem = chatModel->invisibleRootItem();
-    populateChatFolders(rootItem, 0, msgs, currentDb.get());
+    QHash<int, const MessageNode*> msgMap;
+    for (const auto& msg : msgs) {
+        msgMap[msg.id] = &msg;
+    }
+    QMap<int, QString> chatTitles = currentDb->getAllChatTitles();
+    populateChatFolders(rootItem, 0, msgs, currentDb.get(), msgMap, chatTitles);
 
     if (!msgs.isEmpty()) {
         currentLastNodeId = msgs.last().id;
@@ -2501,17 +2511,23 @@ int MainWindow::getEndOfLinearPath(int startId, const QList<MessageNode>& allMes
 /** * @brief Executes logic for getChatNodeTitle. This function manages component initialization and handles state
  * transitions for the UI. *  * This function is an integral component of the MainWindow class structure. * It ensures
  * that side effects map accurately to internal application models. */
-QString MainWindow::getChatNodeTitle(int nodeId, const QList<MessageNode>& allMessages) {
+QString MainWindow::getChatNodeTitle(int nodeId, const QHash<int, const MessageNode*>& msgMap,
+                                     const QMap<int, QString>& chatTitles) {
     if (!currentDb || !currentDb->isOpen()) return "New Chat";
 
     // Trace up the path to the root
-    QList<MessageNode> path;
-    getPathToRoot(nodeId, allMessages, path);
+    QList<const MessageNode*> path;
+    int curr = nodeId;
+    while (curr != 0 && msgMap.contains(curr)) {
+        const MessageNode* node = msgMap.value(curr);
+        path.prepend(node);
+        curr = node->parentId;
+    }
 
     // Look for a custom title in the settings database, starting from the leaf and going up
     for (int i = path.size() - 1; i >= 0; --i) {
-        int currentId = path[i].id;
-        QString customTitle = currentDb->getChat(currentId).title;
+        int currentId = path[i]->id;
+        QString customTitle = chatTitles.value(currentId);
         if (!customTitle.isEmpty()) {
             return customTitle;
         }
@@ -2520,7 +2536,7 @@ QString MainWindow::getChatNodeTitle(int nodeId, const QList<MessageNode>& allMe
     // Default title fallback logic
     QString displayTitle;
     if (!path.isEmpty()) {
-        displayTitle = path[0].content.simplified();
+        displayTitle = path[0]->content.simplified();
     }
 
     if (displayTitle.length() > 30) {
@@ -2535,7 +2551,8 @@ QString MainWindow::getChatNodeTitle(int nodeId, const QList<MessageNode>& allMe
 }
 
 void MainWindow::populateChatFolders(QStandardItem* parentItem, int folderId, const QList<MessageNode>& allMessages,
-                                     BookDatabase* db) {
+                                     BookDatabase* db, const QHash<int, const MessageNode*>& msgMap,
+                                     const QMap<int, QString>& chatTitles) {
     if (!db) return;
 
     // 1. Add subfolders of type 'chats'
@@ -2548,7 +2565,7 @@ void MainWindow::populateChatFolders(QStandardItem* parentItem, int folderId, co
             parentItem->appendRow(folderItem);
 
             // Recurse into subfolders
-            populateChatFolders(folderItem, folder.id, allMessages, db);
+            populateChatFolders(folderItem, folder.id, allMessages, db, msgMap, chatTitles);
 
             if (folder.isExpanded) {
                 openBooksTree->setExpanded(folderItem->index(), true);
@@ -2567,7 +2584,7 @@ void MainWindow::populateChatFolders(QStandardItem* parentItem, int folderId, co
                 db->updateChat(db->getChat(endNodeId));  // This will initialize and save the node
             }
 
-            QString displayTitle = getChatNodeTitle(endNodeId, allMessages);
+            QString displayTitle = getChatNodeTitle(endNodeId, msgMap, chatTitles);
 
             QStandardItem* item = nullptr;
             if (children.size() > 0) {
@@ -2581,7 +2598,7 @@ void MainWindow::populateChatFolders(QStandardItem* parentItem, int folderId, co
             parentItem->appendRow(item);
 
             // Populate the rest of the branch under this root message
-            populateMessageForks(item, endNodeId, allMessages);
+            populateMessageForks(item, endNodeId, allMessages, msgMap, chatTitles);
 
             if (msg.isExpanded) {
                 openBooksTree->setExpanded(item->index(), true);
@@ -2593,7 +2610,9 @@ void MainWindow::populateChatFolders(QStandardItem* parentItem, int folderId, co
 /** * @brief Helper to recursively map conversation database records to the `chatModel` hierarchy. *  * This function is
  * an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal
  * application models. */
-void MainWindow::populateMessageForks(QStandardItem* parentItem, int parentId, const QList<MessageNode>& allMessages) {
+void MainWindow::populateMessageForks(QStandardItem* parentItem, int parentId, const QList<MessageNode>& allMessages,
+                                      const QHash<int, const MessageNode*>& msgMap,
+                                      const QMap<int, QString>& chatTitles) {
     for (const auto& msg : allMessages) {
         if (msg.parentId == parentId) {
             // Find all children of this message
@@ -2604,7 +2623,7 @@ void MainWindow::populateMessageForks(QStandardItem* parentItem, int parentId, c
                 currentDb->updateChat(currentDb->getChat(endNodeId));
             }
 
-            QString displayTitle = getChatNodeTitle(endNodeId, allMessages);
+            QString displayTitle = getChatNodeTitle(endNodeId, msgMap, chatTitles);
 
             QStandardItem* item = nullptr;
             if (children.size() > 0) {
@@ -2618,7 +2637,7 @@ void MainWindow::populateMessageForks(QStandardItem* parentItem, int parentId, c
             parentItem->appendRow(item);
 
             // Recursively populate under this item.
-            populateMessageForks(item, endNodeId, allMessages);
+            populateMessageForks(item, endNodeId, allMessages, msgMap, chatTitles);
 
             if (msg.isExpanded) {
                 openBooksTree->setExpanded(item->index(), true);
@@ -4172,7 +4191,12 @@ void MainWindow::loadDocumentsAndNotes() {
         if (chatsFolder) {
             chatsFolder->removeRows(0, chatsFolder->rowCount());
             QList<MessageNode> msgs = db->getMessages();
-            populateChatFolders(chatsFolder, 0, msgs, db.get());
+            QHash<int, const MessageNode*> msgMap;
+            for (const auto& msg : msgs) {
+                msgMap[msg.id] = &msg;
+            }
+            QMap<int, QString> chatTitles = db->getAllChatTitles();
+            populateChatFolders(chatsFolder, 0, msgs, db.get(), msgMap, chatTitles);
         }
     }
 
