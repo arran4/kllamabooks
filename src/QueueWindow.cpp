@@ -84,12 +84,9 @@ void QueueWindow::refresh() {
         QString targetTitle = "Unknown";
 
         if (mi.item.targetType == "document") {
-            auto docs = mi.db->getDocuments(-1);
-            for (const auto& doc : docs) {
-                if (doc.id == mi.item.messageId) {
-                    targetTitle = doc.title;
-                    break;
-                }
+            auto doc = mi.db->getDocument(mi.item.messageId);
+            if (doc) {
+                targetTitle = doc->title;
             }
         } else if (mi.item.targetType == "message") {
             int rootId = mi.db->getRootMessageId(mi.item.messageId);
