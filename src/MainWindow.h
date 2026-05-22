@@ -151,9 +151,10 @@ class MainWindow : public KXmlGuiWindow {
     void populateChatFolders(QStandardItem* parentItem, int folderId, const QList<MessageNode>& allMessages,
                              BookDatabase* db);
     void populateMessageForks(QStandardItem* parentItem, int parentId, const QList<MessageNode>& allMessages);
-    void populateDocumentFolders(QStandardItem* parentItem, int folderId, const QString& type, BookDatabase* db);
+    void populateDocumentFolders(QStandardItem* parentItem, int folderId, const QString& type, BookDatabase* db,
+                                 const QList<FolderNode>* preloadedFolders = nullptr);
     void populateDraftsFolders(QStandardItem* parentItem, int folderId, const QString& underlyingType,
-                               BookDatabase* db);
+                               BookDatabase* db, const QList<FolderNode>* preloadedFolders = nullptr);
     void addPhantomItem(QStandardItem* folderItem, const QString& type);
     void updateLinearChatView(int tailNodeId, const QList<MessageNode>& allMessages);
     void getPathToRoot(int nodeId, const QList<MessageNode>& allMessages, QList<MessageNode>& path);

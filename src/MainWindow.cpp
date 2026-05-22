@@ -2312,19 +2312,25 @@ void MainWindow::onBookSelected(const QModelIndex& index) {
 }
 
 void MainWindow::populateDraftsFolders(QStandardItem* parentItem, int folderId, const QString& underlyingType,
-                                       BookDatabase* db) {
+                                       BookDatabase* db, const QList<FolderNode>* preloadedFolders) {
     if (!db) return;
 
     // First, add subfolders of the underlying type
-    QList<FolderNode> folders = db->getFolders(underlyingType);
-    for (const auto& folder : folders) {
+    QList<FolderNode> fetchedFolders;
+    const QList<FolderNode>* foldersPtr = preloadedFolders;
+    if (!foldersPtr) {
+        fetchedFolders = db->getFolders(underlyingType);
+        foldersPtr = &fetchedFolders;
+    }
+
+    for (const auto& folder : *foldersPtr) {
         if (folder.parentId == folderId) {
             QStandardItem* item = new QStandardItem(QIcon::fromTheme("folder-open"), folder.name);
             item->setData(folder.id, Qt::UserRole);
             item->setData("drafts_folder", Qt::UserRole + 1);
 
             parentItem->appendRow(item);
-            populateDraftsFolders(item, folder.id, underlyingType, db);
+            populateDraftsFolders(item, folder.id, underlyingType, db, foldersPtr);
         }
     }
 
@@ -2342,12 +2348,18 @@ void MainWindow::populateDraftsFolders(QStandardItem* parentItem, int folderId, 
 }
 
 void MainWindow::populateDocumentFolders(QStandardItem* parentItem, int folderId, const QString& type,
-                                         BookDatabase* db) {
+                                         BookDatabase* db, const QList<FolderNode>* preloadedFolders) {
     if (!db) return;
 
     // First, add subfolders
-    QList<FolderNode> folders = db->getFolders(type);
-    for (const auto& folder : folders) {
+    QList<FolderNode> fetchedFolders;
+    const QList<FolderNode>* foldersPtr = preloadedFolders;
+    if (!foldersPtr) {
+        fetchedFolders = db->getFolders(type);
+        foldersPtr = &fetchedFolders;
+    }
+
+    for (const auto& folder : *foldersPtr) {
         if (folder.parentId == folderId) {
             QStandardItem* item = new QStandardItem(QIcon::fromTheme("folder-open"), folder.name);
             item->setData(folder.id, Qt::UserRole);
@@ -2362,7 +2374,7 @@ void MainWindow::populateDocumentFolders(QStandardItem* parentItem, int folderId
                 item->setData("notes_folder", Qt::UserRole + 1);
 
             parentItem->appendRow(item);
-            populateDocumentFolders(item, folder.id, type, db);
+            populateDocumentFolders(item, folder.id, type, db, foldersPtr);
             if (folder.isExpanded) {
                 openBooksTree->setExpanded(item->index(), true);
             }
