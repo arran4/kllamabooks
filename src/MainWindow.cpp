@@ -5048,29 +5048,29 @@ bool MainWindow::moveItemToFolder(QStandardItem* draggedItem, QStandardItem* tar
     if (isCopy) {
         bool copied = false;
         if (itemType == "document" && targetType == "docs_folder") {
-            for (const auto& d : db->getDocuments(-1))
-                if (d.id == itemId) {
-                    db->addDocument(targetFolderId, "Copy of " + d.title, d.content);
-                    copied = true;
-                }
+            auto d = db->getDocument(itemId);
+            if (d) {
+                db->addDocument(targetFolderId, "Copy of " + d->title, d->content);
+                copied = true;
+            }
         } else if (itemType == "template" && targetType == "templates_folder") {
-            for (const auto& d : db->getTemplates(-1))
-                if (d.id == itemId) {
-                    db->addTemplate(targetFolderId, "Copy of " + d.title, d.content);
-                    copied = true;
-                }
+            auto d = db->getTemplate(itemId);
+            if (d) {
+                db->addTemplate(targetFolderId, "Copy of " + d->title, d->content);
+                copied = true;
+            }
         } else if (itemType == "draft" && targetType == "drafts_folder") {
-            for (const auto& d : db->getDrafts(-1))
-                if (d.id == itemId) {
-                    db->addDraft(targetFolderId, "Copy of " + d.title, d.content);
-                    copied = true;
-                }
+            auto d = db->getDraft(itemId);
+            if (d) {
+                db->addDraft(targetFolderId, "Copy of " + d->title, d->content);
+                copied = true;
+            }
         } else if (itemType == "note" && targetType == "notes_folder") {
-            for (const auto& d : db->getNotes(-1))
-                if (d.id == itemId) {
-                    db->addNote(targetFolderId, "Copy of " + d.title, d.content);
-                    copied = true;
-                }
+            auto d = db->getNote(itemId);
+            if (d) {
+                db->addNote(targetFolderId, "Copy of " + d->title, d->content);
+                copied = true;
+            }
         } else if ((itemType == "chat_session" || itemType == "chat_node") && targetType == "chats_folder") {
             // complex copy omitted for now
         }

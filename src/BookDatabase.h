@@ -161,6 +161,7 @@ class BookDatabase {
     int addTemplate(int folderId, const QString& title, const QString& content);
     bool updateTemplate(int id, const QString& newTitle, const QString& newContent);
     QList<DocumentNode> getTemplates(int folderId = -1) const;
+    std::optional<DocumentNode> getTemplate(int id) const;
     bool deleteTemplate(int id);
 
     // Drafts
@@ -168,6 +169,7 @@ class BookDatabase {
                  const QString& targetType = "document");
     bool updateDraft(int id, const QString& newTitle, const QString& newContent);
     QList<DocumentNode> getDrafts(int folderId = -1) const;
+    std::optional<DocumentNode> getDraft(int id) const;
     bool deleteDraft(int id);
 
     // Notes
