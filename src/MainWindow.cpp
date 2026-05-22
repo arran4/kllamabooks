@@ -2311,20 +2311,28 @@ void MainWindow::onBookSelected(const QModelIndex& index) {
 }
 
 void MainWindow::populateDraftsFolders(QStandardItem* parentItem, int folderId, const QString& underlyingType,
-                                       BookDatabase* db) {
+                                       BookDatabase* db, const QMultiMap<int, FolderNode>* preloadedFolders) {
     if (!db) return;
 
     // First, add subfolders of the underlying type
-    QList<FolderNode> folders = db->getFolders(underlyingType);
-    for (const auto& folder : folders) {
-        if (folder.parentId == folderId) {
-            QStandardItem* item = new QStandardItem(QIcon::fromTheme("folder-open"), folder.name);
-            item->setData(folder.id, Qt::UserRole);
-            item->setData("drafts_folder", Qt::UserRole + 1);
-
-            parentItem->appendRow(item);
-            populateDraftsFolders(item, folder.id, underlyingType, db);
+    QMultiMap<int, FolderNode> fetchedFolders;
+    const QMultiMap<int, FolderNode>* foldersPtr = preloadedFolders;
+    if (!foldersPtr) {
+        QList<FolderNode> flatFolders = db->getFolders(underlyingType);
+        for (const auto& f : flatFolders) {
+            fetchedFolders.insert(f.parentId, f);
         }
+        foldersPtr = &fetchedFolders;
+    }
+
+    auto children = foldersPtr->values(folderId);
+    for (const auto& folder : children) {
+        QStandardItem* item = new QStandardItem(QIcon::fromTheme("folder-open"), folder.name);
+        item->setData(folder.id, Qt::UserRole);
+        item->setData("drafts_folder", Qt::UserRole + 1);
+
+        parentItem->appendRow(item);
+        populateDraftsFolders(item, folder.id, underlyingType, db, foldersPtr);
     }
 
     // Now, add any drafts whose parentId corresponds to an item in this folder.
@@ -2341,30 +2349,38 @@ void MainWindow::populateDraftsFolders(QStandardItem* parentItem, int folderId, 
 }
 
 void MainWindow::populateDocumentFolders(QStandardItem* parentItem, int folderId, const QString& type,
-                                         BookDatabase* db) {
+                                         BookDatabase* db, const QMultiMap<int, FolderNode>* preloadedFolders) {
     if (!db) return;
 
     // First, add subfolders
-    QList<FolderNode> folders = db->getFolders(type);
-    for (const auto& folder : folders) {
-        if (folder.parentId == folderId) {
-            QStandardItem* item = new QStandardItem(QIcon::fromTheme("folder-open"), folder.name);
-            item->setData(folder.id, Qt::UserRole);
-            QString folderTypeSuffix = "_folder";
-            if (type == "documents")
-                item->setData("docs_folder", Qt::UserRole + 1);
-            else if (type == "templates")
-                item->setData("templates_folder", Qt::UserRole + 1);
-            else if (type == "drafts")
-                item->setData("drafts_folder", Qt::UserRole + 1);
-            else if (type == "notes")
-                item->setData("notes_folder", Qt::UserRole + 1);
+    QMultiMap<int, FolderNode> fetchedFolders;
+    const QMultiMap<int, FolderNode>* foldersPtr = preloadedFolders;
+    if (!foldersPtr) {
+        QList<FolderNode> flatFolders = db->getFolders(type);
+        for (const auto& f : flatFolders) {
+            fetchedFolders.insert(f.parentId, f);
+        }
+        foldersPtr = &fetchedFolders;
+    }
 
-            parentItem->appendRow(item);
-            populateDocumentFolders(item, folder.id, type, db);
-            if (folder.isExpanded) {
-                openBooksTree->setExpanded(item->index(), true);
-            }
+    auto children = foldersPtr->values(folderId);
+    for (const auto& folder : children) {
+        QStandardItem* item = new QStandardItem(QIcon::fromTheme("folder-open"), folder.name);
+        item->setData(folder.id, Qt::UserRole);
+        QString folderTypeSuffix = "_folder";
+        if (type == "documents")
+            item->setData("docs_folder", Qt::UserRole + 1);
+        else if (type == "templates")
+            item->setData("templates_folder", Qt::UserRole + 1);
+        else if (type == "drafts")
+            item->setData("drafts_folder", Qt::UserRole + 1);
+        else if (type == "notes")
+            item->setData("notes_folder", Qt::UserRole + 1);
+
+        parentItem->appendRow(item);
+        populateDocumentFolders(item, folder.id, type, db, foldersPtr);
+        if (folder.isExpanded) {
+            openBooksTree->setExpanded(item->index(), true);
         }
     }
 
@@ -2534,24 +2550,32 @@ QString MainWindow::getChatNodeTitle(int nodeId, const QList<MessageNode>& allMe
 }
 
 void MainWindow::populateChatFolders(QStandardItem* parentItem, int folderId, const QList<MessageNode>& allMessages,
-                                     BookDatabase* db) {
+                                     BookDatabase* db, const QMultiMap<int, FolderNode>* preloadedFolders) {
     if (!db) return;
 
     // 1. Add subfolders of type 'chats'
-    QList<FolderNode> folders = db->getFolders("chats");
-    for (const auto& folder : folders) {
-        if (folder.parentId == folderId) {
-            QStandardItem* folderItem = new QStandardItem(QIcon::fromTheme("folder-open"), folder.name);
-            folderItem->setData(folder.id, Qt::UserRole);
-            folderItem->setData("chats_folder", Qt::UserRole + 1);
-            parentItem->appendRow(folderItem);
+    QMultiMap<int, FolderNode> fetchedFolders;
+    const QMultiMap<int, FolderNode>* foldersPtr = preloadedFolders;
+    if (!foldersPtr) {
+        QList<FolderNode> flatFolders = db->getFolders("chats");
+        for (const auto& f : flatFolders) {
+            fetchedFolders.insert(f.parentId, f);
+        }
+        foldersPtr = &fetchedFolders;
+    }
 
-            // Recurse into subfolders
-            populateChatFolders(folderItem, folder.id, allMessages, db);
+    auto children = foldersPtr->values(folderId);
+    for (const auto& folder : children) {
+        QStandardItem* folderItem = new QStandardItem(QIcon::fromTheme("folder-open"), folder.name);
+        folderItem->setData(folder.id, Qt::UserRole);
+        folderItem->setData("chats_folder", Qt::UserRole + 1);
+        parentItem->appendRow(folderItem);
 
-            if (folder.isExpanded) {
-                openBooksTree->setExpanded(folderItem->index(), true);
-            }
+        // Recurse into subfolders
+        populateChatFolders(folderItem, folder.id, allMessages, db, foldersPtr);
+
+        if (folder.isExpanded) {
+            openBooksTree->setExpanded(folderItem->index(), true);
         }
     }
 
