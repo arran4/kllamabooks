@@ -144,14 +144,6 @@ install(FILES src/com.arran4.kllamabooks.metainfo.xml
 add_executable(test_QueueManager tests/test_QueueManager.cpp src/QueueManager.cpp src/BookDatabase.cpp src/OllamaClient.cpp src/NotificationDelegate.cpp src/DocumentTemplatesManager.cpp src/AIOperationsManager.cpp src/TemplateParser.cpp)
 target_link_libraries(test_QueueManager Qt6::Test Qt6::Core Qt6::Widgets Qt6::Network ${SQLCIPHER_LIBRARIES})
 add_test(NAME test_QueueManager COMMAND test_QueueManager)
-
-
-
-
-
-
-
-
 add_executable(test_PerformanceMainWindow tests/test_PerformanceMainWindow.cpp src/BookDatabase.cpp)
 target_link_libraries(test_PerformanceMainWindow Qt6::Test Qt6::Core Qt6::Sql ${SQLCIPHER_LIBRARIES})
 add_test(NAME test_PerformanceMainWindow COMMAND test_PerformanceMainWindow)

@@ -980,9 +980,12 @@ std::optional<DocumentNode> BookDatabase::getDocument(int id) const {
         DocumentNode node;
         node.id = sqlite3_column_int(stmt, 0);
         node.folderId = sqlite3_column_int(stmt, 1);
-        node.title = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)));
-        node.content = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)));
-        QString ts = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4)));
+        const char* titleText = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
+        node.title = titleText ? QString::fromUtf8(titleText) : QString();
+        const char* contentText = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
+        node.content = contentText ? QString::fromUtf8(contentText) : QString();
+        const char* tsText = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4));
+        QString ts = tsText ? QString::fromUtf8(tsText) : QString();
         node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
         node.parentId = sqlite3_column_int(stmt, 5);
 
@@ -1019,9 +1022,12 @@ QList<DocumentNode> BookDatabase::getDocuments(int folderId) const {
         DocumentNode node;
         node.id = sqlite3_column_int(stmt, 0);
         node.folderId = sqlite3_column_int(stmt, 1);
-        node.title = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)));
-        node.content = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)));
-        QString ts = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4)));
+        const char* titleText = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
+        node.title = titleText ? QString::fromUtf8(titleText) : QString();
+        const char* contentText = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
+        node.content = contentText ? QString::fromUtf8(contentText) : QString();
+        const char* tsText = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4));
+        QString ts = tsText ? QString::fromUtf8(tsText) : QString();
         node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
         node.parentId = sqlite3_column_int(stmt, 5);
 
@@ -1240,9 +1246,12 @@ std::optional<DocumentNode> BookDatabase::getTemplate(int id) const {
         DocumentNode node;
         node.id = sqlite3_column_int(stmt, 0);
         node.folderId = sqlite3_column_int(stmt, 1);
-        node.title = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)));
-        node.content = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)));
-        QString ts = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4)));
+        const char* titleText = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
+        node.title = titleText ? QString::fromUtf8(titleText) : QString();
+        const char* contentText = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
+        node.content = contentText ? QString::fromUtf8(contentText) : QString();
+        const char* tsText = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4));
+        QString ts = tsText ? QString::fromUtf8(tsText) : QString();
         node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
         node.parentId = 0; // Initialize unused parentId for templates
         sqlite3_finalize(stmt);
@@ -1339,9 +1348,12 @@ std::optional<DocumentNode> BookDatabase::getDraft(int id) const {
         DocumentNode node;
         node.id = sqlite3_column_int(stmt, 0);
         node.folderId = sqlite3_column_int(stmt, 1);
-        node.title = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)));
-        node.content = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)));
-        QString ts = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4)));
+        const char* titleText = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
+        node.title = titleText ? QString::fromUtf8(titleText) : QString();
+        const char* contentText = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
+        node.content = contentText ? QString::fromUtf8(contentText) : QString();
+        const char* tsText = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4));
+        QString ts = tsText ? QString::fromUtf8(tsText) : QString();
         node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
         node.parentId = sqlite3_column_int(stmt, 5);
         const char* tt = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 6));
