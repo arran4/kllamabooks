@@ -64,9 +64,18 @@
 #include "QueueWindow.h"
 #include "WalletManager.h"
 
-static const QString GENERATING_MERGE_TEXT = QStringLiteral("*Generating merge...*");
-static const QString GENERATING_DOC_TEXT = QStringLiteral("*Generating document...*");
-static const QString REGENERATING_TEXT = QStringLiteral("*Regenerating...*");
+const QString MainWindow::GENERATING_MERGE_TEXT = QStringLiteral("*Generating merge...*");
+const QString MainWindow::GENERATING_DOC_TEXT = QStringLiteral("*Generating document...*");
+const QString MainWindow::REGENERATING_TEXT = QStringLiteral("*Regenerating...*");
+
+QString MainWindow::getGenerationPlaceholderText(int existingDocId, int numSourceDocuments) {
+    if (existingDocId > 0) {
+        return REGENERATING_TEXT;
+    } else if (numSourceDocuments <= 1) {
+        return GENERATING_DOC_TEXT;
+    }
+    return GENERATING_MERGE_TEXT;
+}
 
 CustomItemModel::CustomItemModel(QObject* parent) : QStandardItemModel(parent), m_mainWindow(nullptr) {}
 
@@ -5348,12 +5357,7 @@ void MainWindow::processMergeGeneration(const QString& finalPrompt, const QStrin
     QString firstModel = selectedModels.first();
     int currentDocIdToUpdate = existingDocId;
 
-    QString generationText = GENERATING_MERGE_TEXT;
-    if (existingDocId > 0) {
-        generationText = REGENERATING_TEXT;
-    } else if (sourceDocumentIds.size() <= 1) {
-        generationText = GENERATING_DOC_TEXT;
-    }
+    QString generationText = getGenerationPlaceholderText(existingDocId, sourceDocumentIds.size());
 
     if (existingDocId > 0) {
         auto docOpt = currentDb->getDocument(existingDocId);
