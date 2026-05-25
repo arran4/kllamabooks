@@ -5348,6 +5348,13 @@ void MainWindow::processMergeGeneration(const QString& finalPrompt, const QStrin
     QString firstModel = selectedModels.first();
     int currentDocIdToUpdate = existingDocId;
 
+    QString generationText = GENERATING_MERGE_TEXT;
+    if (existingDocId > 0) {
+        generationText = REGENERATING_TEXT;
+    } else if (sourceDocumentIds.size() <= 1) {
+        generationText = GENERATING_DOC_TEXT;
+    }
+
     if (existingDocId > 0) {
         auto docOpt = currentDb->getDocument(existingDocId);
         if (docOpt) {
@@ -5387,7 +5394,7 @@ void MainWindow::processMergeGeneration(const QString& finalPrompt, const QStrin
         }
         int newDocId = currentDb->addDocument(targetFolderId,
                                               selectedModels.size() > 1 ? baseTitle + " - " + firstModel : baseTitle,
-                                              GENERATING_MERGE_TEXT, 0, metaStr);
+                                              generationText, 0, metaStr);
         currentDb->addDocumentMerge(newDocId, sourceIdsStr, finalPrompt, firstModel, 0);
         currentDb->enqueuePrompt(newDocId, firstModel, finalPrompt, 0, "document", 0, "replace_direct");
     }
@@ -5396,7 +5403,7 @@ void MainWindow::processMergeGeneration(const QString& finalPrompt, const QStrin
     for (int i = 1; i < selectedModels.size(); ++i) {
         QString model = selectedModels[i];
         int newDocId =
-            currentDb->addDocument(targetFolderId, baseTitle + " - " + model, GENERATING_MERGE_TEXT, 0, metaStr);
+            currentDb->addDocument(targetFolderId, baseTitle + " - " + model, generationText, 0, metaStr);
         currentDb->addDocumentMerge(newDocId, sourceIdsStr, finalPrompt, model, 0);
         currentDb->enqueuePrompt(newDocId, model, finalPrompt, 0, "document", 0, "replace_direct");
     }
@@ -5690,8 +5697,7 @@ void MainWindow::updateRegenerateButtonVisibility(const DocumentNode& doc, const
         if (hasMerge || hasPrompt) {
             if (hasMerge) showSources = true;
             bool isGenerating = currentDb->isGenerating(doc.id, "document", "replace_direct");
-            if (!isGenerating && !doc.content.contains(GENERATING_MERGE_TEXT) &&
-                !doc.content.contains(GENERATING_DOC_TEXT) && !doc.content.contains(REGENERATING_TEXT)) {
+            if (!isGenerating) {
                 showRegenerate = true;
             }
         }
