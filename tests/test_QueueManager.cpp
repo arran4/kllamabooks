@@ -22,14 +22,21 @@ private slots:
 private:
     std::shared_ptr<BookDatabase> m_db;
     QString m_testDbPath;
+    OllamaClient* m_client = nullptr;
 };
 
 void TestQueueManager::initTestCase() {
     QCoreApplication::setOrganizationName("arran4_test");
     QCoreApplication::setApplicationName("kllamabooks_test");
+    m_client = new OllamaClient();
+    // Use an unroutable IP address (TEST-NET-1) to simulate a hanging network connection.
+    // This prevents immediate "Connection Refused" errors which would reset the queue
+    // state back to "pending" before the test assertions can run.
+    m_client->setBaseUrl("http://192.0.2.1:11434");
 }
 
 void TestQueueManager::cleanupTestCase() {
+    delete m_client;
 }
 
 void TestQueueManager::init() {
@@ -41,6 +48,7 @@ void TestQueueManager::init() {
 }
 
 void TestQueueManager::cleanup() {
+    QTest::qWait(200);
     QueueManager& qm = QueueManager::instance();
     if (m_db) {
         qm.removeDatabase(m_db);
@@ -95,9 +103,9 @@ void TestQueueManager::testCheckQueueIsPaused() {
     QueueManager& qm = QueueManager::instance();
     qm.addDatabase(m_db);
 
-    OllamaClient client;
-    qm.setClient(&client);
+    qm.setClient(m_client);
 
+    emit m_client->connectionStatusChanged(true); // default queue test state
     qm.pauseQueue();
     m_db->enqueuePrompt(1, "test_model", "test_prompt");
 
@@ -109,8 +117,13 @@ void TestQueueManager::testCheckQueueIsPaused() {
 
     qm.resumeQueue();
 
+<<<<<<< HEAD
     // Force synchronous processing before the event loop can process network errors.
     qm.checkQueue();
+=======
+    // Wait for the asynchronous checkQueue to run and process the item.
+    QTest::qWait(1000);
+>>>>>>> origin/main
 
     stats = qm.getQueueStats();
     QCOMPARE(stats.pending, 0);
@@ -121,12 +134,11 @@ void TestQueueManager::testEndpointDownPreventsProcessing() {
     QueueManager& qm = QueueManager::instance();
     qm.addDatabase(m_db);
 
-    OllamaClient client;
-    qm.setClient(&client);
+    qm.setClient(m_client);
     qm.resumeQueue();
 
     // Simulate endpoint going down
-    emit client.connectionStatusChanged(false);
+    emit m_client->connectionStatusChanged(false);
     QVERIFY(!qm.isEndpointUp());
 
     m_db->enqueuePrompt(1, "test_model", "test_prompt");
@@ -137,11 +149,16 @@ void TestQueueManager::testEndpointDownPreventsProcessing() {
     QCOMPARE(stats.processing, 0); // No items should process since endpoint is down
 
     // Simulate endpoint coming up, checkQueue is called automatically via signal
-    emit client.connectionStatusChanged(true);
+    emit m_client->connectionStatusChanged(true);
     QVERIFY(qm.isEndpointUp());
 
+<<<<<<< HEAD
     // Force synchronous processing before network errors revert the state.
     qm.checkQueue();
+=======
+    // Wait for async checkQueue to run
+    QTest::qWait(1000);
+>>>>>>> origin/main
 
     stats = qm.getQueueStats();
     QCOMPARE(stats.pending, 0);
@@ -151,8 +168,8 @@ void TestQueueManager::testEndpointDownPreventsProcessing() {
 void TestQueueManager::testMaxConcurrentLimits() {
     QueueManager& qm = QueueManager::instance();
     qm.addDatabase(m_db);
-    OllamaClient client;
-    qm.setClient(&client);
+    qm.setClient(m_client);
+    emit m_client->connectionStatusChanged(true); // default queue test state
     qm.resumeQueue();
 
     // Explicitly set endpoint to true to override any state leaked from previous tests
@@ -170,7 +187,9 @@ void TestQueueManager::testMaxConcurrentLimits() {
     QCOMPARE(stats.processing, 0);
 
     qm.checkQueue();
+    QTest::qWait(200);
 
+    QTest::qWait(1000); // Allow async queue processing
     // After checkQueue, one item should be processing and one pending.
     stats = qm.getQueueStats();
     QCOMPARE(stats.pending, 1);
