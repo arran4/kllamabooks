@@ -387,12 +387,25 @@ void QueueManager::processNext() {
                     if (act.db && act.db->isOpen()) {
                         if (act.accumulatedContent.isNull()) {
                             auto optMsg = act.db->getMessage(act.item.messageId);
-                            if (optMsg) act.accumulatedContent = optMsg->content;
-                            else act.accumulatedContent = "";
+                            if (optMsg) {
+                                act.accumulatedContent = optMsg->content;
+                            } else {
+                                m_activeItems.remove(procId);
+                                if (m_activeNetworkRequests.contains(procId)) {
+                                    m_activeNetworkRequests[procId]->abort();
+                                }
+                                return;
+                            }
                         }
                         act.accumulatedContent += chunk;
                         m_activeItems[procId] = act;
-                        act.db->updateMessage(act.item.messageId, act.accumulatedContent);
+
+                        // Accumulate in memory. Only update DB when message finishes to reduce IO pressure
+                        // Or if we need a periodic sync, can be based on length, e.g. every 50 chunks
+                        if (act.accumulatedContent.length() % 50 == 0) {
+                            act.db->updateMessage(act.item.messageId, act.accumulatedContent);
+                        }
+
                         emit processingChunk(act.db, act.item.messageId, chunk, act.item.targetType);
                     }
                 },
@@ -461,7 +474,11 @@ void QueueManager::processNext() {
                                         act.accumulatedContent = "";
                                     }
                                 } else {
-                                    act.accumulatedContent = "";
+                                    m_activeItems.remove(procId);
+                                    if (m_activeNetworkRequests.contains(procId)) {
+                                        m_activeNetworkRequests[procId]->abort();
+                                    }
+                                    return;
                                 }
                             }
                             act.accumulatedContent += chunk;

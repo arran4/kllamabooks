@@ -897,6 +897,7 @@ std::optional<MessageNode> BookDatabase::getMessage(int id) const {
     const char* sql = "SELECT id, parent_id, folder_id, role, content, timestamp, is_expanded FROM messages WHERE id = ?;";
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        qWarning() << "Failed to prepare getMessage statement:" << sqlite3_errmsg(reinterpret_cast<sqlite3*>(m_db));
         return std::nullopt;
     }
     sqlite3_bind_int(stmt, 1, id);
