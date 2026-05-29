@@ -199,6 +199,7 @@ void TestQueueManager::testMaxConcurrentLimits() {
     QCOMPARE(stats.processing, 0);
 
     qm.checkQueue();
+    QTest::qWait(200);
 
     stats = qm.getQueueStats();
     QCOMPARE(stats.pending, 1);

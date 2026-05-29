@@ -398,15 +398,27 @@ void QueueManager::processNext() {
                     if (!m_activeItems.contains(procId)) return;
                     auto act = m_activeItems[procId];
                     if (act.db && act.db->isOpen()) {
-                        QString currentContent;
-                        auto messages = act.db->getMessages();
-                        for (const auto& m : messages) {
-                            if (m.id == act.item.messageId) {
-                                currentContent = m.content;
-                                break;
+                        if (act.accumulatedContent.isNull()) {
+                            auto optMsg = act.db->getMessage(act.item.messageId);
+                            if (optMsg) {
+                                act.accumulatedContent = optMsg->content;
+                            } else {
+                                m_activeItems.remove(procId);
+                                if (m_activeNetworkRequests.contains(procId)) {
+                                    m_activeNetworkRequests[procId]->abort();
+                                }
+                                return;
                             }
                         }
-                        act.db->updateMessage(act.item.messageId, currentContent + chunk);
+                        act.accumulatedContent += chunk;
+                        m_activeItems[procId] = act;
+
+                        // Accumulate in memory. Only update DB when message finishes to reduce IO pressure
+                        // Or if we need a periodic sync, can be based on length, e.g. every 50 chunks
+                        if (act.accumulatedContent.length() % 50 == 0) {
+                            act.db->updateMessage(act.item.messageId, act.accumulatedContent);
+                        }
+
                         emit processingChunk(act.db, act.item.messageId, chunk, act.item.targetType);
                     }
                 },
@@ -477,16 +489,15 @@ void QueueManager::processNext() {
                     if (act.db && act.db->isOpen()) {
                         if (act.item.targetType == "document" && act.item.targetAction == "replace_direct") {
                             // Directly replace content without review.
-                            auto docs = act.db->getDocuments();
-                            QString title, metadata;
-                            for (const auto& d : docs) {
-                                if (d.id == act.item.messageId) {
-                                    title = d.title;
-                                    metadata = d.metadata;
-                                    break;
+                            if (!act.title.isNull()) {
+                                act.db->updateDocument(act.item.messageId, act.title, response, act.metadata);
+                            } else {
+                                auto optDoc = act.db->getDocument(act.item.messageId);
+                                if (optDoc) {
+                                    act.db->updateDocument(act.item.messageId, optDoc->title, response,
+                                                           optDoc->metadata);
                                 }
                             }
-                            act.db->updateDocument(act.item.messageId, title, response, metadata);
                             act.db->deleteQueueItem(act.item.id);
                             act.db->addNotification(act.item.messageId, act.item.targetType, "finished_generation");
                         } else {
