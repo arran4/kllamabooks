@@ -1,4 +1,5 @@
 #include <QCoreApplication>
+#include <QUuid>
 #include <QtTest>
 
 #include "../src/BookDatabase.h"
@@ -71,7 +72,7 @@ void TestQueueManager::initTestCase() {
 void TestQueueManager::cleanupTestCase() { delete m_client; }
 
 void TestQueueManager::init() {
-    m_testDbPath = QDir::tempPath() + "/test_queue_manager.db";
+    m_testDbPath = QDir::temp().filePath("test_queue_manager_" + QUuid::createUuid().toString(QUuid::Id128) + ".db");
     QFile::remove(m_testDbPath);
     m_db = std::make_shared<BookDatabase>(m_testDbPath);
     m_db->open("test_password");
@@ -210,5 +211,5 @@ void TestQueueManager::testMaxConcurrentLimits() {
     QCOMPARE(stats.processing, 1);
 }
 
-QTEST_MAIN(TestQueueManager)
+QTEST_GUILESS_MAIN(TestQueueManager)
 #include "test_QueueManager.moc"
