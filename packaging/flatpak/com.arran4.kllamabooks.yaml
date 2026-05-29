@@ -3,6 +3,12 @@ runtime: org.kde.Platform
 runtime-version: '6.6'
 sdk: org.kde.Sdk
 command: kllamabooks
+cleanup:
+  - /bin/tclsh*
+  - /lib/libtcl*
+  - /include/tcl*
+  - /share/man/man*/tcl*
+  - /share/man/man*/*Tcl*
 finish-args:
   - --share=ipc
   - --socket=fallback-x11
@@ -14,8 +20,6 @@ modules:
   - name: tcl
     buildsystem: autotools
     subdir: unix
-    cleanup:
-      - '*'
     sources:
       - type: archive
         url: https://prdownloads.sourceforge.net/tcl/tcl8.6.13-src.tar.gz
