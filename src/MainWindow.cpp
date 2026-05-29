@@ -64,9 +64,18 @@
 #include "QueueWindow.h"
 #include "WalletManager.h"
 
-static const QString GENERATING_MERGE_TEXT = QStringLiteral("*Generating merge...*");
-static const QString GENERATING_DOC_TEXT = QStringLiteral("*Generating document...*");
-static const QString REGENERATING_TEXT = QStringLiteral("*Regenerating...*");
+const QString MainWindow::GENERATING_MERGE_TEXT = QStringLiteral("*Generating merge...*");
+const QString MainWindow::GENERATING_DOC_TEXT = QStringLiteral("*Generating document...*");
+const QString MainWindow::REGENERATING_TEXT = QStringLiteral("*Regenerating...*");
+
+QString MainWindow::getGenerationPlaceholderText(int existingDocId, int numSourceDocuments) {
+    if (existingDocId > 0) {
+        return REGENERATING_TEXT;
+    } else if (numSourceDocuments <= 1) {
+        return GENERATING_DOC_TEXT;
+    }
+    return GENERATING_MERGE_TEXT;
+}
 
 CustomItemModel::CustomItemModel(QObject* parent) : QStandardItemModel(parent), m_mainWindow(nullptr) {}
 
@@ -2212,8 +2221,6 @@ void MainWindow::onBookSelected(const QModelIndex& index) {
     QString fileName = bookList->item(index.row())->text();
     QString filePath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + "/" + fileName;
 
-    QString password = WalletManager::loadPassword(fileName);
-
     if (m_openDatabases.contains(fileName)) {
         currentDb = m_openDatabases[fileName];
         QueueManager::instance().setActiveDatabase(currentDb);
@@ -2225,29 +2232,30 @@ void MainWindow::onBookSelected(const QModelIndex& index) {
             }
         }
         return;
-    } else {
-        auto db = std::make_shared<BookDatabase>(filePath);
-        if (!db->open(password)) {
-            PasswordDialog dialog("Unlock Book", "Enter password for " + fileName + ":", this);
-            if (dialog.exec() == QDialog::Accepted) {
-                password = dialog.password();
-                if (db->open(password)) {
-                    if (!password.isEmpty() && dialog.saveToWallet()) {
-                        WalletManager::savePassword(fileName, password);
-                    }
-                } else {
-                    QMessageBox::warning(this, "Error", "Could not open book.");
-                    return;
+    }
+
+    QString password = WalletManager::loadPassword(fileName);
+    auto db = std::make_shared<BookDatabase>(filePath);
+    if (!db->open(password)) {
+        PasswordDialog dialog("Unlock Book", "Enter password for " + fileName + ":", this);
+        if (dialog.exec() == QDialog::Accepted) {
+            password = dialog.password();
+            if (db->open(password)) {
+                if (!password.isEmpty() && dialog.saveToWallet()) {
+                    WalletManager::savePassword(fileName, password);
                 }
             } else {
                 QMessageBox::warning(this, "Error", "Could not open book.");
                 return;
             }
+        } else {
+            QMessageBox::warning(this, "Error", "Could not open book.");
+            return;
         }
-        m_openDatabases[fileName] = db;
-        currentDb = db;
-        QueueManager::instance().addDatabase(db);
     }
+    m_openDatabases[fileName] = db;
+    currentDb = db;
+    QueueManager::instance().addDatabase(db);
 
     QueueManager::instance().setActiveDatabase(currentDb);
 
@@ -2317,20 +2325,28 @@ void MainWindow::onBookSelected(const QModelIndex& index) {
 }
 
 void MainWindow::populateDraftsFolders(QStandardItem* parentItem, int folderId, const QString& underlyingType,
-                                       BookDatabase* db) {
+                                       BookDatabase* db, const QMultiMap<int, FolderNode>* preloadedFolders) {
     if (!db) return;
 
     // First, add subfolders of the underlying type
-    QList<FolderNode> folders = db->getFolders(underlyingType);
-    for (const auto& folder : folders) {
-        if (folder.parentId == folderId) {
-            QStandardItem* item = new QStandardItem(QIcon::fromTheme("folder-open"), folder.name);
-            item->setData(folder.id, Qt::UserRole);
-            item->setData("drafts_folder", Qt::UserRole + 1);
-
-            parentItem->appendRow(item);
-            populateDraftsFolders(item, folder.id, underlyingType, db);
+    QMultiMap<int, FolderNode> fetchedFolders;
+    const QMultiMap<int, FolderNode>* foldersPtr = preloadedFolders;
+    if (!foldersPtr) {
+        QList<FolderNode> flatFolders = db->getFolders(underlyingType);
+        for (const auto& f : flatFolders) {
+            fetchedFolders.insert(f.parentId, f);
         }
+        foldersPtr = &fetchedFolders;
+    }
+
+    auto children = foldersPtr->values(folderId);
+    for (const auto& folder : children) {
+        QStandardItem* item = new QStandardItem(QIcon::fromTheme("folder-open"), folder.name);
+        item->setData(folder.id, Qt::UserRole);
+        item->setData("drafts_folder", Qt::UserRole + 1);
+
+        parentItem->appendRow(item);
+        populateDraftsFolders(item, folder.id, underlyingType, db, foldersPtr);
     }
 
     // Now, add any drafts whose parentId corresponds to an item in this folder.
@@ -2347,30 +2363,38 @@ void MainWindow::populateDraftsFolders(QStandardItem* parentItem, int folderId, 
 }
 
 void MainWindow::populateDocumentFolders(QStandardItem* parentItem, int folderId, const QString& type,
-                                         BookDatabase* db) {
+                                         BookDatabase* db, const QMultiMap<int, FolderNode>* preloadedFolders) {
     if (!db) return;
 
     // First, add subfolders
-    QList<FolderNode> folders = db->getFolders(type);
-    for (const auto& folder : folders) {
-        if (folder.parentId == folderId) {
-            QStandardItem* item = new QStandardItem(QIcon::fromTheme("folder-open"), folder.name);
-            item->setData(folder.id, Qt::UserRole);
-            QString folderTypeSuffix = "_folder";
-            if (type == "documents")
-                item->setData("docs_folder", Qt::UserRole + 1);
-            else if (type == "templates")
-                item->setData("templates_folder", Qt::UserRole + 1);
-            else if (type == "drafts")
-                item->setData("drafts_folder", Qt::UserRole + 1);
-            else if (type == "notes")
-                item->setData("notes_folder", Qt::UserRole + 1);
+    QMultiMap<int, FolderNode> fetchedFolders;
+    const QMultiMap<int, FolderNode>* foldersPtr = preloadedFolders;
+    if (!foldersPtr) {
+        QList<FolderNode> flatFolders = db->getFolders(type);
+        for (const auto& f : flatFolders) {
+            fetchedFolders.insert(f.parentId, f);
+        }
+        foldersPtr = &fetchedFolders;
+    }
 
-            parentItem->appendRow(item);
-            populateDocumentFolders(item, folder.id, type, db);
-            if (folder.isExpanded) {
-                openBooksTree->setExpanded(item->index(), true);
-            }
+    auto children = foldersPtr->values(folderId);
+    for (const auto& folder : children) {
+        QStandardItem* item = new QStandardItem(QIcon::fromTheme("folder-open"), folder.name);
+        item->setData(folder.id, Qt::UserRole);
+        QString folderTypeSuffix = "_folder";
+        if (type == "documents")
+            item->setData("docs_folder", Qt::UserRole + 1);
+        else if (type == "templates")
+            item->setData("templates_folder", Qt::UserRole + 1);
+        else if (type == "drafts")
+            item->setData("drafts_folder", Qt::UserRole + 1);
+        else if (type == "notes")
+            item->setData("notes_folder", Qt::UserRole + 1);
+
+        parentItem->appendRow(item);
+        populateDocumentFolders(item, folder.id, type, db, foldersPtr);
+        if (folder.isExpanded) {
+            openBooksTree->setExpanded(item->index(), true);
         }
     }
 
@@ -2552,26 +2576,35 @@ QString MainWindow::getChatNodeTitle(int nodeId, const QHash<int, const MessageN
 
 void MainWindow::populateChatFolders(QStandardItem* parentItem, int folderId, const QList<MessageNode>& allMessages,
                                      BookDatabase* db, const QHash<int, const MessageNode*>& msgMap,
-                                     const QHash<int, QString>& chatTitles) {
+                                     const QHash<int, QString>& chatTitles, const QMultiMap<int, FolderNode>* preloadedFolders) {
     if (!db) return;
 
     // 1. Add subfolders of type 'chats'
-    QList<FolderNode> folders = db->getFolders("chats");
-    for (const auto& folder : folders) {
-        if (folder.parentId == folderId) {
-            QStandardItem* folderItem = new QStandardItem(QIcon::fromTheme("folder-open"), folder.name);
-            folderItem->setData(folder.id, Qt::UserRole);
-            folderItem->setData("chats_folder", Qt::UserRole + 1);
-            parentItem->appendRow(folderItem);
+    QMultiMap<int, FolderNode> fetchedFolders;
+    const QMultiMap<int, FolderNode>* foldersPtr = preloadedFolders;
+    if (!foldersPtr) {
+        QList<FolderNode> flatFolders = db->getFolders("chats");
+        for (const auto& f : flatFolders) {
+            fetchedFolders.insert(f.parentId, f);
+        }
+        foldersPtr = &fetchedFolders;
+    }
 
-            // Recurse into subfolders
-            populateChatFolders(folderItem, folder.id, allMessages, db, msgMap, chatTitles);
+    auto children = foldersPtr->values(folderId);
+    for (const auto& folder : children) {
+        QStandardItem* folderItem = new QStandardItem(QIcon::fromTheme("folder-open"), folder.name);
+        folderItem->setData(folder.id, Qt::UserRole);
+        folderItem->setData("chats_folder", Qt::UserRole + 1);
+        parentItem->appendRow(folderItem);
 
-            if (folder.isExpanded) {
-                openBooksTree->setExpanded(folderItem->index(), true);
-            }
+        // Recurse into subfolders
+        populateChatFolders(folderItem, folder.id, allMessages, db, msgMap, chatTitles, foldersPtr);
+
+        if (folder.isExpanded) {
+            openBooksTree->setExpanded(folderItem->index(), true);
         }
     }
+
 
     // 2. Add root messages (sessions) that belong to this folder
     for (const auto& msg : allMessages) {
@@ -5072,29 +5105,29 @@ bool MainWindow::moveItemToFolder(QStandardItem* draggedItem, QStandardItem* tar
     if (isCopy) {
         bool copied = false;
         if (itemType == "document" && targetType == "docs_folder") {
-            for (const auto& d : db->getDocuments(-1))
-                if (d.id == itemId) {
-                    db->addDocument(targetFolderId, "Copy of " + d.title, d.content);
-                    copied = true;
-                }
+            auto d = db->getDocument(itemId);
+            if (d) {
+                db->addDocument(targetFolderId, "Copy of " + d->title, d->content);
+                copied = true;
+            }
         } else if (itemType == "template" && targetType == "templates_folder") {
-            for (const auto& d : db->getTemplates(-1))
-                if (d.id == itemId) {
-                    db->addTemplate(targetFolderId, "Copy of " + d.title, d.content);
-                    copied = true;
-                }
+            auto d = db->getTemplate(itemId);
+            if (d) {
+                db->addTemplate(targetFolderId, "Copy of " + d->title, d->content);
+                copied = true;
+            }
         } else if (itemType == "draft" && targetType == "drafts_folder") {
-            for (const auto& d : db->getDrafts(-1))
-                if (d.id == itemId) {
-                    db->addDraft(targetFolderId, "Copy of " + d.title, d.content);
-                    copied = true;
-                }
+            auto d = db->getDraft(itemId);
+            if (d) {
+                db->addDraft(targetFolderId, "Copy of " + d->title, d->content);
+                copied = true;
+            }
         } else if (itemType == "note" && targetType == "notes_folder") {
-            for (const auto& d : db->getNotes(-1))
-                if (d.id == itemId) {
-                    db->addNote(targetFolderId, "Copy of " + d.title, d.content);
-                    copied = true;
-                }
+            auto d = db->getNote(itemId);
+            if (d) {
+                db->addNote(targetFolderId, "Copy of " + d->title, d->content);
+                copied = true;
+            }
         } else if ((itemType == "chat_session" || itemType == "chat_node") && targetType == "chats_folder") {
             // complex copy omitted for now
         }
@@ -5349,6 +5382,8 @@ void MainWindow::processMergeGeneration(const QString& finalPrompt, const QStrin
     QString firstModel = selectedModels.first();
     int currentDocIdToUpdate = existingDocId;
 
+    QString generationText = getGenerationPlaceholderText(existingDocId, sourceDocumentIds.size());
+
     if (existingDocId > 0) {
         auto docOpt = currentDb->getDocument(existingDocId);
         if (docOpt) {
@@ -5388,7 +5423,7 @@ void MainWindow::processMergeGeneration(const QString& finalPrompt, const QStrin
         }
         int newDocId = currentDb->addDocument(targetFolderId,
                                               selectedModels.size() > 1 ? baseTitle + " - " + firstModel : baseTitle,
-                                              GENERATING_MERGE_TEXT, 0, metaStr);
+                                              generationText, 0, metaStr);
         currentDb->addDocumentMerge(newDocId, sourceIdsStr, finalPrompt, firstModel, 0);
         currentDb->enqueuePrompt(newDocId, firstModel, finalPrompt, 0, "document", 0, "replace_direct");
     }
@@ -5397,7 +5432,7 @@ void MainWindow::processMergeGeneration(const QString& finalPrompt, const QStrin
     for (int i = 1; i < selectedModels.size(); ++i) {
         QString model = selectedModels[i];
         int newDocId =
-            currentDb->addDocument(targetFolderId, baseTitle + " - " + model, GENERATING_MERGE_TEXT, 0, metaStr);
+            currentDb->addDocument(targetFolderId, baseTitle + " - " + model, generationText, 0, metaStr);
         currentDb->addDocumentMerge(newDocId, sourceIdsStr, finalPrompt, model, 0);
         currentDb->enqueuePrompt(newDocId, model, finalPrompt, 0, "document", 0, "replace_direct");
     }
@@ -5691,8 +5726,7 @@ void MainWindow::updateRegenerateButtonVisibility(const DocumentNode& doc, const
         if (hasMerge || hasPrompt) {
             if (hasMerge) showSources = true;
             bool isGenerating = currentDb->isGenerating(doc.id, "document", "replace_direct");
-            if (!isGenerating && !doc.content.contains(GENERATING_MERGE_TEXT) &&
-                !doc.content.contains(GENERATING_DOC_TEXT) && !doc.content.contains(REGENERATING_TEXT)) {
+            if (!isGenerating) {
                 showRegenerate = true;
             }
         }
