@@ -2,6 +2,7 @@
 #define BOOKDATABASE_H
 
 #include <QDateTime>
+#include <QHash>
 #include <QList>
 #include <QSet>
 #include <QString>
@@ -44,6 +45,7 @@ struct ChatNode {
 struct NoteNode {
     int id;
     int folderId;  // 0 if root
+    int parentId;  // Workaround for upstream main branch compile error
     QString title;
     QString content;
     QDateTime timestamp;
@@ -118,7 +120,7 @@ class BookDatabase {
     ChatNode getChat(int messageId) const;
     bool updateChat(const ChatNode& chat);
     QSet<int> getAllChatIds() const;
-    QMap<int, QString> getAllChatTitles() const;
+    QHash<int, QString> getAllChatTitles() const;
 
     // Settings
     void setSetting(const QString& scope, int targetId, const QString& key, const QString& value);
@@ -144,6 +146,17 @@ class BookDatabase {
     int addDocumentHistoryReturningId(int documentId, const QString& actionType, const QString& content);
 
     // Merges
+    struct PromptHistoryEntry {
+        int id;
+        int documentId;
+        QString prompt;
+        QString model;
+        QString timestamp;
+        int queueId;
+        QString status;
+    };
+    QList<PromptHistoryEntry> getPromptHistory(int documentId) const;
+
     struct DocumentMergeEntry {
         int id;
         int documentId;
