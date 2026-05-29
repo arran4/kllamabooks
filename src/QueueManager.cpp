@@ -44,6 +44,7 @@ void QueueManager::removeDatabase(std::shared_ptr<BookDatabase> db) {
         }
     }
     for (int key : toRemove) {
+        m_activeNetworkRequests.remove(key);
         m_activeItems.remove(key);
     }
 
@@ -203,6 +204,18 @@ void QueueManager::cancelItem(std::shared_ptr<BookDatabase> db, int queueId) {
         m_activeItems.remove(toRemoveId);
     }
     emit queueChanged();
+}
+
+void QueueManager::changeItemPriority(std::shared_ptr<BookDatabase> db, int queueId, int delta) {
+    if (!db || !db->isOpen()) return;
+    auto items = db->getQueue();
+    for (const auto& item : items) {
+        if (item.id == queueId) {
+            db->updateQueueItemPriority(queueId, item.priority + delta);
+            emit queueChanged();
+            break;
+        }
+    }
 }
 
 void QueueManager::clearCompleted() {
@@ -450,22 +463,8 @@ void QueueManager::processNext() {
                     auto act = m_activeItems[procId];
                     if (act.db && act.db->isOpen()) {
                         if (act.item.targetType == "document" && act.item.targetAction == "replace_direct") {
-                            auto docs = act.db->getDocuments();
-                            QString currentContent, title, metadata;
-                            for (const auto& d : docs) {
-                                if (d.id == act.item.messageId) {
-                                    currentContent = d.content;
-                                    if (currentContent == QStringLiteral("*Generating merge...*") ||
-                                        currentContent == QStringLiteral("*Generating document...*") ||
-                                        currentContent == QStringLiteral("*Regenerating...*")) {
-                                        currentContent = "";
-                                    }
-                                    title = d.title;
-                                    metadata = d.metadata;
-                                    break;
-                                }
-                            }
-                            act.db->updateDocument(act.item.messageId, title, currentContent + chunk, metadata);
+                            // We do not append chunks to the document during generation
+                            // to ensure the old content is visible until generation is complete.
                         }
                         // For other document actions, we do not update the document directly.
                         // Just emit the chunk for the preview.

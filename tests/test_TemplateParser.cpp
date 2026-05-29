@@ -1,9 +1,10 @@
 #include <QtTest>
+
 #include "../src/TemplateParser.h"
 
 class TestTemplateParser : public QObject {
     Q_OBJECT
-private slots:
+   private slots:
     void testBasicForeach();
     void testBetweenSeparator();
     void testNoMatchMissingEnd();
@@ -29,7 +30,7 @@ void TestTemplateParser::testBetweenSeparator() {
 }
 
 void TestTemplateParser::testNoMatchMissingEnd() {
-    QString prompt = "{foreach contexts}{context}"; // Missing {end}
+    QString prompt = "{foreach contexts}{context}";  // Missing {end}
     QList<QString> contents = {"A", "B"};
 
     QString result = TemplateParser::parseMergeTemplate(prompt, contents);

@@ -716,15 +716,23 @@ void DocumentEditWindow::closeEvent(QCloseEvent* event) {
             return;
         }
 
-        msgBox.setText(tr("You have unsaved changes.\nWould you like to Save to Drafts, Discard, or Cancel?"));
+        msgBox.setText(tr("You have unsaved changes.\nWould you like to Save, Save to Drafts, Discard, or Cancel?"));
 
+        QPushButton* saveBtn = msgBox.addButton(tr("Save"), QMessageBox::AcceptRole);
         QPushButton* saveDraftBtn = msgBox.addButton(tr("Save to Drafts"), QMessageBox::AcceptRole);
         QPushButton* discardBtn = msgBox.addButton(tr("Discard"), QMessageBox::DestructiveRole);
         QPushButton* cancelBtn = msgBox.addButton(tr("Cancel"), QMessageBox::RejectRole);
 
         msgBox.exec();
 
-        if (msgBox.clickedButton() == saveDraftBtn) {
+        if (msgBox.clickedButton() == saveBtn) {
+            if (saveToDb()) {
+                emit documentModified(m_documentId);
+                event->accept();
+            } else {
+                event->ignore();
+            }
+        } else if (msgBox.clickedButton() == saveDraftBtn) {
             int newId = saveToDraft(m_title);
             if (newId > 0) {
                 emit newDocumentCreated(newId);
