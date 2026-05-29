@@ -44,6 +44,7 @@ void QueueManager::removeDatabase(std::shared_ptr<BookDatabase> db) {
         }
     }
     for (int key : toRemove) {
+        m_activeNetworkRequests.remove(key);
         m_activeItems.remove(key);
     }
 
@@ -203,6 +204,18 @@ void QueueManager::cancelItem(std::shared_ptr<BookDatabase> db, int queueId) {
         m_activeItems.remove(toRemoveId);
     }
     emit queueChanged();
+}
+
+void QueueManager::changeItemPriority(std::shared_ptr<BookDatabase> db, int queueId, int delta) {
+    if (!db || !db->isOpen()) return;
+    auto items = db->getQueue();
+    for (const auto& item : items) {
+        if (item.id == queueId) {
+            db->updateQueueItemPriority(queueId, item.priority + delta);
+            emit queueChanged();
+            break;
+        }
+    }
 }
 
 void QueueManager::clearCompleted() {
@@ -462,28 +475,8 @@ void QueueManager::processNext() {
                     auto act = m_activeItems[procId];
                     if (act.db && act.db->isOpen()) {
                         if (act.item.targetType == "document" && act.item.targetAction == "replace_direct") {
-                            if (act.accumulatedContent.isNull()) {
-                                auto optDoc = act.db->getDocument(act.item.messageId);
-                                if (optDoc) {
-                                    act.title = optDoc->title;
-                                    act.metadata = optDoc->metadata;
-                                    act.accumulatedContent = optDoc->content;
-                                    if (act.accumulatedContent == QStringLiteral("*Generating merge...*") ||
-                                        act.accumulatedContent == QStringLiteral("*Generating document...*") ||
-                                        act.accumulatedContent == QStringLiteral("*Regenerating...*")) {
-                                        act.accumulatedContent = "";
-                                    }
-                                } else {
-                                    m_activeItems.remove(procId);
-                                    if (m_activeNetworkRequests.contains(procId)) {
-                                        m_activeNetworkRequests[procId]->abort();
-                                    }
-                                    return;
-                                }
-                            }
-                            act.accumulatedContent += chunk;
-                            m_activeItems[procId] = act;
-                            act.db->updateDocument(act.item.messageId, act.title, act.accumulatedContent, act.metadata);
+                            // We do not append chunks to the document during generation
+                            // to ensure the old content is visible until generation is complete.
                         }
                         // For other document actions, we do not update the document directly.
                         // Just emit the chunk for the preview.
@@ -501,7 +494,8 @@ void QueueManager::processNext() {
                             } else {
                                 auto optDoc = act.db->getDocument(act.item.messageId);
                                 if (optDoc) {
-                                    act.db->updateDocument(act.item.messageId, optDoc->title, response, optDoc->metadata);
+                                    act.db->updateDocument(act.item.messageId, optDoc->title, response,
+                                                           optDoc->metadata);
                                 }
                             }
                             act.db->deleteQueueItem(act.item.id);

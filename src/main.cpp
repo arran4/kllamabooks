@@ -2,14 +2,14 @@
 #include <KLocalizedString>
 #include <QApplication>
 #include <QCommandLineOption>
-#include <QSslConfiguration>
-#include <QSslSocket>
 #include <QCommandLineParser>
 #include <QDebug>
 #include <QDir>
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QMessageBox>
+#include <QSslConfiguration>
+#include <QSslSocket>
 #include <QStandardPaths>
 #include <QTimer>
 #include <QtDBus/QDBusConnection>
@@ -21,7 +21,7 @@
 #define KGHN_APP_VERSION "dev"
 #endif
 
-int main(int argc, char *argv[]) {
+int main(int argc, char* argv[]) {
     QCoreApplication::setOrganizationName("arran4");
     QCoreApplication::setOrganizationDomain("arran4.com");
     QCoreApplication::setApplicationName("kllamabooks");
@@ -44,7 +44,7 @@ int main(int argc, char *argv[]) {
     aboutData.setLicense(KAboutLicense::GPL_V3);
     KAboutData::setApplicationData(aboutData);
 
-    MainWindow *window = new MainWindow();
+    MainWindow* window = new MainWindow();
     window->show();
 
     return app.exec();

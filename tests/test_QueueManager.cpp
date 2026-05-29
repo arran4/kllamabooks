@@ -1,12 +1,51 @@
-#include <QtTest>
 #include <QCoreApplication>
-#include "../src/QueueManager.h"
+#include <QUuid>
+#include <QtTest>
+
 #include "../src/BookDatabase.h"
 #include "../src/OllamaClient.h"
+#include "../src/QueueManager.h"
+
+class FakeOllamaClient : public OllamaClient {
+   public:
+    QNetworkReply* generate(const QString& model, const QString& prompt, std::function<void(const QString&)> onChunk,
+                            std::function<void(const QString&)> onComplete,
+                            std::function<void(QNetworkReply::NetworkError, const QString&)> onError) override;
+
+    QNetworkReply* generateChat(const QString& model, const QJsonArray& messages,
+                                std::function<void(const QString&)> onChunk,
+                                std::function<void(const QString&)> onComplete,
+                                std::function<void(QNetworkReply::NetworkError, const QString&)> onError) override;
+};
+
+QNetworkReply* FakeOllamaClient::generate(const QString& model, const QString& prompt,
+                                          std::function<void(const QString&)> onChunk,
+                                          std::function<void(const QString&)> onComplete,
+                                          std::function<void(QNetworkReply::NetworkError, const QString&)> onError) {
+    Q_UNUSED(model)
+    Q_UNUSED(prompt)
+    Q_UNUSED(onChunk)
+    Q_UNUSED(onComplete)
+    Q_UNUSED(onError)
+    return nullptr;
+}
+
+QNetworkReply* FakeOllamaClient::generateChat(
+    const QString& model, const QJsonArray& messages, std::function<void(const QString&)> onChunk,
+    std::function<void(const QString&)> onComplete,
+    std::function<void(QNetworkReply::NetworkError, const QString&)> onError) {
+    Q_UNUSED(model)
+    Q_UNUSED(messages)
+    Q_UNUSED(onChunk)
+    Q_UNUSED(onComplete)
+    Q_UNUSED(onError)
+    return nullptr;
+}
 
 class TestQueueManager : public QObject {
     Q_OBJECT
-private slots:
+
+   private slots:
     void initTestCase();
     void cleanupTestCase();
     void init();
@@ -19,36 +58,30 @@ private slots:
     void testEndpointDownPreventsProcessing();
     void testMaxConcurrentLimits();
 
-private:
+   private:
     std::shared_ptr<BookDatabase> m_db;
     QString m_testDbPath;
-    OllamaClient* m_client = nullptr;
+    FakeOllamaClient* m_client = nullptr;
 };
 
 void TestQueueManager::initTestCase() {
     QCoreApplication::setOrganizationName("arran4_test");
     QCoreApplication::setApplicationName("kllamabooks_test");
-    m_client = new OllamaClient();
-    // Use an unroutable IP address (TEST-NET-1) to simulate a hanging network connection.
-    // This prevents immediate "Connection Refused" errors which would reset the queue
-    // state back to "pending" before the test assertions can run.
-    m_client->setBaseUrl("http://192.0.2.1:11434");
+    m_client = new FakeOllamaClient();
 }
 
-void TestQueueManager::cleanupTestCase() {
-    delete m_client;
-}
+void TestQueueManager::cleanupTestCase() { delete m_client; }
 
 void TestQueueManager::init() {
-    m_testDbPath = QDir::tempPath() + "/test_queue_manager.db";
+    m_testDbPath = QDir::temp().filePath("test_queue_manager_" + QUuid::createUuid().toString(QUuid::Id128) + ".db");
     QFile::remove(m_testDbPath);
     m_db = std::make_shared<BookDatabase>(m_testDbPath);
-    m_db->open("test_password");
-    m_db->initSchema();
+    QVERIFY(m_db->open("test_password"));
 }
 
 void TestQueueManager::cleanup() {
     QTest::qWait(200);
+
     QueueManager& qm = QueueManager::instance();
     if (m_db) {
         qm.removeDatabase(m_db);
@@ -56,7 +89,7 @@ void TestQueueManager::cleanup() {
     }
     qm.setClient(nullptr);
     qm.resumeQueue();
-    qm.setMaxConcurrent(1); // Reset to default value
+    qm.setMaxConcurrent(1);
 
     QFile::remove(m_testDbPath);
 }
@@ -102,10 +135,9 @@ void TestQueueManager::testGetQueueStats() {
 void TestQueueManager::testCheckQueueIsPaused() {
     QueueManager& qm = QueueManager::instance();
     qm.addDatabase(m_db);
-
     qm.setClient(m_client);
+    emit m_client->connectionStatusChanged(true);
 
-    emit m_client->connectionStatusChanged(true); // default queue test state
     qm.pauseQueue();
     m_db->enqueuePrompt(1, "test_model", "test_prompt");
 
@@ -113,12 +145,10 @@ void TestQueueManager::testCheckQueueIsPaused() {
 
     QueueManager::QueueStats stats = qm.getQueueStats();
     QCOMPARE(stats.pending, 1);
-    QCOMPARE(stats.processing, 0); // No items should move to processing since queue is paused
+    QCOMPARE(stats.processing, 0);
 
     qm.resumeQueue();
-
-    // Wait for the asynchronous checkQueue to run and process the item.
-    QTest::qWait(1000);
+    qm.checkQueue();
 
     stats = qm.getQueueStats();
     QCOMPARE(stats.pending, 0);
@@ -128,11 +158,9 @@ void TestQueueManager::testCheckQueueIsPaused() {
 void TestQueueManager::testEndpointDownPreventsProcessing() {
     QueueManager& qm = QueueManager::instance();
     qm.addDatabase(m_db);
-
     qm.setClient(m_client);
     qm.resumeQueue();
 
-    // Simulate endpoint going down
     emit m_client->connectionStatusChanged(false);
     QVERIFY(!qm.isEndpointUp());
 
@@ -141,14 +169,12 @@ void TestQueueManager::testEndpointDownPreventsProcessing() {
 
     QueueManager::QueueStats stats = qm.getQueueStats();
     QCOMPARE(stats.pending, 1);
-    QCOMPARE(stats.processing, 0); // No items should process since endpoint is down
+    QCOMPARE(stats.processing, 0);
 
-    // Simulate endpoint coming up, checkQueue is called automatically via signal
     emit m_client->connectionStatusChanged(true);
     QVERIFY(qm.isEndpointUp());
 
-    // Wait for async checkQueue to run
-    QTest::qWait(1000);
+    qm.checkQueue();
 
     stats = qm.getQueueStats();
     QCOMPARE(stats.pending, 0);
@@ -159,13 +185,12 @@ void TestQueueManager::testMaxConcurrentLimits() {
     QueueManager& qm = QueueManager::instance();
     qm.addDatabase(m_db);
     qm.setClient(m_client);
-    emit m_client->connectionStatusChanged(true); // default queue test state
+    emit m_client->connectionStatusChanged(true);
     qm.resumeQueue();
 
     qm.setMaxConcurrent(1);
     QCOMPARE(qm.maxConcurrent(), 1);
 
-    // Enqueue more items than the concurrent limit
     m_db->enqueuePrompt(1, "test_model", "test_prompt_1");
     m_db->enqueuePrompt(2, "test_model", "test_prompt_2");
 
@@ -176,12 +201,10 @@ void TestQueueManager::testMaxConcurrentLimits() {
     qm.checkQueue();
     QTest::qWait(200);
 
-    QTest::qWait(1000); // Allow async queue processing
-    // After checkQueue, one item should be processing and one pending.
     stats = qm.getQueueStats();
     QCOMPARE(stats.pending, 1);
     QCOMPARE(stats.processing, 1);
 }
 
-QTEST_MAIN(TestQueueManager)
+QTEST_GUILESS_MAIN(TestQueueManager)
 #include "test_QueueManager.moc"

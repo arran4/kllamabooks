@@ -345,7 +345,7 @@ void MergeDocumentsDialog::setDefaultTitleSuffix(const QString& suffix) {
 QString MergeDocumentsDialog::buildPreviewPrompt() const {
     QString prompt = m_instructionEdit->toPlainText();
 
-    // 1. Process standard dynamic inputs {input} {textarea}
+    // Process standard dynamic inputs {input} and {textarea}
     QRegularExpression re("\\{(input|textarea)(?:\\s+\"([^\"]+)\")?\\}");
     QRegularExpressionMatchIterator i = re.globalMatch(prompt);
 
