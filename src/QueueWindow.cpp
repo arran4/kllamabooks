@@ -167,11 +167,9 @@ void QueueWindow::onModifyItem() {
         if (db->filepath() == path) {
             // Find prompt
             QString oldPrompt;
-            for (const auto& mi : QueueManager::instance().getMergedQueue()) {
-                if (mi.item.id == id && mi.db == db) {
-                    oldPrompt = mi.item.prompt;
-                    break;
-                }
+            auto itemOpt = db->getQueueItem(id);
+            if (itemOpt) {
+                oldPrompt = itemOpt->prompt;
             }
 
             bool ok;
@@ -239,13 +237,16 @@ void QueueWindow::showContextMenu(const QPoint& pos) {
 
     bool isError = false;
     bool isEndpointDown = false;
-    for (const auto& mi : QueueManager::instance().getMergedQueue()) {
-        if (mi.item.id == id && mi.db->filepath() == path) {
-            isError = !mi.item.lastError.isEmpty();
+    for (auto db : QueueManager::instance().databases()) {
+        if (db->filepath() == path) {
+            auto itemOpt = db->getQueueItem(id);
+            if (itemOpt) {
+                isError = !itemOpt->lastError.isEmpty();
 
-            if (!QueueManager::instance().isEndpointUp() &&
-                (mi.item.state.isEmpty() || mi.item.state.compare("pending", Qt::CaseInsensitive) == 0)) {
-                isEndpointDown = true;
+                if (!QueueManager::instance().isEndpointUp() &&
+                    (itemOpt->state.isEmpty() || itemOpt->state.compare("pending", Qt::CaseInsensitive) == 0)) {
+                    isEndpointDown = true;
+                }
             }
             break;
         }
@@ -279,52 +280,50 @@ void QueueWindow::onShowDetails() {
 
     for (auto db : QueueManager::instance().databases()) {
         if (db->filepath() == path) {
-            for (const auto& mi : QueueManager::instance().getMergedQueue()) {
-                if (mi.item.id == id && mi.db == db) {
-                    QDialog dlg(this);
-                    dlg.setWindowTitle("Queue Item Details");
-                    dlg.resize(500, 400);
+            auto itemOpt = db->getQueueItem(id);
+            if (itemOpt) {
+                QDialog dlg(this);
+                dlg.setWindowTitle("Queue Item Details");
+                dlg.resize(500, 400);
 
-                    QVBoxLayout* layout = new QVBoxLayout(&dlg);
-                    QFormLayout* form = new QFormLayout();
+                QVBoxLayout* layout = new QVBoxLayout(&dlg);
+                QFormLayout* form = new QFormLayout();
 
-                    form->addRow("Database:", new QLabel(QFileInfo(db->filepath()).fileName()));
-                    form->addRow("State:", new QLabel(mi.item.state.toUpper()));
-                    form->addRow("Model:", new QLabel(mi.item.model));
-                    form->addRow("Target Type:", new QLabel(mi.item.targetType));
-                    form->addRow("Message/Doc ID:", new QLabel(QString::number(mi.item.messageId)));
-                    form->addRow("Priority:", new QLabel(QString::number(mi.item.priority)));
+                form->addRow("Database:", new QLabel(QFileInfo(db->filepath()).fileName()));
+                form->addRow("State:", new QLabel(itemOpt->state.toUpper()));
+                form->addRow("Model:", new QLabel(itemOpt->model));
+                form->addRow("Target Type:", new QLabel(itemOpt->targetType));
+                form->addRow("Message/Doc ID:", new QLabel(QString::number(itemOpt->messageId)));
+                form->addRow("Priority:", new QLabel(QString::number(itemOpt->priority)));
 
-                    layout->addLayout(form);
+                layout->addLayout(form);
 
-                    if (!mi.item.lastError.isEmpty()) {
-                        layout->addWidget(new QLabel("Error:"));
-                        QTextEdit* errorEdit = new QTextEdit(mi.item.lastError);
-                        errorEdit->setReadOnly(true);
-                        errorEdit->setStyleSheet("color: red;");
-                        errorEdit->setMaximumHeight(60);
-                        layout->addWidget(errorEdit);
-                    }
-
-                    layout->addWidget(new QLabel("Prompt:"));
-                    QTextEdit* promptEdit = new QTextEdit(mi.item.prompt);
-                    promptEdit->setReadOnly(true);
-                    layout->addWidget(promptEdit);
-
-                    if (!mi.item.response.isEmpty()) {
-                        layout->addWidget(new QLabel("Response (so far):"));
-                        QTextEdit* responseEdit = new QTextEdit(mi.item.response);
-                        responseEdit->setReadOnly(true);
-                        layout->addWidget(responseEdit);
-                    }
-
-                    QPushButton* closeBtn = new QPushButton("Close");
-                    layout->addWidget(closeBtn);
-                    connect(closeBtn, &QPushButton::clicked, &dlg, &QDialog::accept);
-
-                    dlg.exec();
-                    break;
+                if (!itemOpt->lastError.isEmpty()) {
+                    layout->addWidget(new QLabel("Error:"));
+                    QTextEdit* errorEdit = new QTextEdit(itemOpt->lastError);
+                    errorEdit->setReadOnly(true);
+                    errorEdit->setStyleSheet("color: red;");
+                    errorEdit->setMaximumHeight(60);
+                    layout->addWidget(errorEdit);
                 }
+
+                layout->addWidget(new QLabel("Prompt:"));
+                QTextEdit* promptEdit = new QTextEdit(itemOpt->prompt);
+                promptEdit->setReadOnly(true);
+                layout->addWidget(promptEdit);
+
+                if (!itemOpt->response.isEmpty()) {
+                    layout->addWidget(new QLabel("Response (so far):"));
+                    QTextEdit* responseEdit = new QTextEdit(itemOpt->response);
+                    responseEdit->setReadOnly(true);
+                    layout->addWidget(responseEdit);
+                }
+
+                QPushButton* closeBtn = new QPushButton("Close");
+                layout->addWidget(closeBtn);
+                connect(closeBtn, &QPushButton::clicked, &dlg, &QDialog::accept);
+
+                dlg.exec();
             }
             break;
         }
@@ -340,35 +339,28 @@ void QueueWindow::onJumpItem() {
 
     for (auto db : QueueManager::instance().databases()) {
         if (db->filepath() == path) {
-            for (const auto& mi : QueueManager::instance().getMergedQueue()) {
-                if (mi.item.id == id && mi.db == db) {
-                    // Validate if the target item still exists
-                    bool isValid = false;
-                    if (mi.item.targetType == "document") {
-                        if (mi.db->getDocument(mi.item.messageId)) {
-                            isValid = true;
-                        }
-                    } else if (mi.item.targetType == "message") {
-                        if (mi.db->getMessage(mi.item.messageId)) {
-                            isValid = true;
-                        }
-                    }
+            auto itemOpt = db->getQueueItem(id);
+            if (itemOpt) {
+                // Validate if the target item still exists
+                bool isValid = false;
+                if (itemOpt->targetType == "document") {
+                    isValid = db->getDocument(itemOpt->messageId).has_value();
+                } else if (itemOpt->targetType == "message") {
+                    isValid = db->getMessage(itemOpt->messageId).has_value();
+                }
 
-                    if (!isValid) return;
+                if (!isValid) return;
 
-                    QWidget* mainWin = nullptr;
-                    for (QWidget* widget : QApplication::topLevelWidgets()) {
-                        if (widget->inherits("MainWindow")) {
-                            mainWin = widget;
-                            break;
-                        }
+                QWidget* mainWin = nullptr;
+                for (QWidget* widget : QApplication::topLevelWidgets()) {
+                    if (widget->inherits("MainWindow")) {
+                        mainWin = widget;
+                        break;
                     }
-                    if (mainWin) {
-                        QMetaObject::invokeMethod(mainWin, "onQueueItemClicked",
-                                                  Q_ARG(std::shared_ptr<BookDatabase>, db),
-                                                  Q_ARG(int, mi.item.messageId), Q_ARG(QString, mi.item.targetType));
-                    }
-                    break;
+                }
+                if (mainWin) {
+                    QMetaObject::invokeMethod(mainWin, "onQueueItemClicked", Q_ARG(std::shared_ptr<BookDatabase>, db),
+                                              Q_ARG(int, itemOpt->messageId), Q_ARG(QString, itemOpt->targetType));
                 }
             }
             break;
