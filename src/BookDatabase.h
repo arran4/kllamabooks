@@ -118,6 +118,7 @@ class BookDatabase {
     ChatNode getChat(int messageId) const;
     bool updateChat(const ChatNode& chat);
     QSet<int> getAllChatIds() const;
+    QMap<int, QString> getAllChatTitles() const;
 
     // Settings
     void setSetting(const QString& scope, int targetId, const QString& key, const QString& value);
