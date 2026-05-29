@@ -593,7 +593,6 @@ bool BookDatabase::initSchema() {
         sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "INSERT OR REPLACE INTO schema_version (version) VALUES (21);",
                      nullptr, nullptr, nullptr);
         sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "PRAGMA user_version = 21;", nullptr, nullptr, nullptr);
-        userVersion = 21;
     }
 
     return true;
@@ -1884,6 +1883,12 @@ QString BookDatabase::getDatabaseDebugInfo() const {
             const unsigned char* namePtr = sqlite3_column_text(stmt, 0);
             QString name = namePtr ? QString::fromUtf8(reinterpret_cast<const char*>(namePtr)) : "";
             info += QString("- %1\n").arg(name);
+
+            const unsigned char* sqlPtr = sqlite3_column_text(stmt, 1);
+            if (sqlPtr) {
+                info += QString::fromUtf8(reinterpret_cast<const char*>(sqlPtr));
+                info += "\n";
+            }
         }
         sqlite3_finalize(stmt);
     }
