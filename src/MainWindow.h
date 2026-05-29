@@ -55,6 +55,12 @@ class CustomItemModel : public QStandardItemModel {
 class MainWindow : public KXmlGuiWindow {
     Q_OBJECT
    public:
+    static const QString GENERATING_MERGE_TEXT;
+    static const QString GENERATING_DOC_TEXT;
+    static const QString REGENERATING_TEXT;
+
+    static QString getGenerationPlaceholderText(int existingDocId, int numSourceDocuments);
+
     explicit MainWindow(QWidget* parent = nullptr);
     ~MainWindow();
     void getDocumentContent(int id, const QString& type, QString& outTitle, QString& outContent);
@@ -99,6 +105,7 @@ class MainWindow : public KXmlGuiWindow {
     void showDocumentAIToolsMenu();
     void onDocumentAIOperations();
     void onDocumentHistory();
+    void onPromptHistory(int docId);
     void onEditDocument();
     void onRegenerateMerge();
     void onViewMergeSources();
@@ -114,7 +121,7 @@ class MainWindow : public KXmlGuiWindow {
                                 int existingDocId = 0, const QList<int>& docsToDelete = QList<int>());
     void showInputSettingsMenu();
     void showChatSettingsDialog(int messageId);
-    void updateInputBehavior();
+    void updateInputBehavior(const QList<MessageNode>* msgs = nullptr);
     void updateApplicationFont();
     void zoomIn();
     void zoomOut();
@@ -149,16 +156,23 @@ class MainWindow : public KXmlGuiWindow {
     void loadSession(int rootId);
     void populateTree(QStandardItem* parentItem, int parentId, const QList<MessageNode>& allMessages);
     void populateChatFolders(QStandardItem* parentItem, int folderId, const QList<MessageNode>& allMessages,
-                             BookDatabase* db);
-    void populateMessageForks(QStandardItem* parentItem, int parentId, const QList<MessageNode>& allMessages);
-    void populateDocumentFolders(QStandardItem* parentItem, int folderId, const QString& type, BookDatabase* db);
-    void populateDraftsFolders(QStandardItem* parentItem, int folderId, const QString& underlyingType,
-                               BookDatabase* db);
+                             const QHash<int, QList<MessageNode>>& childrenMap, BookDatabase* db,
+                             const QHash<int, const MessageNode*>& msgMap, const QHash<int, QString>& chatTitles,
+                             const QMultiMap<int, FolderNode>* preloadedFolders = nullptr);
+    void populateMessageForks(QStandardItem* parentItem, int parentId, const QList<MessageNode>& allMessages,
+                              const QHash<int, QList<MessageNode>>& childrenMap,
+                              const QHash<int, const MessageNode*>& msgMap, const QHash<int, QString>& chatTitles);
+    void populateDocumentFolders(QStandardItem* parentItem, int folderId, const QString& type, BookDatabase* db,
+                                 const QMultiMap<int, FolderNode>* preloadedFolders = nullptr);
+    void populateDraftsFolders(QStandardItem* parentItem, int folderId, const QString& underlyingType, BookDatabase* db,
+                               const QMultiMap<int, FolderNode>* preloadedFolders = nullptr);
     void addPhantomItem(QStandardItem* folderItem, const QString& type);
     void updateLinearChatView(int tailNodeId, const QList<MessageNode>& allMessages);
     void getPathToRoot(int nodeId, const QList<MessageNode>& allMessages, QList<MessageNode>& path);
-    int getEndOfLinearPath(int startId, const QList<MessageNode>& allMessages, QList<MessageNode>& outChildren);
-    QString getChatNodeTitle(int nodeId, const QList<MessageNode>& allMessages);
+    int getEndOfLinearPath(int startId, const QHash<int, QList<MessageNode>>& childrenMap,
+                           QList<MessageNode>& outChildren);
+    QString getChatNodeTitle(int nodeId, const QHash<int, const MessageNode*>& msgMap,
+                             const QHash<int, QString>& chatTitles);
    public slots:
     void loadDocumentsAndNotes();
 
