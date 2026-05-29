@@ -2282,7 +2282,7 @@ void MainWindow::onBookSelected(const QModelIndex& index) {
     for (const auto& msg : msgs) {
         msgMap[msg.id] = &msg;
     }
-    QMap<int, QString> chatTitles = currentDb->getAllChatTitles();
+    QHash<int, QString> chatTitles = currentDb->getAllChatTitles();
     populateChatFolders(chatsItem, 0, msgs, dbPtr.get(), msgMap, chatTitles);
 
     populateDocumentFolders(docsItem, 0, "documents", dbPtr.get());
@@ -2459,7 +2459,7 @@ void MainWindow::loadSession(int rootId) {
     for (const auto& msg : msgs) {
         msgMap[msg.id] = &msg;
     }
-    QMap<int, QString> chatTitles = currentDb->getAllChatTitles();
+    QHash<int, QString> chatTitles = currentDb->getAllChatTitles();
     populateChatFolders(rootItem, 0, msgs, currentDb.get(), msgMap, chatTitles);
 
     if (!msgs.isEmpty()) {
@@ -2512,7 +2512,7 @@ int MainWindow::getEndOfLinearPath(int startId, const QList<MessageNode>& allMes
  * transitions for the UI. *  * This function is an integral component of the MainWindow class structure. * It ensures
  * that side effects map accurately to internal application models. */
 QString MainWindow::getChatNodeTitle(int nodeId, const QHash<int, const MessageNode*>& msgMap,
-                                     const QMap<int, QString>& chatTitles) {
+                                     const QHash<int, QString>& chatTitles) {
     if (!currentDb || !currentDb->isOpen()) return "New Chat";
 
     // Trace up the path to the root
@@ -2552,7 +2552,7 @@ QString MainWindow::getChatNodeTitle(int nodeId, const QHash<int, const MessageN
 
 void MainWindow::populateChatFolders(QStandardItem* parentItem, int folderId, const QList<MessageNode>& allMessages,
                                      BookDatabase* db, const QHash<int, const MessageNode*>& msgMap,
-                                     const QMap<int, QString>& chatTitles) {
+                                     const QHash<int, QString>& chatTitles) {
     if (!db) return;
 
     // 1. Add subfolders of type 'chats'
@@ -2612,7 +2612,7 @@ void MainWindow::populateChatFolders(QStandardItem* parentItem, int folderId, co
  * application models. */
 void MainWindow::populateMessageForks(QStandardItem* parentItem, int parentId, const QList<MessageNode>& allMessages,
                                       const QHash<int, const MessageNode*>& msgMap,
-                                      const QMap<int, QString>& chatTitles) {
+                                      const QHash<int, QString>& chatTitles) {
     for (const auto& msg : allMessages) {
         if (msg.parentId == parentId) {
             // Find all children of this message
@@ -4195,7 +4195,7 @@ void MainWindow::loadDocumentsAndNotes() {
             for (const auto& msg : msgs) {
                 msgMap[msg.id] = &msg;
             }
-            QMap<int, QString> chatTitles = db->getAllChatTitles();
+            QHash<int, QString> chatTitles = db->getAllChatTitles();
             populateChatFolders(chatsFolder, 0, msgs, db.get(), msgMap, chatTitles);
         }
     }
