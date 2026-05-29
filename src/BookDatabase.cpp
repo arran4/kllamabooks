@@ -1762,6 +1762,18 @@ bool BookDatabase::updateQueueItemModel(int id, const QString& model) {
     return rc == SQLITE_DONE;
 }
 
+bool BookDatabase::updateQueueItemPriority(int id, int priority) {
+    if (!m_isOpen) return false;
+    const char* sql = "UPDATE queue SET priority = ? WHERE id = ?;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_int(stmt, 1, priority);
+    sqlite3_bind_int(stmt, 2, id);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
+}
+
 bool BookDatabase::deleteQueueItem(int id) {
     if (!m_isOpen) return false;
     const char* sql = "DELETE FROM queue WHERE id = ?;";

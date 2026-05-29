@@ -35,6 +35,8 @@ QueueWindow::QueueWindow(QWidget* parent) : QWidget(parent, Qt::Window) {
     btnLayout->addWidget(m_clearBtn);
     layout->addLayout(btnLayout);
 
+    connect(m_upBtn, &QPushButton::clicked, this, &QueueWindow::onMoveUp);
+    connect(m_downBtn, &QPushButton::clicked, this, &QueueWindow::onMoveDown);
     connect(m_clearBtn, &QPushButton::clicked, this, &QueueWindow::onClearCompleted);
     connect(m_queueList, &QListWidget::itemSelectionChanged, this, &QueueWindow::updateButtons);
 
@@ -52,16 +54,33 @@ QueueWindow::QueueWindow(QWidget* parent) : QWidget(parent, Qt::Window) {
 
     connect(&QueueManager::instance(), &QueueManager::queueChanged, this, &QueueWindow::refresh);
 
-    // Disable up/down for now as it needs more logic for priority across DBs
-    m_upBtn->setEnabled(false);
-    m_downBtn->setEnabled(false);
-
     updateButtons();
     refresh();
 }
 
 void QueueWindow::updateButtons() {
-    // Only used to update bulk buttons like up/down now if we enable them
+    auto item = m_queueList->currentItem();
+    if (!item) {
+        m_upBtn->setEnabled(false);
+        m_downBtn->setEnabled(false);
+        return;
+    }
+
+    int id = item->data(Qt::UserRole).toInt();
+    QString path = item->data(Qt::UserRole + 1).toString();
+
+    bool isPending = false;
+    for (const auto& mi : QueueManager::instance().getMergedQueue()) {
+        if (mi.item.id == id && mi.db->filepath() == path) {
+            if (mi.item.state.isEmpty() || mi.item.state.compare("pending", Qt::CaseInsensitive) == 0) {
+                isPending = true;
+            }
+            break;
+        }
+    }
+
+    m_upBtn->setEnabled(isPending);
+    m_downBtn->setEnabled(isPending);
 }
 
 void QueueWindow::refresh() {
@@ -182,10 +201,34 @@ void QueueWindow::onCancelItem() {
 void QueueWindow::onClearCompleted() { QueueManager::instance().clearCompleted(); }
 
 void QueueWindow::onMoveUp() {
-    // Priority reordering would go here
+    auto item = m_queueList->currentItem();
+    if (!item) return;
+
+    int id = item->data(Qt::UserRole).toInt();
+    QString path = item->data(Qt::UserRole + 1).toString();
+
+    for (auto db : QueueManager::instance().databases()) {
+        if (db->filepath() == path) {
+            QueueManager::instance().changeItemPriority(db, id, 1);
+            break;
+        }
+    }
 }
 
-void QueueWindow::onMoveDown() {}
+void QueueWindow::onMoveDown() {
+    auto item = m_queueList->currentItem();
+    if (!item) return;
+
+    int id = item->data(Qt::UserRole).toInt();
+    QString path = item->data(Qt::UserRole + 1).toString();
+
+    for (auto db : QueueManager::instance().databases()) {
+        if (db->filepath() == path) {
+            QueueManager::instance().changeItemPriority(db, id, -1);
+            break;
+        }
+    }
+}
 
 void QueueWindow::showContextMenu(const QPoint& pos) {
     auto item = m_queueList->itemAt(pos);

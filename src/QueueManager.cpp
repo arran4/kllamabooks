@@ -206,6 +206,18 @@ void QueueManager::cancelItem(std::shared_ptr<BookDatabase> db, int queueId) {
     emit queueChanged();
 }
 
+void QueueManager::changeItemPriority(std::shared_ptr<BookDatabase> db, int queueId, int delta) {
+    if (!db || !db->isOpen()) return;
+    auto items = db->getQueue();
+    for (const auto& item : items) {
+        if (item.id == queueId) {
+            db->updateQueueItemPriority(queueId, item.priority + delta);
+            emit queueChanged();
+            break;
+        }
+    }
+}
+
 void QueueManager::clearCompleted() {
     for (auto db : m_databases) {
         if (!db || !db->isOpen()) continue;
