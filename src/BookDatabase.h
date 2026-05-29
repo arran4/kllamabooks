@@ -2,9 +2,11 @@
 #define BOOKDATABASE_H
 
 #include <QDateTime>
+#include <QHash>
 #include <QList>
 #include <QSet>
 #include <QString>
+#include <optional>
 
 struct MessageNode {
     int id;
@@ -24,7 +26,6 @@ struct DocumentNode {
     QString title;
     QString content;
     QDateTime timestamp;
-    bool isFolder;  // Deprecated, but keeping for compatibility during migration if needed
     QString metadata;
     QString targetType;  // Optional, e.g., 'document', 'note', 'template'
 };
@@ -44,6 +45,7 @@ struct ChatNode {
 struct NoteNode {
     int id;
     int folderId;  // 0 if root
+    int parentId;  // Workaround for upstream main branch compile error
     QString title;
     QString content;
     QDateTime timestamp;
@@ -110,6 +112,7 @@ class BookDatabase {
     bool updateMessage(int id, const QString& newContent);
     bool deleteMessage(int id);
     QList<MessageNode> getMessages() const;
+    std::optional<MessageNode> getMessage(int id) const;
     int getRootMessageId(int messageId) const;
     QString getInheritedSetting(int messageId, const QString& key) const;
 
@@ -117,6 +120,7 @@ class BookDatabase {
     ChatNode getChat(int messageId) const;
     bool updateChat(const ChatNode& chat);
     QSet<int> getAllChatIds() const;
+    QHash<int, QString> getAllChatTitles() const;
 
     // Settings
     void setSetting(const QString& scope, int targetId, const QString& key, const QString& value);
@@ -142,6 +146,17 @@ class BookDatabase {
     int addDocumentHistoryReturningId(int documentId, const QString& actionType, const QString& content);
 
     // Merges
+    struct PromptHistoryEntry {
+        int id;
+        int documentId;
+        QString prompt;
+        QString model;
+        QString timestamp;
+        int queueId;
+        QString status;
+    };
+    QList<PromptHistoryEntry> getPromptHistory(int documentId) const;
+
     struct DocumentMergeEntry {
         int id;
         int documentId;
@@ -160,6 +175,7 @@ class BookDatabase {
     int addTemplate(int folderId, const QString& title, const QString& content);
     bool updateTemplate(int id, const QString& newTitle, const QString& newContent);
     QList<DocumentNode> getTemplates(int folderId = -1) const;
+    std::optional<DocumentNode> getTemplate(int id) const;
     bool deleteTemplate(int id);
 
     // Drafts
@@ -167,18 +183,21 @@ class BookDatabase {
                  const QString& targetType = "document");
     bool updateDraft(int id, const QString& newTitle, const QString& newContent);
     QList<DocumentNode> getDrafts(int folderId = -1) const;
+    std::optional<DocumentNode> getDraft(int id) const;
     bool deleteDraft(int id);
 
     // Notes
     int addNote(int folderId, const QString& title, const QString& content);
     bool updateNote(int id, const QString& newTitle, const QString& newContent);
     QList<NoteNode> getNotes(int folderId = -1) const;
+    std::optional<NoteNode> getNote(int id) const;
     bool deleteNote(int id);
 
     // Folders
     int addFolder(int parentId, const QString& name, const QString& type, bool isExpanded = false);
     bool updateFolder(int id, const QString& newName);
     bool deleteFolder(int id);
+    bool updateDocumentTitle(int id, const QString& newTitle, const QString& targetType);
     void setFolderExpanded(int id, bool expanded);
     void setMessageExpanded(int id, bool expanded);
     QList<FolderNode> getFolders(const QString& type) const;

@@ -8,6 +8,8 @@
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QMessageBox>
+#include <QSslConfiguration>
+#include <QSslSocket>
 #include <QStandardPaths>
 #include <QTimer>
 #include <QtDBus/QDBusConnection>
@@ -19,12 +21,17 @@
 #define KGHN_APP_VERSION "dev"
 #endif
 
-int main(int argc, char *argv[]) {
+int main(int argc, char* argv[]) {
     QCoreApplication::setOrganizationName("arran4");
     QCoreApplication::setOrganizationDomain("arran4.com");
     QCoreApplication::setApplicationName("kllamabooks");
     QCoreApplication::setApplicationVersion(QStringLiteral(KGHN_APP_VERSION));
     QGuiApplication::setDesktopFileName("com.arran4.kllamabooks.desktop");
+
+    QSslConfiguration sslConfig = QSslConfiguration::defaultConfiguration();
+    sslConfig.setPeerVerifyMode(QSslSocket::VerifyPeer);
+    sslConfig.setProtocol(QSsl::TlsV1_2OrLater);
+    QSslConfiguration::setDefaultConfiguration(sslConfig);
 
     QApplication app(argc, argv);
     QApplication::setWindowIcon(QIcon::fromTheme("kllamabooks", QIcon(":/assets/icon.png")));
@@ -37,7 +44,7 @@ int main(int argc, char *argv[]) {
     aboutData.setLicense(KAboutLicense::GPL_V3);
     KAboutData::setApplicationData(aboutData);
 
-    MainWindow *window = new MainWindow();
+    MainWindow* window = new MainWindow();
     window->show();
 
     return app.exec();

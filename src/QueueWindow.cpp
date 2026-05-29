@@ -84,12 +84,9 @@ void QueueWindow::refresh() {
         QString targetTitle = "Unknown";
 
         if (mi.item.targetType == "document") {
-            auto docs = mi.db->getDocuments(-1);
-            for (const auto& doc : docs) {
-                if (doc.id == mi.item.messageId) {
-                    targetTitle = doc.title;
-                    break;
-                }
+            auto doc = mi.db->getDocument(mi.item.messageId);
+            if (doc) {
+                targetTitle = doc->title;
             }
         } else if (mi.item.targetType == "message") {
             int rootId = mi.db->getRootMessageId(mi.item.messageId);
@@ -203,7 +200,8 @@ void QueueWindow::showContextMenu(const QPoint& pos) {
         if (mi.item.id == id && mi.db->filepath() == path) {
             isError = !mi.item.lastError.isEmpty();
 
-            if (!QueueManager::instance().isEndpointUp() && (mi.item.state.isEmpty() || mi.item.state.compare("pending", Qt::CaseInsensitive) == 0)) {
+            if (!QueueManager::instance().isEndpointUp() &&
+                (mi.item.state.isEmpty() || mi.item.state.compare("pending", Qt::CaseInsensitive) == 0)) {
                 isEndpointDown = true;
             }
             break;
@@ -304,20 +302,12 @@ void QueueWindow::onJumpItem() {
                     // Validate if the target item still exists
                     bool isValid = false;
                     if (mi.item.targetType == "document") {
-                        auto docs = mi.db->getDocuments(-1);
-                        for (const auto& doc : docs) {
-                            if (doc.id == mi.item.messageId) {
-                                isValid = true;
-                                break;
-                            }
+                        if (mi.db->getDocument(mi.item.messageId)) {
+                            isValid = true;
                         }
                     } else if (mi.item.targetType == "message") {
-                        auto msgs = mi.db->getMessages();
-                        for (const auto& msg : msgs) {
-                            if (msg.id == mi.item.messageId) {
-                                isValid = true;
-                                break;
-                            }
+                        if (mi.db->getMessage(mi.item.messageId)) {
+                            isValid = true;
                         }
                     }
 
