@@ -5,6 +5,7 @@
 #include <QList>
 #include <QSet>
 #include <QString>
+#include <optional>
 
 struct MessageNode {
     int id;
@@ -110,6 +111,7 @@ class BookDatabase {
     bool deleteMessage(int id);
     QList<MessageNode> getMessages() const;
     QList<MessageNode> getMessageSubtree(int rootId) const;
+    std::optional<MessageNode> getMessage(int id) const;
     int getRootMessageId(int messageId) const;
     QString getInheritedSetting(int messageId, const QString& key) const;
 
@@ -160,6 +162,7 @@ class BookDatabase {
     int addTemplate(int folderId, const QString& title, const QString& content);
     bool updateTemplate(int id, const QString& newTitle, const QString& newContent);
     QList<DocumentNode> getTemplates(int folderId = -1) const;
+    std::optional<DocumentNode> getTemplate(int id) const;
     bool deleteTemplate(int id);
 
     // Drafts
@@ -167,12 +170,14 @@ class BookDatabase {
                  const QString& targetType = "document");
     bool updateDraft(int id, const QString& newTitle, const QString& newContent);
     QList<DocumentNode> getDrafts(int folderId = -1) const;
+    std::optional<DocumentNode> getDraft(int id) const;
     bool deleteDraft(int id);
 
     // Notes
     int addNote(int folderId, const QString& title, const QString& content);
     bool updateNote(int id, const QString& newTitle, const QString& newContent);
     QList<NoteNode> getNotes(int folderId = -1) const;
+    std::optional<NoteNode> getNote(int id) const;
     bool deleteNote(int id);
 
     // Folders

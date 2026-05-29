@@ -10,4 +10,4 @@ kllamabooks
 *.db
 /.idea/
 .flatpak-builder
-Testing/
+kllamabooks.kdev4
