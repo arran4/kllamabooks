@@ -2295,12 +2295,15 @@ void MainWindow::onBookSelected(const QModelIndex& index) {
 
     auto dbPtr = currentDb;  // Keep shared_ptr to avoid issues during iteration
     QList<MessageNode> msgs = currentDb->getMessages();
+
+    QHash<int, QList<MessageNode>> childrenMap;
     QHash<int, const MessageNode*> msgMap;
     for (const auto& msg : msgs) {
+        childrenMap[msg.parentId].append(msg);
         msgMap[msg.id] = &msg;
     }
     QHash<int, QString> chatTitles = currentDb->getAllChatTitles();
-    populateChatFolders(chatsItem, 0, msgs, dbPtr.get(), msgMap, chatTitles);
+    populateChatFolders(chatsItem, 0, msgs, childrenMap, dbPtr.get(), msgMap, chatTitles);
 
     populateDocumentFolders(docsItem, 0, "documents", dbPtr.get());
     populateDocumentFolders(templatesItem, 0, "templates", dbPtr.get());
@@ -2488,12 +2491,15 @@ void MainWindow::loadSession(int rootId) {
 
     QList<MessageNode> msgs = currentDb->getMessages();
     QStandardItem* rootItem = chatModel->invisibleRootItem();
+
+    QHash<int, QList<MessageNode>> childrenMap;
     QHash<int, const MessageNode*> msgMap;
     for (const auto& msg : msgs) {
+        childrenMap[msg.parentId].append(msg);
         msgMap[msg.id] = &msg;
     }
     QHash<int, QString> chatTitles = currentDb->getAllChatTitles();
-    populateChatFolders(rootItem, 0, msgs, currentDb.get(), msgMap, chatTitles);
+    populateChatFolders(rootItem, 0, msgs, childrenMap, currentDb.get(), msgMap, chatTitles);
 
     if (!msgs.isEmpty()) {
         currentLastNodeId = msgs.last().id;
@@ -2520,16 +2526,11 @@ void MainWindow::getPathToRoot(int nodeId, const QList<MessageNode>& allMessages
     }
 }
 
-int MainWindow::getEndOfLinearPath(int startId, const QList<MessageNode>& allMessages,
+int MainWindow::getEndOfLinearPath(int startId, const QHash<int, QList<MessageNode>>& childrenMap,
                                    QList<MessageNode>& outChildren) {
     int currentId = startId;
     while (true) {
-        outChildren.clear();
-        for (const auto& msg : allMessages) {
-            if (msg.parentId == currentId) {
-                outChildren.append(msg);
-            }
-        }
+        outChildren = childrenMap.value(currentId);
         // Force the linear path tracing to stop if we hit the currently selected node,
         // making it an explicit structural leaf/fork point in the UI trees.
         if (outChildren.size() == 1 && currentId != currentLastNodeId) {
@@ -2584,7 +2585,8 @@ QString MainWindow::getChatNodeTitle(int nodeId, const QHash<int, const MessageN
 }
 
 void MainWindow::populateChatFolders(QStandardItem* parentItem, int folderId, const QList<MessageNode>& allMessages,
-                                     BookDatabase* db, const QHash<int, const MessageNode*>& msgMap,
+                                     const QHash<int, QList<MessageNode>>& childrenMap, BookDatabase* db,
+                                     const QHash<int, const MessageNode*>& msgMap,
                                      const QHash<int, QString>& chatTitles,
                                      const QMultiMap<int, FolderNode>* preloadedFolders) {
     if (!db) return;
@@ -2608,7 +2610,7 @@ void MainWindow::populateChatFolders(QStandardItem* parentItem, int folderId, co
         parentItem->appendRow(folderItem);
 
         // Recurse into subfolders
-        populateChatFolders(folderItem, folder.id, allMessages, db, msgMap, chatTitles, foldersPtr);
+        populateChatFolders(folderItem, folder.id, allMessages, childrenMap, db, msgMap, chatTitles, foldersPtr);
 
         if (folder.isExpanded) {
             openBooksTree->setExpanded(folderItem->index(), true);
@@ -2620,7 +2622,7 @@ void MainWindow::populateChatFolders(QStandardItem* parentItem, int folderId, co
         if (msg.parentId == 0 && msg.folderId == folderId) {
             // Determine children to show the correct icon/label
             QList<MessageNode> children;
-            int endNodeId = getEndOfLinearPath(msg.id, allMessages, children);
+            int endNodeId = getEndOfLinearPath(msg.id, childrenMap, children);
 
             if (!db->getAllChatIds().contains(endNodeId)) {
                 db->updateChat(db->getChat(endNodeId));  // This will initialize and save the node
@@ -2640,7 +2642,7 @@ void MainWindow::populateChatFolders(QStandardItem* parentItem, int folderId, co
             parentItem->appendRow(item);
 
             // Populate the rest of the branch under this root message
-            populateMessageForks(item, endNodeId, allMessages, msgMap, chatTitles);
+            populateMessageForks(item, endNodeId, allMessages, childrenMap, msgMap, chatTitles);
 
             if (msg.isExpanded) {
                 openBooksTree->setExpanded(item->index(), true);
@@ -2653,13 +2655,14 @@ void MainWindow::populateChatFolders(QStandardItem* parentItem, int folderId, co
  * an integral component of the MainWindow class structure. * It ensures that side effects map accurately to internal
  * application models. */
 void MainWindow::populateMessageForks(QStandardItem* parentItem, int parentId, const QList<MessageNode>& allMessages,
+                                      const QHash<int, QList<MessageNode>>& childrenMap,
                                       const QHash<int, const MessageNode*>& msgMap,
                                       const QHash<int, QString>& chatTitles) {
     for (const auto& msg : allMessages) {
         if (msg.parentId == parentId) {
             // Find all children of this message
             QList<MessageNode> children;
-            int endNodeId = getEndOfLinearPath(msg.id, allMessages, children);
+            int endNodeId = getEndOfLinearPath(msg.id, childrenMap, children);
 
             if (currentDb && !currentDb->getAllChatIds().contains(endNodeId)) {
                 currentDb->updateChat(currentDb->getChat(endNodeId));
@@ -2679,7 +2682,7 @@ void MainWindow::populateMessageForks(QStandardItem* parentItem, int parentId, c
             parentItem->appendRow(item);
 
             // Recursively populate under this item.
-            populateMessageForks(item, endNodeId, allMessages, msgMap, chatTitles);
+            populateMessageForks(item, endNodeId, allMessages, childrenMap, msgMap, chatTitles);
 
             if (msg.isExpanded) {
                 openBooksTree->setExpanded(item->index(), true);
@@ -4241,12 +4244,14 @@ void MainWindow::loadDocumentsAndNotes() {
         if (chatsFolder) {
             chatsFolder->removeRows(0, chatsFolder->rowCount());
             QList<MessageNode> msgs = db->getMessages();
+            QHash<int, QList<MessageNode>> childrenMap;
             QHash<int, const MessageNode*> msgMap;
             for (const auto& msg : msgs) {
+                childrenMap[msg.parentId].append(msg);
                 msgMap[msg.id] = &msg;
             }
             QHash<int, QString> chatTitles = db->getAllChatTitles();
-            populateChatFolders(chatsFolder, 0, msgs, db.get(), msgMap, chatTitles);
+            populateChatFolders(chatsFolder, 0, msgs, childrenMap, db.get(), msgMap, chatTitles);
         }
     }
 
