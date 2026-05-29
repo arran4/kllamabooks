@@ -2,6 +2,7 @@
 #define BOOKDATABASE_H
 
 #include <QDateTime>
+#include <QHash>
 #include <QList>
 #include <QSet>
 #include <QString>
@@ -119,6 +120,7 @@ class BookDatabase {
     ChatNode getChat(int messageId) const;
     bool updateChat(const ChatNode& chat);
     QSet<int> getAllChatIds() const;
+    QHash<int, QString> getAllChatTitles() const;
 
     // Settings
     void setSetting(const QString& scope, int targetId, const QString& key, const QString& value);
