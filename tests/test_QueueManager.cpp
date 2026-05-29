@@ -119,6 +119,7 @@ void TestQueueManager::testCheckQueueIsPaused() {
 
     // Force synchronous processing before the event loop can process network errors.
     qm.checkQueue();
+
     // Wait for the asynchronous checkQueue to run and process the item.
     QTest::qWait(1000);
 
@@ -151,6 +152,7 @@ void TestQueueManager::testEndpointDownPreventsProcessing() {
 
     // Force synchronous processing before network errors revert the state.
     qm.checkQueue();
+
     // Wait for async checkQueue to run
     QTest::qWait(1000);
 

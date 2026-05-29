@@ -14,7 +14,7 @@
 #endif
 
 namespace {
-constexpr int CURRENT_SCHEMA_VERSION = 11;
+constexpr int CURRENT_SCHEMA_VERSION = 21;
 }
 
 BookDatabase::BookDatabase(const QString& filepath) : m_filepath(filepath), m_db(nullptr), m_isOpen(false) {}
@@ -1259,6 +1259,7 @@ bool BookDatabase::updateTemplate(int id, const QString& newTitle, const QString
     return rc == SQLITE_DONE;
 }
 
+
 QList<DocumentNode> BookDatabase::getTemplates(int folderId) const {
     QList<DocumentNode> nodes;
     if (!m_isOpen) return nodes;
@@ -1358,6 +1359,7 @@ bool BookDatabase::updateDraft(int id, const QString& newTitle, const QString& n
     sqlite3_finalize(stmt);
     return rc == SQLITE_DONE;
 }
+
 
 QList<DocumentNode> BookDatabase::getDrafts(int folderId) const {
     QList<DocumentNode> nodes;
@@ -2026,6 +2028,23 @@ bool BookDatabase::deleteTemplate(int id) {
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
     sqlite3_bind_int(stmt, 1, id);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
+}
+
+bool BookDatabase::updateDocumentTitle(int id, const QString& newTitle, const QString& targetType) {
+    if (!m_isOpen) return false;
+    QString table = targetType;
+    if (table != "documents" && table != "templates" && table != "drafts" && table != "notes") {
+        table += "s";
+        if (table != "documents" && table != "templates" && table != "drafts" && table != "notes") return false;
+    }
+    QString sql = QString("UPDATE %1 SET title = ? WHERE id = ?;").arg(table);
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql.toUtf8().constData(), -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, newTitle.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 2, id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
     return rc == SQLITE_DONE;

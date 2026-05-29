@@ -197,6 +197,7 @@ class BookDatabase {
     int addFolder(int parentId, const QString& name, const QString& type, bool isExpanded = false);
     bool updateFolder(int id, const QString& newName);
     bool deleteFolder(int id);
+    bool updateDocumentTitle(int id, const QString& newTitle, const QString& targetType);
     void setFolderExpanded(int id, bool expanded);
     void setMessageExpanded(int id, bool expanded);
     QList<FolderNode> getFolders(const QString& type) const;
