@@ -314,13 +314,18 @@ jobs:
       - uses: actions/checkout@v4
       - run: sudo apt-get update
       - run: sudo apt-get install -y cmake ninja-build build-essential qt6-base-dev qt6-svg-dev qt6-tools-dev qt6-tools-dev-tools libkf6wallet-dev libkf6notifications-dev libkf6coreaddons-dev libkf6xmlgui-dev libkf6configwidgets-dev libkf6i18n-dev clang-format cppcheck pkg-config libsqlcipher-dev
-      - name: Lint style and static checks
+      - name: Check formatting
         run: |
-          find src \( -name '*.cpp' -o -name '*.cc' -o -name '*.h' -o -name '*.hpp' \) -print0 | xargs -0 -r clang-format --dry-run --Werror || true
+          find src \( -name '*.cpp' -o -name '*.cc' -o -name '*.h' -o -name '*.hpp' \) -print0 | xargs -0 -r clang-format --dry-run --Werror
+      - name: Static analysis
+        run: |
           cppcheck --enable=warning,style,performance,portability --suppress=missingIncludeSystem --suppress=missingInclude --suppress=unusedFunction --suppress=constVariablePointer --suppress=unknownMacro --error-exitcode=1 src/
-      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-      - run: cmake --build build --parallel
-      - run: QT_QPA_PLATFORM=offscreen ctest --test-dir build --output-on-failure
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: QT_QPA_PLATFORM=offscreen ctest --test-dir build --output-on-failure
 
       - name: Verify Binary
         run: |
@@ -328,8 +333,7 @@ jobs:
             echo "Binary built successfully"
           else
             echo "Binary not found"
-            exit
-            1
+            exit 1
           fi
 
       - name: Upload Binaries
