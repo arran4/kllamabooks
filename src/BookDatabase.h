@@ -5,6 +5,7 @@
 #include <QList>
 #include <QSet>
 #include <QString>
+#include <optional>
 
 struct MessageNode {
     int id;
@@ -24,7 +25,6 @@ struct DocumentNode {
     QString title;
     QString content;
     QDateTime timestamp;
-    bool isFolder;  // Deprecated, but keeping for compatibility during migration if needed
     QString metadata;
     QString targetType;  // Optional, e.g., 'document', 'note', 'template'
 };
@@ -110,6 +110,7 @@ class BookDatabase {
     bool updateMessage(int id, const QString& newContent);
     bool deleteMessage(int id);
     QList<MessageNode> getMessages() const;
+    std::optional<MessageNode> getMessage(int id) const;
     int getRootMessageId(int messageId) const;
     QString getInheritedSetting(int messageId, const QString& key) const;
 

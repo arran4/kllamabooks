@@ -257,7 +257,7 @@ void QueueManager::processNext() {
     if (allPending.isEmpty()) return;
 
     auto getModelSize = [](const QString& model) -> double {
-        QRegularExpression re("([0-9]+(?:\\.[0-9]+)?)[bB]");
+        static const QRegularExpression re("([0-9]+(?:\\.[0-9]+)?)[bB]");
         QRegularExpressionMatch match = re.match(model);
         if (match.hasMatch()) {
             return match.captured(1).toDouble();
@@ -455,7 +455,11 @@ void QueueManager::processNext() {
                             for (const auto& d : docs) {
                                 if (d.id == act.item.messageId) {
                                     currentContent = d.content;
-                                    if (currentContent == QStringLiteral("*Generating merge...*")) currentContent = "";
+                                    if (currentContent == QStringLiteral("*Generating merge...*") ||
+                                        currentContent == QStringLiteral("*Generating document...*") ||
+                                        currentContent == QStringLiteral("*Regenerating...*")) {
+                                        currentContent = "";
+                                    }
                                     title = d.title;
                                     metadata = d.metadata;
                                     break;
