@@ -64,9 +64,18 @@
 #include "QueueWindow.h"
 #include "WalletManager.h"
 
-static const QString GENERATING_MERGE_TEXT = QStringLiteral("*Generating merge...*");
-static const QString GENERATING_DOC_TEXT = QStringLiteral("*Generating document...*");
-static const QString REGENERATING_TEXT = QStringLiteral("*Regenerating...*");
+const QString MainWindow::GENERATING_MERGE_TEXT = QStringLiteral("*Generating merge...*");
+const QString MainWindow::GENERATING_DOC_TEXT = QStringLiteral("*Generating document...*");
+const QString MainWindow::REGENERATING_TEXT = QStringLiteral("*Regenerating...*");
+
+QString MainWindow::getGenerationPlaceholderText(int existingDocId, int numSourceDocuments) {
+    if (existingDocId > 0) {
+        return REGENERATING_TEXT;
+    } else if (numSourceDocuments <= 1) {
+        return GENERATING_DOC_TEXT;
+    }
+    return GENERATING_MERGE_TEXT;
+}
 
 CustomItemModel::CustomItemModel(QObject* parent) : QStandardItemModel(parent), m_mainWindow(nullptr) {}
 
@@ -5348,6 +5357,8 @@ void MainWindow::processMergeGeneration(const QString& finalPrompt, const QStrin
     QString firstModel = selectedModels.first();
     int currentDocIdToUpdate = existingDocId;
 
+    QString generationText = getGenerationPlaceholderText(existingDocId, sourceDocumentIds.size());
+
     if (existingDocId > 0) {
         auto docOpt = currentDb->getDocument(existingDocId);
         if (docOpt) {
@@ -5387,7 +5398,7 @@ void MainWindow::processMergeGeneration(const QString& finalPrompt, const QStrin
         }
         int newDocId = currentDb->addDocument(targetFolderId,
                                               selectedModels.size() > 1 ? baseTitle + " - " + firstModel : baseTitle,
-                                              GENERATING_MERGE_TEXT, 0, metaStr);
+                                              generationText, 0, metaStr);
         currentDb->addDocumentMerge(newDocId, sourceIdsStr, finalPrompt, firstModel, 0);
         currentDb->enqueuePrompt(newDocId, firstModel, finalPrompt, 0, "document", 0, "replace_direct");
     }
@@ -5396,7 +5407,7 @@ void MainWindow::processMergeGeneration(const QString& finalPrompt, const QStrin
     for (int i = 1; i < selectedModels.size(); ++i) {
         QString model = selectedModels[i];
         int newDocId =
-            currentDb->addDocument(targetFolderId, baseTitle + " - " + model, GENERATING_MERGE_TEXT, 0, metaStr);
+            currentDb->addDocument(targetFolderId, baseTitle + " - " + model, generationText, 0, metaStr);
         currentDb->addDocumentMerge(newDocId, sourceIdsStr, finalPrompt, model, 0);
         currentDb->enqueuePrompt(newDocId, model, finalPrompt, 0, "document", 0, "replace_direct");
     }
@@ -5690,8 +5701,7 @@ void MainWindow::updateRegenerateButtonVisibility(const DocumentNode& doc, const
         if (hasMerge || hasPrompt) {
             if (hasMerge) showSources = true;
             bool isGenerating = currentDb->isGenerating(doc.id, "document", "replace_direct");
-            if (!isGenerating && !doc.content.contains(GENERATING_MERGE_TEXT) &&
-                !doc.content.contains(GENERATING_DOC_TEXT) && !doc.content.contains(REGENERATING_TEXT)) {
+            if (!isGenerating) {
                 showRegenerate = true;
             }
         }

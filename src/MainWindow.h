@@ -55,6 +55,12 @@ class CustomItemModel : public QStandardItemModel {
 class MainWindow : public KXmlGuiWindow {
     Q_OBJECT
    public:
+    static const QString GENERATING_MERGE_TEXT;
+    static const QString GENERATING_DOC_TEXT;
+    static const QString REGENERATING_TEXT;
+
+    static QString getGenerationPlaceholderText(int existingDocId, int numSourceDocuments);
+
     explicit MainWindow(QWidget* parent = nullptr);
     ~MainWindow();
     void getDocumentContent(int id, const QString& type, QString& outTitle, QString& outContent);
