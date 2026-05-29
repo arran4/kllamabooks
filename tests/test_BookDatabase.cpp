@@ -1,4 +1,6 @@
 #include <QCoreApplication>
+#include <QDir>
+#include <QFile>
 #include <QtTest>
 
 #include "../src/BookDatabase.h"
@@ -8,6 +10,9 @@ class TestBookDatabase : public QObject {
 
    private slots:
     void initTestCase();
+    void testOpenInvalidPath();
+    void testOpenInvalidPassword();
+    void testOpenCorruptedDatabase();
     void testInitSchema();
     void testAddDocumentHappyPath();
     void testAddDocumentWithParent();
@@ -17,6 +22,44 @@ class TestBookDatabase : public QObject {
 void TestBookDatabase::initTestCase() {
     QCoreApplication::setOrganizationName("TestOrg");
     QCoreApplication::setApplicationName("TestApp");
+}
+
+void TestBookDatabase::testOpenInvalidPath() {
+    BookDatabase db("/nonexistent_directory_for_test/test.db");
+    QVERIFY(!db.open("password"));
+}
+
+void TestBookDatabase::testOpenInvalidPassword() {
+    QString dbPath = QDir::temp().filePath("test_db_invalid_pwd.db");
+    QFile::remove(dbPath);
+
+    {
+        BookDatabase db(dbPath);
+        QVERIFY(db.open("correct_password"));
+    }
+
+    {
+        BookDatabase db(dbPath);
+        QVERIFY(!db.open("wrong_password"));
+    }
+
+    QFile::remove(dbPath);
+}
+
+void TestBookDatabase::testOpenCorruptedDatabase() {
+    QString dbPath = QDir::temp().filePath("test_db_corrupted.db");
+    QFile::remove(dbPath);
+
+    QFile file(dbPath);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("This is a garbage text file that is not a valid SQLite database.");
+    file.close();
+
+    BookDatabase db(dbPath);
+    QVERIFY(!db.open("any_password"));
+    QVERIFY(!db.open(""));
+
+    QFile::remove(dbPath);
 }
 
 void TestBookDatabase::testInitSchema() {
