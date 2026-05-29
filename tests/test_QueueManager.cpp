@@ -48,7 +48,6 @@ void TestQueueManager::init() {
 }
 
 void TestQueueManager::cleanup() {
-    QTest::qWait(200);
     QueueManager& qm = QueueManager::instance();
     if (m_db) {
         qm.removeDatabase(m_db);
@@ -117,13 +116,9 @@ void TestQueueManager::testCheckQueueIsPaused() {
 
     qm.resumeQueue();
 
-<<<<<<< HEAD
     // Force synchronous processing before the event loop can process network errors.
     qm.checkQueue();
-=======
     // Wait for the asynchronous checkQueue to run and process the item.
-    QTest::qWait(1000);
->>>>>>> origin/main
 
     stats = qm.getQueueStats();
     QCOMPARE(stats.pending, 0);
@@ -152,13 +147,9 @@ void TestQueueManager::testEndpointDownPreventsProcessing() {
     emit m_client->connectionStatusChanged(true);
     QVERIFY(qm.isEndpointUp());
 
-<<<<<<< HEAD
     // Force synchronous processing before network errors revert the state.
     qm.checkQueue();
-=======
     // Wait for async checkQueue to run
-    QTest::qWait(1000);
->>>>>>> origin/main
 
     stats = qm.getQueueStats();
     QCOMPARE(stats.pending, 0);
@@ -172,8 +163,6 @@ void TestQueueManager::testMaxConcurrentLimits() {
     emit m_client->connectionStatusChanged(true); // default queue test state
     qm.resumeQueue();
 
-    // Explicitly set endpoint to true to override any state leaked from previous tests
-    emit client.connectionStatusChanged(true);
 
     qm.setMaxConcurrent(1);
     QCOMPARE(qm.maxConcurrent(), 1);
@@ -187,9 +176,7 @@ void TestQueueManager::testMaxConcurrentLimits() {
     QCOMPARE(stats.processing, 0);
 
     qm.checkQueue();
-    QTest::qWait(200);
 
-    QTest::qWait(1000); // Allow async queue processing
     // After checkQueue, one item should be processing and one pending.
     stats = qm.getQueueStats();
     QCOMPARE(stats.pending, 1);
