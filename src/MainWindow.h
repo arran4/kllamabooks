@@ -165,7 +165,8 @@ class MainWindow : public KXmlGuiWindow {
     void updateLinearChatView(int tailNodeId, const QList<MessageNode>& allMessages);
     void getPathToRoot(int nodeId, const QList<MessageNode>& allMessages, QList<MessageNode>& path);
     int getEndOfLinearPath(int startId, const QList<MessageNode>& allMessages, QList<MessageNode>& outChildren);
-    QString getChatNodeTitle(int nodeId, const QList<MessageNode>& allMessages);
+    QString getChatNodeTitle(int nodeId, const QHash<int, const MessageNode*>& msgMap,
+                             const QHash<int, QString>& chatTitles);
    public slots:
     void loadDocumentsAndNotes();
 

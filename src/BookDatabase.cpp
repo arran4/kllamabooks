@@ -1999,3 +1999,22 @@ QList<MessageNode> BookDatabase::getMessageSubtree(int rootId) const {
     sqlite3_finalize(stmt);
     return nodes;
 }
+
+QMap<int, QString> BookDatabase::getAllChatTitles() const {
+    QMap<int, QString> titles;
+    if (!m_isOpen) return titles;
+    const char* sql = "SELECT message_id, title FROM chats;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            int id = sqlite3_column_int(stmt, 0);
+            QString title;
+            if (sqlite3_column_text(stmt, 1)) {
+                title = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)));
+            }
+            titles.insert(id, title);
+        }
+        sqlite3_finalize(stmt);
+    }
+    return titles;
+}
