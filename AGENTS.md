@@ -43,3 +43,4 @@ If your environment does not have the required Qt6 or KF6 development headers, t
 
 - **Document AI & Queueing:** Document AI operations (e.g., text completion, rewriting) are fully integrated into the global `QueueManager` and are no longer dispatched synchronously in the UI thread. The SQLite `queue` table tracks a `target_type` (message vs document) to support this.
 - **Configurable Prompts:** AI system prompts for document modes are user-configurable via `AiActionDialog`, saved via `QSettings`, and support the `{context}` placeholder variable for template injection.
+- **State Checks:** Never use UI state (like checking text content or widget properties) to determine internal logic state (like whether a generation is active). Always rely on database results or cached backend states.

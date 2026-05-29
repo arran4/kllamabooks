@@ -10,7 +10,7 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
-find_package(Qt6 COMPONENTS Widgets Network Svg DBus REQUIRED)
+find_package(Qt6 COMPONENTS Widgets Network Svg DBus Sql REQUIRED)
 find_package(KF6Wallet REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(SQLCIPHER REQUIRED sqlcipher)
@@ -68,6 +68,8 @@ add_executable(kllamabooks
     src/DocumentReviewDialog.h
     src/DocumentHistoryDialog.cpp
     src/DocumentHistoryDialog.h
+    src/PromptHistoryDialog.cpp
+    src/PromptHistoryDialog.h
     src/NewDocumentDialog.cpp
     src/NewDocumentDialog.h
     src/PasswordDialog.h
@@ -115,7 +117,7 @@ install(FILES src/com.arran4.kllamabooks.metainfo.xml
 
 # Tests
 enable_testing()
-find_package(Qt6 COMPONENTS Test REQUIRED)
+find_package(Qt6 COMPONENTS Test Sql REQUIRED)
 add_executable(test_TemplateParser tests/test_TemplateParser.cpp src/TemplateParser.cpp)
 target_link_libraries(test_TemplateParser Qt6::Test Qt6::Core)
 add_test(NAME test_TemplateParser COMMAND test_TemplateParser)
@@ -148,4 +150,9 @@ install(FILES src/com.arran4.kllamabooks.metainfo.xml
 
 add_executable(test_QueueManager tests/test_QueueManager.cpp src/QueueManager.cpp src/BookDatabase.cpp src/OllamaClient.cpp src/NotificationDelegate.cpp src/DocumentTemplatesManager.cpp src/AIOperationsManager.cpp src/TemplateParser.cpp)
 target_link_libraries(test_QueueManager Qt6::Test Qt6::Core Qt6::Widgets Qt6::Network ${SQLCIPHER_LIBRARIES})
+target_include_directories(test_QueueManager PRIVATE ${SQLCIPHER_INCLUDE_DIRS})
 add_test(NAME test_QueueManager COMMAND test_QueueManager)
+add_executable(test_PerformanceMainWindow tests/test_PerformanceMainWindow.cpp src/BookDatabase.cpp)
+target_link_libraries(test_PerformanceMainWindow Qt6::Test Qt6::Core Qt6::Sql ${SQLCIPHER_LIBRARIES})
+target_include_directories(test_PerformanceMainWindow PRIVATE ${SQLCIPHER_INCLUDE_DIRS})
+add_test(NAME test_PerformanceMainWindow COMMAND test_PerformanceMainWindow)
