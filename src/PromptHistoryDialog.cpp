@@ -65,9 +65,12 @@ void PromptHistoryDialog::loadHistory() {
         QString displayTime = dt.isValid() ? dt.toString("yyyy-MM-dd HH:mm:ss") : e.timestamp;
 
         QString displayStatus = e.status;
-        if (displayStatus.isEmpty()) displayStatus = "Completed/Removed";
-        else if (displayStatus == "pending") displayStatus = "Queued";
-        else if (displayStatus == "error") displayStatus = "Failed";
+        if (displayStatus.isEmpty())
+            displayStatus = "Completed/Removed";
+        else if (displayStatus == "pending")
+            displayStatus = "Queued";
+        else if (displayStatus == "error")
+            displayStatus = "Failed";
 
         m_historyList->addItem(QString("%1\n%2 (%3)").arg(displayTime, displayStatus, e.model));
     }

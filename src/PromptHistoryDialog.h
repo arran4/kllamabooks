@@ -30,4 +30,4 @@ class PromptHistoryDialog : public QDialog {
     void loadHistory();
 };
 
-#endif // PROMPTHISTORYDIALOG_H
+#endif  // PROMPTHISTORYDIALOG_H

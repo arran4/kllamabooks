@@ -52,7 +52,6 @@
 #include "DatabaseSettingsDialog.h"
 #include "DocumentEditWindow.h"
 #include "DocumentHistoryDialog.h"
-#include "PromptHistoryDialog.h"
 #include "DocumentReviewDialog.h"
 #include "DocumentTemplatesManager.h"
 #include "DraftSelectionDialog.h"
@@ -61,6 +60,7 @@
 #include "NewDocumentDialog.h"
 #include "NotificationDelegate.h"
 #include "PasswordDialog.h"
+#include "PromptHistoryDialog.h"
 #include "QueueManager.h"
 #include "QueueWindow.h"
 #include "WalletManager.h"
@@ -2371,8 +2371,8 @@ void MainWindow::populateDraftsFolders(QStandardItem* parentItem, int folderId, 
     }
 }
 
-void MainWindow::populateDocumentFolders(QStandardItem* parentItem, int folderId, const QString& type,
-                                         BookDatabase* db, const QMultiMap<int, FolderNode>* preloadedFolders) {
+void MainWindow::populateDocumentFolders(QStandardItem* parentItem, int folderId, const QString& type, BookDatabase* db,
+                                         const QMultiMap<int, FolderNode>* preloadedFolders) {
     if (!db) return;
 
     // First, add subfolders
@@ -2585,7 +2585,8 @@ QString MainWindow::getChatNodeTitle(int nodeId, const QHash<int, const MessageN
 
 void MainWindow::populateChatFolders(QStandardItem* parentItem, int folderId, const QList<MessageNode>& allMessages,
                                      BookDatabase* db, const QHash<int, const MessageNode*>& msgMap,
-                                     const QHash<int, QString>& chatTitles, const QMultiMap<int, FolderNode>* preloadedFolders) {
+                                     const QHash<int, QString>& chatTitles,
+                                     const QMultiMap<int, FolderNode>* preloadedFolders) {
     if (!db) return;
 
     // 1. Add subfolders of type 'chats'
@@ -2613,7 +2614,6 @@ void MainWindow::populateChatFolders(QStandardItem* parentItem, int folderId, co
             openBooksTree->setExpanded(folderItem->index(), true);
         }
     }
-
 
     // 2. Add root messages (sessions) that belong to this folder
     for (const auto& msg : allMessages) {
@@ -3443,16 +3443,8 @@ void MainWindow::onQueueChunk(std::shared_ptr<BookDatabase> db, int messageId, c
                               const QString& targetType) {
     if (currentDb == db) {
         if (targetType == "document" && currentDocumentId == messageId) {
-            documentEditorView->blockSignals(true);
-            QString text = documentEditorView->toPlainText();
-            if (text == GENERATING_MERGE_TEXT || text == GENERATING_DOC_TEXT || text == REGENERATING_TEXT) {
-                documentEditorView->setPlainText("");
-            }
-            QTextCursor cursor = documentEditorView->textCursor();
-            cursor.movePosition(QTextCursor::End);
-            documentEditorView->setTextCursor(cursor);
-            documentEditorView->insertPlainText(chunk);
-            documentEditorView->blockSignals(false);
+            // Document generation chunks are not shown dynamically to ensure
+            // the old content is kept visible until completion.
         } else if (targetType == "message" && currentLastNodeId == messageId) {
             chatTextArea->blockSignals(true);
             QScrollBar* vBar = chatTextArea->verticalScrollBar();
@@ -5168,8 +5160,7 @@ bool MainWindow::moveItemToFolder(QStandardItem* draggedItem, QStandardItem* tar
                 QStandardItem* newItem = findItemInTree(newId, itemType);
                 if (newItem) {
                     openBooksTree->selectionModel()->select(
-                        newItem->index(),
-                        QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Current);
+                        newItem->index(), QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Current);
                     openBooksTree->scrollTo(newItem->index());
                 }
             }
@@ -5441,14 +5432,11 @@ void MainWindow::processMergeGeneration(const QString& finalPrompt, const QStrin
             // Add a new row for the new generation
             currentDb->addDocumentMerge(existingDocId, sourceIdsStr, finalPrompt, firstModel, 0);
 
-            // Set generating text and metadata
-            currentDb->updateDocument(existingDocId, docOpt->title, REGENERATING_TEXT, metaStr);
+            // Update metadata but keep old content
+            currentDb->updateDocument(existingDocId, docOpt->title, docOpt->content, metaStr);
 
             if (documentEditorView && mainContentStack->currentWidget() == docContainer &&
                 currentDocumentId == existingDocId) {
-                documentEditorView->blockSignals(true);
-                documentEditorView->setPlainText(REGENERATING_TEXT);
-                documentEditorView->blockSignals(false);
                 if (regenerateMergeAction) {
                     regenerateMergeAction->setVisible(false);
                 }
@@ -5471,8 +5459,7 @@ void MainWindow::processMergeGeneration(const QString& finalPrompt, const QStrin
     // If there are additional models selected, create new documents for them
     for (int i = 1; i < selectedModels.size(); ++i) {
         QString model = selectedModels[i];
-        int newDocId =
-            currentDb->addDocument(targetFolderId, baseTitle + " - " + model, generationText, 0, metaStr);
+        int newDocId = currentDb->addDocument(targetFolderId, baseTitle + " - " + model, generationText, 0, metaStr);
         currentDb->addDocumentMerge(newDocId, sourceIdsStr, finalPrompt, model, 0);
         currentDb->enqueuePrompt(newDocId, model, finalPrompt, 0, "document", 0, "replace_direct");
     }
@@ -5654,13 +5641,13 @@ void MainWindow::handleNewDocumentCreation(int defaultFolderId) {
                 int newFolderId = currentDb->addFolder(folderId, title, "folder");
                 for (const QString& model : models) {
                     QString docTitle = title + " (" + model + ")";
-                    newDocId = currentDb->addDocument(newFolderId, docTitle, GENERATING_DOC_TEXT, 0, metaStr);
+                    newDocId = currentDb->addDocument(newFolderId, docTitle, "", 0, metaStr);
                     if (newDocId != -1)
                         currentDb->enqueuePrompt(newDocId, model, prompt, 0, "document", 0, "replace_direct");
                 }
             } else {
                 QString model = models.isEmpty() ? "" : models.first();
-                newDocId = currentDb->addDocument(folderId, title, GENERATING_DOC_TEXT, 0, metaStr);
+                newDocId = currentDb->addDocument(folderId, title, "", 0, metaStr);
                 if (newDocId != -1)
                     currentDb->enqueuePrompt(newDocId, model, prompt, 0, "document", 0, "replace_direct");
                 shouldNavigate = true;
@@ -5752,9 +5739,8 @@ void MainWindow::updateRegenerateButtonVisibility(const DocumentNode& doc, const
 
         if (hasMerge || hasPrompt) {
             if (hasMerge) showSources = true;
-            bool isGenerating = currentDb->isGenerating(doc.id, "document", "replace_direct");
-            if (!isGenerating && !doc.content.contains(GENERATING_MERGE_TEXT) &&
-                !doc.content.contains(GENERATING_DOC_TEXT) && !doc.content.contains(REGENERATING_TEXT)) {
+            bool isGenerating = currentDb->isGenerating(doc.id, "document", "");
+            if (!isGenerating) {
                 showRegenerate = true;
             }
         }

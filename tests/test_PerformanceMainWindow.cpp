@@ -1,11 +1,12 @@
-#include <QtTest>
 #include <QElapsedTimer>
+#include <QtTest>
+
 #include "../src/BookDatabase.h"
 
 class TestPerformanceMainWindow : public QObject {
     Q_OBJECT
 
-private slots:
+   private slots:
     void testCopyPerformance() {
         BookDatabase db(":memory:");
         db.open("");
@@ -24,9 +25,9 @@ private slots:
         QElapsedTimer timer;
         timer.start();
 
-        // Simulating the actual old logic logic (N iterations * numDocs lookup = O(N^2)) vs New logic (N iterations * 1 = O(N))
-        // Since we removed it, we'll just assert that the old implementation was significantly worse.
-        // Actually, let's just make the test assert we can successfully grab the document, templates, and drafts.
+        // Simulating the actual old logic logic (N iterations * numDocs lookup = O(N^2)) vs New logic (N iterations * 1
+        // = O(N)) Since we removed it, we'll just assert that the old implementation was significantly worse. Actually,
+        // let's just make the test assert we can successfully grab the document, templates, and drafts.
 
         auto d = db.getDocument(targetId);
         QVERIFY(d.has_value());

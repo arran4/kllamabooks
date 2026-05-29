@@ -587,9 +587,11 @@ bool BookDatabase::initSchema() {
         sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), sql_copy_merges, nullptr, nullptr, nullptr);
 
         sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "DROP TABLE document_merges;", nullptr, nullptr, nullptr);
-        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "ALTER TABLE document_merges_new RENAME TO document_merges;", nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "ALTER TABLE document_merges_new RENAME TO document_merges;",
+                     nullptr, nullptr, nullptr);
 
-        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "INSERT OR REPLACE INTO schema_version (version) VALUES (21);", nullptr, nullptr, nullptr);
+        sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "INSERT OR REPLACE INTO schema_version (version) VALUES (21);",
+                     nullptr, nullptr, nullptr);
         sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "PRAGMA user_version = 21;", nullptr, nullptr, nullptr);
         userVersion = 21;
     }
@@ -725,7 +727,8 @@ std::optional<BookDatabase::DocumentMergeEntry> BookDatabase::getDocumentMerge(i
     if (!m_isOpen) return std::nullopt;
 
     QString sqlStr =
-        "SELECT dm.id, dm.document_id, dm.source_document_ids, ph.prompt, ph.model, dm.timestamp, dm.version_history_id "
+        "SELECT dm.id, dm.document_id, dm.source_document_ids, ph.prompt, ph.model, dm.timestamp, "
+        "dm.version_history_id "
         "FROM document_merges dm "
         "LEFT JOIN prompt_history ph ON dm.document_id = ph.document_id "
         "WHERE dm.document_id = ? "
@@ -922,7 +925,8 @@ QString BookDatabase::getInheritedSetting(int messageId, const QString& key) con
 std::optional<MessageNode> BookDatabase::getMessage(int id) const {
     if (!m_isOpen) return std::nullopt;
 
-    QString sqlStr = "SELECT id, parent_id, folder_id, role, content, timestamp, is_expanded FROM messages WHERE id = ?;";
+    QString sqlStr =
+        "SELECT id, parent_id, folder_id, role, content, timestamp, is_expanded FROM messages WHERE id = ?;";
     sqlite3_stmt* stmt;
     int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sqlStr.toUtf8().constData(), -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return std::nullopt;
@@ -1259,7 +1263,6 @@ bool BookDatabase::updateTemplate(int id, const QString& newTitle, const QString
     return rc == SQLITE_DONE;
 }
 
-
 QList<DocumentNode> BookDatabase::getTemplates(int folderId) const {
     QList<DocumentNode> nodes;
     if (!m_isOpen) return nodes;
@@ -1309,7 +1312,7 @@ std::optional<DocumentNode> BookDatabase::getTemplate(int id) const {
         const char* tsText = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4));
         QString ts = tsText ? QString::fromUtf8(tsText) : QString();
         node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
-        node.parentId = 0; // Initialize unused parentId for templates
+        node.parentId = 0;  // Initialize unused parentId for templates
         sqlite3_finalize(stmt);
         return node;
     }
@@ -1360,7 +1363,6 @@ bool BookDatabase::updateDraft(int id, const QString& newTitle, const QString& n
     return rc == SQLITE_DONE;
 }
 
-
 QList<DocumentNode> BookDatabase::getDrafts(int folderId) const {
     QList<DocumentNode> nodes;
     if (!m_isOpen) return nodes;
@@ -1394,7 +1396,8 @@ QList<DocumentNode> BookDatabase::getDrafts(int folderId) const {
 std::optional<DocumentNode> BookDatabase::getDraft(int id) const {
     if (!m_isOpen) return std::nullopt;
 
-    QString sqlStr = "SELECT id, folder_id, title, content, timestamp, parent_id, target_type FROM drafts WHERE id = ?;";
+    QString sqlStr =
+        "SELECT id, folder_id, title, content, timestamp, parent_id, target_type FROM drafts WHERE id = ?;";
     sqlite3_stmt* stmt;
     int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sqlStr.toUtf8().constData(), -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return std::nullopt;
@@ -1637,15 +1640,27 @@ BookDatabase::QueueStats BookDatabase::getQueueStats() const {
 
 bool BookDatabase::isGenerating(int targetId, const QString& targetType, const QString& targetAction) const {
     if (!m_isOpen) return false;
-    const char* sql =
-        "SELECT COUNT(*) FROM queue WHERE message_id = ? AND target_type = ? AND target_action = ? AND state IN "
-        "('pending', 'processing');";
-    sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
 
-    sqlite3_bind_int(stmt, 1, targetId);
-    sqlite3_bind_text(stmt, 2, targetType.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 3, targetAction.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_stmt* stmt;
+
+    if (targetAction.isNull() || targetAction.isEmpty()) {
+        const char* sql =
+            "SELECT COUNT(*) FROM queue WHERE message_id = ? AND target_type = ? AND state IN "
+            "('pending', 'processing');";
+        if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+
+        sqlite3_bind_int(stmt, 1, targetId);
+        sqlite3_bind_text(stmt, 2, targetType.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    } else {
+        const char* sql =
+            "SELECT COUNT(*) FROM queue WHERE message_id = ? AND target_type = ? AND target_action = ? AND state IN "
+            "('pending', 'processing');";
+        if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+
+        sqlite3_bind_int(stmt, 1, targetId);
+        sqlite3_bind_text(stmt, 2, targetType.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 3, targetAction.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    }
 
     bool result = false;
     if (sqlite3_step(stmt) == SQLITE_ROW) {
@@ -2042,7 +2057,8 @@ bool BookDatabase::updateDocumentTitle(int id, const QString& newTitle, const QS
     }
     QString sql = QString("UPDATE %1 SET title = ? WHERE id = ?;").arg(table);
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql.toUtf8().constData(), -1, &stmt, nullptr) != SQLITE_OK) return false;
+    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql.toUtf8().constData(), -1, &stmt, nullptr) != SQLITE_OK)
+        return false;
     sqlite3_bind_text(stmt, 1, newTitle.toUtf8().constData(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_int(stmt, 2, id);
     int rc = sqlite3_step(stmt);
@@ -2077,7 +2093,7 @@ QList<BookDatabase::PromptHistoryEntry> BookDatabase::getPromptHistory(int docum
         if (sqlite3_column_type(stmt, 5) != SQLITE_NULL) {
             e.status = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 5)));
         } else {
-            e.status = ""; // Indicates completed/removed from queue
+            e.status = "";  // Indicates completed/removed from queue
         }
 
         items.append(e);
