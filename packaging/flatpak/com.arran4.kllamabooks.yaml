@@ -3,6 +3,12 @@ runtime: org.kde.Platform
 runtime-version: '6.6'
 sdk: org.kde.Sdk
 command: kllamabooks
+cleanup:
+  - /bin/tclsh*
+  - /lib/libtcl*
+  - /include/tcl*
+  - /share/man/man*/tcl*
+  - /share/man/man*/*Tcl*
 finish-args:
   - --share=ipc
   - --socket=fallback-x11
@@ -11,6 +17,13 @@ finish-args:
   - --share=network
   - --socket=session-bus
 modules:
+  - name: tcl
+    buildsystem: autotools
+    subdir: unix
+    sources:
+      - type: archive
+        url: https://prdownloads.sourceforge.net/tcl/tcl8.6.13-src.tar.gz
+        sha256: 43a1fae7412f61ff11de2cfd05d28cfc3a73762f354a417c62370a54e2caf066
   - name: sqlcipher
     buildsystem: autotools
     config-opts:
