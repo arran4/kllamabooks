@@ -5188,7 +5188,7 @@ bool MainWindow::moveItemToFolder(QStandardItem* draggedItem, QStandardItem* tar
 
             int rootNewId = -1;
             int leafNewId = -1;
-            copyChatSubtree(rootMsgId, 0, targetFolderId, childrenMap, msgMap, db, rootNewId, leafNewId, itemId,
+            copyChatSubtree(rootMsgId, 0, targetFolderId, childrenMap, msgMap, db.get(), rootNewId, leafNewId, itemId,
                             titleNodeId, db->getAllChatIds());
 
             if (leafNewId > 0) {
