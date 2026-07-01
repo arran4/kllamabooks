@@ -5157,7 +5157,32 @@ bool MainWindow::moveItemToFolder(QStandardItem* draggedItem, QStandardItem* tar
                 copied = true;
             }
         } else if ((itemType == "chat_session" || itemType == "chat_node") && targetType == "chats_folder") {
-            // complex copy omitted for now
+            QList<MessageNode> msgs = db->getMessages();
+            int rootMsgId = itemId;
+
+            if (itemType == "chat_node") {
+                QList<MessageNode> path;
+                getPathToRoot(itemId, msgs, path);
+                if (!path.isEmpty()) {
+                    rootMsgId = path.first().id;
+                }
+            }
+
+            QHash<int, QList<MessageNode>> childrenMap;
+            QHash<int, const MessageNode*> msgMap;
+            for (const auto& msg : msgs) {
+                childrenMap[msg.parentId].append(msg);
+                msgMap[msg.id] = &msg;
+            }
+
+            int rootNewId = -1;
+            copyChatSubtree(rootMsgId, 0, targetFolderId, childrenMap, msgMap, db, rootNewId, db->getAllChatIds());
+
+            if (rootNewId > 0) {
+                newId = rootNewId;
+                itemType = "chat_session"; // Ensure we select the root chat folder later
+                copied = true;
+            }
         }
         if (copied) {
             loadDocumentsAndNotes();
@@ -6272,4 +6297,43 @@ bool MainWindow::isPromptGenerated(int docId) {
         }
     }
     return false;
+}
+
+void MainWindow::copyChatSubtree(int sourceMsgId, int targetParentId, int targetFolderId,
+                                 const QHash<int, QList<MessageNode>>& childrenMap,
+                                 const QHash<int, const MessageNode*>& msgMap,
+                                 BookDatabase* db, int& newRootId, const QSet<int>& allChatIds) {
+    if (!db || !msgMap.contains(sourceMsgId)) return;
+
+    const MessageNode* sourceMsg = msgMap.value(sourceMsgId);
+
+    // Create copy of the current message
+    int newMsgId = db->addMessage(targetParentId, sourceMsg->content, sourceMsg->role, targetFolderId);
+
+    if (newMsgId <= 0) return;
+
+    // Update newRootId if this is the first item we copy (i.e. the root of the copy operation)
+    if (newRootId == -1) {
+        newRootId = newMsgId;
+    }
+
+    // Copy the chat settings if it's an explicit chat node (has settings in chats table)
+    if (allChatIds.contains(sourceMsgId)) {
+        ChatNode sourceChat = db->getChat(sourceMsgId);
+        sourceChat.id = newMsgId;
+
+        // Only append "Copy of" to the root of the copy operation, not every sub-fork
+        if (newMsgId == newRootId) {
+            sourceChat.title = "Copy of " + sourceChat.title;
+        }
+
+        db->updateChat(sourceChat);
+    }
+
+    // Recursively copy all children
+    for (const MessageNode& child : childrenMap.value(sourceMsgId)) {
+        // Only the root message of a chat session gets a folder ID.
+        // Subsequent messages get folderId = 0.
+        copyChatSubtree(child.id, newMsgId, 0, childrenMap, msgMap, db, newRootId, allChatIds);
+    }
 }
