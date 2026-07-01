@@ -173,8 +173,8 @@ class MainWindow : public KXmlGuiWindow {
                            QList<MessageNode>& outChildren);
     void copyChatSubtree(int sourceMsgId, int targetParentId, int targetFolderId,
                          const QHash<int, QList<MessageNode>>& childrenMap,
-                         const QHash<int, const MessageNode*>& msgMap, BookDatabase* db,
-                         int& newRootId, int& newLeafId, int targetLeafId, int targetTitleId, const QSet<int>& allChatIds);
+                         const QHash<int, const MessageNode*>& msgMap, BookDatabase* db, int& newRootId, int& newLeafId,
+                         int targetLeafId, int targetTitleId, const QSet<int>& allChatIds);
     QString getChatNodeTitle(int nodeId, const QHash<int, const MessageNode*>& msgMap,
                              const QHash<int, QString>& chatTitles);
    public slots:

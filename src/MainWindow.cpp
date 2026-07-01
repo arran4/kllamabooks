@@ -5188,11 +5188,12 @@ bool MainWindow::moveItemToFolder(QStandardItem* draggedItem, QStandardItem* tar
 
             int rootNewId = -1;
             int leafNewId = -1;
-            copyChatSubtree(rootMsgId, 0, targetFolderId, childrenMap, msgMap, db, rootNewId, leafNewId, itemId, titleNodeId, db->getAllChatIds());
+            copyChatSubtree(rootMsgId, 0, targetFolderId, childrenMap, msgMap, db, rootNewId, leafNewId, itemId,
+                            titleNodeId, db->getAllChatIds());
 
             if (leafNewId > 0) {
                 newId = leafNewId;
-                itemType = "chat_node"; // Ensure we select the copied leaf node later
+                itemType = "chat_node";  // Ensure we select the copied leaf node later
                 copied = true;
             }
         }
@@ -6313,9 +6314,8 @@ bool MainWindow::isPromptGenerated(int docId) {
 
 void MainWindow::copyChatSubtree(int sourceMsgId, int targetParentId, int targetFolderId,
                                  const QHash<int, QList<MessageNode>>& childrenMap,
-                                 const QHash<int, const MessageNode*>& msgMap,
-                                 BookDatabase* db, int& newRootId, int& newLeafId,
-                                 int targetLeafId, int targetTitleId, const QSet<int>& allChatIds) {
+                                 const QHash<int, const MessageNode*>& msgMap, BookDatabase* db, int& newRootId,
+                                 int& newLeafId, int targetLeafId, int targetTitleId, const QSet<int>& allChatIds) {
     if (!db || !msgMap.contains(sourceMsgId)) return;
 
     const MessageNode* sourceMsg = msgMap.value(sourceMsgId);
@@ -6352,6 +6352,7 @@ void MainWindow::copyChatSubtree(int sourceMsgId, int targetParentId, int target
     for (const MessageNode& child : childrenMap.value(sourceMsgId)) {
         // Only the root message of a chat session gets a folder ID.
         // Subsequent messages get folderId = 0.
-        copyChatSubtree(child.id, newMsgId, 0, childrenMap, msgMap, db, newRootId, newLeafId, targetLeafId, targetTitleId, allChatIds);
+        copyChatSubtree(child.id, newMsgId, 0, childrenMap, msgMap, db, newRootId, newLeafId, targetLeafId,
+                        targetTitleId, allChatIds);
     }
 }
