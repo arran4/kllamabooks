@@ -5157,7 +5157,45 @@ bool MainWindow::moveItemToFolder(QStandardItem* draggedItem, QStandardItem* tar
                 copied = true;
             }
         } else if ((itemType == "chat_session" || itemType == "chat_node") && targetType == "chats_folder") {
-            // complex copy omitted for now
+            QList<MessageNode> msgs = db->getMessages();
+            int rootMsgId = itemId;
+            int titleNodeId = -1;
+
+            if (itemType == "chat_node") {
+                QList<MessageNode> path;
+                getPathToRoot(itemId, msgs, path);
+                if (!path.isEmpty()) {
+                    rootMsgId = path.first().id;
+
+                    // Find which node in the path holds the active custom title
+                    QHash<int, QString> chatTitles = db->getAllChatTitles();
+                    for (int i = path.size() - 1; i >= 0; --i) {
+                        int currentId = path[i].id;
+                        if (chatTitles.contains(currentId) && !chatTitles.value(currentId).isEmpty()) {
+                            titleNodeId = currentId;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            QHash<int, QList<MessageNode>> childrenMap;
+            QHash<int, const MessageNode*> msgMap;
+            for (const auto& msg : msgs) {
+                childrenMap[msg.parentId].append(msg);
+                msgMap[msg.id] = &msg;
+            }
+
+            int rootNewId = -1;
+            int leafNewId = -1;
+            copyChatSubtree(rootMsgId, 0, targetFolderId, childrenMap, msgMap, db.get(), rootNewId, leafNewId, itemId,
+                            titleNodeId, db->getAllChatIds());
+
+            if (leafNewId > 0) {
+                newId = leafNewId;
+                itemType = "chat_node";  // Ensure we select the copied leaf node later
+                copied = true;
+            }
         }
         if (copied) {
             loadDocumentsAndNotes();
@@ -6272,4 +6310,49 @@ bool MainWindow::isPromptGenerated(int docId) {
         }
     }
     return false;
+}
+
+void MainWindow::copyChatSubtree(int sourceMsgId, int targetParentId, int targetFolderId,
+                                 const QHash<int, QList<MessageNode>>& childrenMap,
+                                 const QHash<int, const MessageNode*>& msgMap, BookDatabase* db, int& newRootId,
+                                 int& newLeafId, int targetLeafId, int targetTitleId, const QSet<int>& allChatIds) {
+    if (!db || !msgMap.contains(sourceMsgId)) return;
+
+    const MessageNode* sourceMsg = msgMap.value(sourceMsgId);
+
+    // Create copy of the current message
+    int newMsgId = db->addMessage(targetParentId, sourceMsg->content, sourceMsg->role, targetFolderId);
+
+    if (newMsgId <= 0) return;
+
+    // Update newRootId if this is the first item we copy (i.e. the root of the copy operation)
+    if (newRootId == -1) {
+        newRootId = newMsgId;
+    }
+
+    // Update newLeafId if this is the target leaf node we want to track
+    if (sourceMsgId == targetLeafId) {
+        newLeafId = newMsgId;
+    }
+
+    // Copy the chat settings if it's an explicit chat node (has settings in chats table)
+    if (allChatIds.contains(sourceMsgId)) {
+        ChatNode sourceChat = db->getChat(sourceMsgId);
+        sourceChat.id = newMsgId;
+
+        // Only append "Copy of" to the node that holds the active custom title
+        if (sourceMsgId == targetTitleId) {
+            sourceChat.title = "Copy of " + sourceChat.title;
+        }
+
+        db->updateChat(sourceChat);
+    }
+
+    // Recursively copy all children
+    for (const MessageNode& child : childrenMap.value(sourceMsgId)) {
+        // Only the root message of a chat session gets a folder ID.
+        // Subsequent messages get folderId = 0.
+        copyChatSubtree(child.id, newMsgId, 0, childrenMap, msgMap, db, newRootId, newLeafId, targetLeafId,
+                        targetTitleId, allChatIds);
+    }
 }
