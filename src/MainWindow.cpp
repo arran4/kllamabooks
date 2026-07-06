@@ -1553,17 +1553,19 @@ void MainWindow::setupWindow() {
         if (trayIcon) trayIcon->setContextMenu(trayMenu);
         if (trayIcon) trayIcon->show();
 
-        if (trayIcon) connect(trayIcon, &QSystemTrayIcon::activated, this, [this](QSystemTrayIcon::ActivationReason reason) {
-            if (reason == QSystemTrayIcon::Trigger || reason == QSystemTrayIcon::DoubleClick) {
-                if (isVisible()) {
-                    hide();
-                } else {
-                    show();
-                    raise();
-                    activateWindow();
+        if (trayIcon) {
+            connect(trayIcon, &QSystemTrayIcon::activated, this, [this](QSystemTrayIcon::ActivationReason reason) {
+                if (reason == QSystemTrayIcon::Trigger || reason == QSystemTrayIcon::DoubleClick) {
+                    if (isVisible()) {
+                        hide();
+                    } else {
+                        show();
+                        raise();
+                        activateWindow();
+                    }
                 }
-            }
-        });
+            });
+        }
     }
 }
 
