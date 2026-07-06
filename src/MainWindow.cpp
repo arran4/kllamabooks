@@ -1550,10 +1550,10 @@ void MainWindow::setupWindow() {
         QAction* quitAction = trayMenu->addAction(QIcon::fromTheme("application-exit"), tr("Quit"));
         connect(quitAction, &QAction::triggered, qApp, &QCoreApplication::quit);
 
-        trayIcon->setContextMenu(trayMenu);
-        trayIcon->show();
+        if (trayIcon) trayIcon->setContextMenu(trayMenu);
+        if (trayIcon) trayIcon->show();
 
-        connect(trayIcon, &QSystemTrayIcon::activated, this, [this](QSystemTrayIcon::ActivationReason reason) {
+        if (trayIcon) connect(trayIcon, &QSystemTrayIcon::activated, this, [this](QSystemTrayIcon::ActivationReason reason) {
             if (reason == QSystemTrayIcon::Trigger || reason == QSystemTrayIcon::DoubleClick) {
                 if (isVisible()) {
                     hide();

@@ -26,7 +26,7 @@ int main(int argc, char* argv[]) {
     QCoreApplication::setOrganizationDomain("arran4.com");
     QCoreApplication::setApplicationName("kllamabooks");
     QCoreApplication::setApplicationVersion(QStringLiteral(KGHN_APP_VERSION));
-    QGuiApplication::setDesktopFileName("com.arran4.kllamabooks.desktop");
+    QGuiApplication::setDesktopFileName("com.arran4.kllamabooks");
 
     QSslConfiguration sslConfig = QSslConfiguration::defaultConfiguration();
     sslConfig.setPeerVerifyMode(QSslSocket::VerifyPeer);
@@ -40,7 +40,7 @@ int main(int argc, char* argv[]) {
 
     KAboutData aboutData(QStringLiteral("kllamabooks"), QStringLiteral("KLlamaBooks"),
                          QStringLiteral(KGHN_APP_VERSION));
-    aboutData.setDesktopFileName("com.arran4.kllamabooks.desktop");
+    aboutData.setDesktopFileName("com.arran4.kllamabooks");
     aboutData.setLicense(KAboutLicense::GPL_V3);
     KAboutData::setApplicationData(aboutData);
 
