@@ -9,9 +9,9 @@
 #include <optional>
 
 struct MessageNode {
-    int id;
-    int parentId;  // 0 if root
-    int folderId;  // 0 if root (only relevant for root messages)
+    int id = 0;
+    int parentId = 0;  // 0 if root
+    int folderId = 0;  // 0 if root (only relevant for root messages)
     QString content;
     QString role;  // "user" or "assistant"
     QDateTime timestamp;
@@ -20,9 +20,9 @@ struct MessageNode {
 };
 
 struct DocumentNode {
-    int id;
-    int folderId;  // 0 if root
-    int parentId;  // 0 if root
+    int id = 0;
+    int folderId = 0;  // 0 if root
+    int parentId = 0;  // 0 if root
     QString title;
     QString content;
     QDateTime timestamp;
@@ -31,7 +31,7 @@ struct DocumentNode {
 };
 
 struct ChatNode {
-    int id;  // Maps to message_id
+    int id = 0;  // Maps to message_id
     QString title;
     QString systemPrompt;
     QString sendBehavior;
@@ -39,58 +39,58 @@ struct ChatNode {
     QString multiLine;
     QString draftPrompt;
     QString userNote;
-    int version;
+    int version = 0;
 };
 
 struct NoteNode {
-    int id;
-    int folderId;  // 0 if root
-    int parentId;  // Workaround for upstream main branch compile error
+    int id = 0;
+    int folderId = 0;  // 0 if root
+    int parentId = 0;  // Workaround for upstream main branch compile error
     QString title;
     QString content;
     QDateTime timestamp;
 };
 
 struct FolderNode {
-    int id;
-    int parentId;
+    int id = 0;
+    int parentId = 0;
     QString name;
     QString type;  // "documents", "notes", "templates", "drafts"
     QDateTime timestamp;
-    int position;
+    int position = 0;
     bool isExpanded = false;
 };
 
 struct QueueItem {
-    int id;
-    int messageId;
+    int id = 0;
+    int messageId = 0;
     QString model;
     QString prompt;
-    int processingId;
+    int processingId = 0;
     QString lastError;
-    int priority;
+    int priority = 0;
     QDateTime timestamp;
     QString targetType;  // "message" or "document"
     QString state;       // "pending", "processing", "completed", "error"
     QString response;
-    int parentId;
+    int parentId = 0;
     QString targetAction;
 };
 
 struct CommentNode {
-    int id;
+    int id = 0;
     QString entityType;
-    int entityId;
+    int entityId = 0;
     QString content;
     QDateTime timestamp;
 };
 
 struct Notification {
-    int id;
-    int targetId;
+    int id = 0;
+    int targetId = 0;
     QString targetType;  // "document", "message"
     QString type;        // "responded_to", "error"
-    bool isDismissed;
+    bool isDismissed = false;
     QDateTime timestamp;
 };
 
@@ -137,7 +137,7 @@ class BookDatabase {
     bool addDocumentHistory(int documentId, const QString& actionType, const QString& content);
 
     struct DocumentHistoryEntry {
-        int id;
+        int id = 0;
         QString actionType;
         QString content;
         QString timestamp;
@@ -147,24 +147,24 @@ class BookDatabase {
 
     // Merges
     struct PromptHistoryEntry {
-        int id;
-        int documentId;
+        int id = 0;
+        int documentId = 0;
         QString prompt;
         QString model;
         QString timestamp;
-        int queueId;
+        int queueId = 0;
         QString status;
     };
     QList<PromptHistoryEntry> getPromptHistory(int documentId) const;
 
     struct DocumentMergeEntry {
-        int id;
-        int documentId;
+        int id = 0;
+        int documentId = 0;
         QString sourceDocumentIds;  // comma separated or JSON array
         QString prompt;
         QString model;
         QString timestamp;
-        int versionHistoryId;
+        int versionHistoryId = 0;
     };
     int addDocumentMerge(int documentId, const QString& sourceDocumentIds, const QString& prompt, const QString& model,
                          int versionHistoryId = 0);
