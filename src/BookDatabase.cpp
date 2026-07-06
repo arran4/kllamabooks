@@ -70,7 +70,7 @@ void BookDatabase::cleanupDeadProcessingItems() {
                            "'processing' OR (last_error IS NOT NULL AND last_error != '' AND state != 'error');",
                            -1, &stmt, nullptr) == SQLITE_OK) {
         struct ItemToReset {
-            int id;
+            int id = 0;
             QString error;
         };
         QList<ItemToReset> itemsToReset;
