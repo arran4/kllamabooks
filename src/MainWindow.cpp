@@ -596,7 +596,9 @@ void MainWindow::setupUi() {
     connect(openBooksTree->selectionModel(), &QItemSelectionModel::selectionChanged, this,
             &MainWindow::onOpenBooksSelectionChanged);
     connect(openBooksModel, &QStandardItemModel::dataChanged, this,
-            [this](const QModelIndex& topLeft, const QModelIndex& bottomRight) {
+            [this](const QModelIndex& topLeft, const QModelIndex& bottomRight, const QList<int>& roles) {
+                Q_UNUSED(bottomRight);
+                Q_UNUSED(roles);
                 if (mainContentStack->currentWidget() == vfsExplorer) {
                     QModelIndex currentIdx = openBooksTree->currentIndex();
                     if (topLeft.parent() == currentIdx) {
@@ -1553,17 +1555,19 @@ void MainWindow::setupWindow() {
         trayIcon->setContextMenu(trayMenu);
         trayIcon->show();
 
-        connect(trayIcon, &QSystemTrayIcon::activated, this, [this](QSystemTrayIcon::ActivationReason reason) {
-            if (reason == QSystemTrayIcon::Trigger || reason == QSystemTrayIcon::DoubleClick) {
-                if (isVisible()) {
-                    hide();
-                } else {
-                    show();
-                    raise();
-                    activateWindow();
+        if (trayIcon) {
+            connect(trayIcon, &QSystemTrayIcon::activated, this, [this](QSystemTrayIcon::ActivationReason reason) {
+                if (reason == QSystemTrayIcon::Trigger || reason == QSystemTrayIcon::DoubleClick) {
+                    if (isVisible()) {
+                        hide();
+                    } else {
+                        show();
+                        raise();
+                        activateWindow();
+                    }
                 }
-            }
-        });
+            });
+        }
     }
 }
 
