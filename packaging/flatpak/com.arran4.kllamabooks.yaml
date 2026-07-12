@@ -20,6 +20,8 @@ modules:
   - name: tcl
     buildsystem: autotools
     subdir: unix
+    post-install:
+      - chmod +w /app/lib/libtcl*
     sources:
       - type: archive
         url: https://prdownloads.sourceforge.net/tcl/tcl8.6.13-src.tar.gz
