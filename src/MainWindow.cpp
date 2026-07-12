@@ -596,7 +596,9 @@ void MainWindow::setupUi() {
     connect(openBooksTree->selectionModel(), &QItemSelectionModel::selectionChanged, this,
             &MainWindow::onOpenBooksSelectionChanged);
     connect(openBooksModel, &QStandardItemModel::dataChanged, this,
-            [this](const QModelIndex& topLeft, const QModelIndex& bottomRight) {
+            [this](const QModelIndex& topLeft, const QModelIndex& bottomRight, const QList<int>& roles) {
+                Q_UNUSED(bottomRight);
+                Q_UNUSED(roles);
                 if (mainContentStack->currentWidget() == vfsExplorer) {
                     QModelIndex currentIdx = openBooksTree->currentIndex();
                     if (topLeft.parent() == currentIdx) {
@@ -1550,8 +1552,8 @@ void MainWindow::setupWindow() {
         QAction* quitAction = trayMenu->addAction(QIcon::fromTheme("application-exit"), tr("Quit"));
         connect(quitAction, &QAction::triggered, qApp, &QCoreApplication::quit);
 
-        if (trayIcon) trayIcon->setContextMenu(trayMenu);
-        if (trayIcon) trayIcon->show();
+        trayIcon->setContextMenu(trayMenu);
+        trayIcon->show();
 
         if (trayIcon) {
             connect(trayIcon, &QSystemTrayIcon::activated, this, [this](QSystemTrayIcon::ActivationReason reason) {
