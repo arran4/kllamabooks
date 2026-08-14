@@ -29,7 +29,7 @@ Docker must not be used for the development/test environment.
 Build and test commands that require KDE/Qt dependencies must run through `.jules/run.sh`.
 For example:
 ```bash
-.jules/run.sh cmake -S . -B build -G Ninja
+.jules/run.sh cmake -S . -B build -G Ninja -DBUILD_TESTING=ON
 .jules/run.sh cmake --build build --parallel
 .jules/run.sh ctest --test-dir build --output-on-failure
 ```
