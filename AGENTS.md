@@ -24,7 +24,15 @@ Break down large functions into smaller, single-purpose helper functions. This i
 
 ## Building and Compiling (Qt6 / KF6 Migration)
 This project is currently migrating to Qt6 and KDE Frameworks 6 (KF6).
-If your environment does not have the required Qt6 or KF6 development headers, there is a Dockerfile located in `.jules/Dockerfile` that can be used to set up an isolated build container (e.g. `debian:testing`) with all required `libkf6*` dependencies.
+Docker must not be used for the development/test environment.
+`.jules/bootstrap.sh` provisions the shared KDE development rootfs.
+Build and test commands that require KDE/Qt dependencies must run through `.jules/run.sh`.
+For example:
+```bash
+.jules/run.sh cmake -S . -B build -G Ninja -DBUILD_TESTING=ON
+.jules/run.sh cmake --build build --parallel
+.jules/run.sh ctest --test-dir build --output-on-failure
+```
 
 ## Application Architecture Learnings
 - **Books & Databases:** The main application manages "Books" which represent individual encrypted SQLite databases (`BookDatabase`). These store chats, documents, and notes. The connection is handled using SQLCipher.
