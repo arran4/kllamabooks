@@ -17,6 +17,8 @@ class TestBookDatabase : public QObject {
     void testAddDocumentHappyPath();
     void testAddDocumentWithParent();
     void testAddDocumentUnopenedDb();
+    void testChatRenamePreservesMessageContent();
+    void testNestedForkChatRename();
 };
 
 void TestBookDatabase::initTestCase() {
@@ -143,6 +145,67 @@ void TestBookDatabase::testAddDocumentUnopenedDb() {
 
     int docId = db.addDocument(1, "Title", "Content", 0, "{}");
     QCOMPARE(docId, -1);
+}
+
+
+
+
+void TestBookDatabase::testChatRenamePreservesMessageContent() {
+    BookDatabase db(":memory:");
+    QVERIFY(db.open(""));
+
+    int msgId = db.addMessage(0, "Original message content", "user");
+    QVERIFY(msgId > 0);
+
+    auto msgOpt = db.getMessage(msgId);
+    QVERIFY(msgOpt.has_value());
+    QCOMPARE(msgOpt->content, QString("Original message content"));
+
+    // Simulate what happens on chat rename
+    ChatNode chat = db.getChat(msgId);
+    chat.title = "New Chat Title";
+    QVERIFY(db.updateChat(chat));
+
+    // Verify the message content is preserved
+    msgOpt = db.getMessage(msgId);
+    QVERIFY(msgOpt.has_value());
+    QCOMPARE(msgOpt->content, QString("Original message content"));
+
+    // Verify the title was updated
+    QHash<int, QString> titles = db.getAllChatTitles();
+    QCOMPARE(titles.value(msgId), QString("New Chat Title"));
+}
+
+void TestBookDatabase::testNestedForkChatRename() {
+    BookDatabase db(":memory:");
+    QVERIFY(db.open(""));
+
+    int parentMsgId = db.addMessage(0, "Parent message", "user");
+    int childMsgId = db.addMessage(parentMsgId, "Child fork message", "assistant");
+
+    // Set initial parent title
+    ChatNode parentChat = db.getChat(parentMsgId);
+    parentChat.title = "Parent Title";
+    QVERIFY(db.updateChat(parentChat));
+
+    // Simulate what happens on nested fork rename
+    ChatNode childChat = db.getChat(childMsgId);
+    childChat.title = "Forked Title";
+    QVERIFY(db.updateChat(childChat));
+
+    // Verify message contents are preserved
+    auto parentMsgOpt = db.getMessage(parentMsgId);
+    QVERIFY(parentMsgOpt.has_value());
+    QCOMPARE(parentMsgOpt->content, QString("Parent message"));
+
+    auto childMsgOpt = db.getMessage(childMsgId);
+    QVERIFY(childMsgOpt.has_value());
+    QCOMPARE(childMsgOpt->content, QString("Child fork message"));
+
+    // Verify the titles
+    QHash<int, QString> titles = db.getAllChatTitles();
+    QCOMPARE(titles.value(parentMsgId), QString("Parent Title"));
+    QCOMPARE(titles.value(childMsgId), QString("Forked Title"));
 }
 
 QTEST_MAIN(TestBookDatabase)
