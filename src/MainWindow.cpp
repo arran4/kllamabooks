@@ -3622,7 +3622,9 @@ void MainWindow::onItemChanged(QStandardItem* item) {
         if (bracketIndex != -1) {
             newText = newText.mid(bracketIndex + 2);
         }
-        currentDb->updateMessage(id, newText);
+        ChatNode chat = currentDb->getChat(id);
+        chat.title = newText;
+        currentDb->updateChat(chat);
     } else if (type == "document" || type == "note" || type == "template" || type == "draft") {
         currentDb->updateDocumentTitle(id, newText, type);
     } else if (type.endsWith("_folder")) {
