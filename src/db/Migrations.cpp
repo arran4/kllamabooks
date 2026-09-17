@@ -107,7 +107,10 @@ bool MigrationRunner::getCurrentVersion(Database& db, int& version, QString* err
     bool hasTableVersion = db.queryInt("SELECT MAX(version) FROM schema_version;", tableVersion);
 
     if (hasTableVersion && pragmaVersion > 0 && tableVersion > 0 && pragmaVersion != tableVersion) {
-        if (error) *error = QString("Version disagreement: PRAGMA user_version (%1) does not match schema_version table (%2)").arg(pragmaVersion).arg(tableVersion);
+        if (error)
+            *error = QString("Version disagreement: PRAGMA user_version (%1) does not match schema_version table (%2)")
+                         .arg(pragmaVersion)
+                         .arg(tableVersion);
         return false;
     }
 

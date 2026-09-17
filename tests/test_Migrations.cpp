@@ -119,7 +119,7 @@ void TestMigrations::testForeignKeysEnabled() {
     QVERIFY(db.open("testpassword"));
 
     // Test that the production connection correctly enabled foreign keys
-    db::Database dbAccess(reinterpret_cast<sqlite3*>(db.getDatabaseHandleForTesting())); // We'll add this accessor
+    db::Database dbAccess(reinterpret_cast<sqlite3*>(db.getDatabaseHandleForTesting()));  // We'll add this accessor
 
     int enabled = 0;
     QVERIFY(dbAccess.queryInt("PRAGMA foreign_keys;", enabled));
@@ -180,17 +180,19 @@ void TestMigrations::testFailingAlterRollback() {
     sqlite3_open(":memory:", &dbHandle);
     db::Database db(dbHandle);
 
-    db.execute("CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at DATETIME DEFAULT CURRENT_TIMESTAMP);");
+    db.execute(
+        "CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at DATETIME DEFAULT CURRENT_TIMESTAMP);");
     db.execute("INSERT INTO schema_version (version) VALUES (2);");
     db.execute("PRAGMA user_version = 2;");
     db.execute("CREATE TABLE documents (id INTEGER);");
 
     db::MigrationRunner runner;
-    runner.addMigration({2, 3, "test alter", [](db::Database& d) {
-        d.execute("CREATE TABLE t1 (id INTEGER);");
-        // This will fail because syntax error
-        return d.execute("CREATE TABLE schema_version (id INTEGER);"); // Will fail because table already exists
-    }});
+    runner.addMigration(
+        {2, 3, "test alter", [](db::Database& d) {
+             d.execute("CREATE TABLE t1 (id INTEGER);");
+             // This will fail because syntax error
+             return d.execute("CREATE TABLE schema_version (id INTEGER);");  // Will fail because table already exists
+         }});
 
     QString error;
     QVERIFY(!runner.run(db, &error));
@@ -213,14 +215,13 @@ void TestMigrations::testVersionDisagreement() {
     sqlite3_open(":memory:", &dbHandle);
     db::Database db(dbHandle);
 
-    db.execute("CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at DATETIME DEFAULT CURRENT_TIMESTAMP);");
+    db.execute(
+        "CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at DATETIME DEFAULT CURRENT_TIMESTAMP);");
     db.execute("INSERT INTO schema_version (version) VALUES (2);");
-    db.execute("PRAGMA user_version = 3;"); // Disagreement!
+    db.execute("PRAGMA user_version = 3;");  // Disagreement!
 
     db::MigrationRunner runner;
-    runner.addMigration({3, 4, "test", [](db::Database& d) {
-        return d.execute("CREATE TABLE t1 (id INTEGER);");
-    }});
+    runner.addMigration({3, 4, "test", [](db::Database& d) { return d.execute("CREATE TABLE t1 (id INTEGER);"); }});
 
     QString error;
     // Actually, based on current implementation, it picks the max.
