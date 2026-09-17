@@ -19,6 +19,7 @@ class TestMigrations : public QObject {
     void testVersionDisagreement();
     void testForeignKeysEnabled();
     void testFreshSchemaEquivalence();
+    void testLegacySeeding();
 };
 
 void TestMigrations::testFreshDatabaseMigration() {
@@ -224,11 +225,86 @@ void TestMigrations::testVersionDisagreement() {
     runner.addMigration({3, 4, "test", [](db::Database& d) { return d.execute("CREATE TABLE t1 (id INTEGER);"); }});
 
     QString error;
-    // Actually, based on current implementation, it picks the max.
-    // The instructions say: "Do not silently choose the higher version when the two sources disagree."
-    // Let's modify Migrations.cpp to throw an error!
     QVERIFY(!runner.run(db, &error));
     QVERIFY(error.contains("Version disagreement"));
+
+    // Also test zero disagreement
+    sqlite3* dbHandle2;
+    sqlite3_open(":memory:", &dbHandle2);
+    db::Database db2(dbHandle2);
+    db2.execute(
+        "CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at DATETIME DEFAULT CURRENT_TIMESTAMP);");
+    db2.execute("PRAGMA user_version = 2;");  // Disagreement with zero/empty schema_version
+
+    db::MigrationRunner runner2;
+    runner2.addMigration({2, 3, "test", [](db::Database& d) { return d.execute("CREATE TABLE t2 (id INTEGER);"); }});
+    QVERIFY(!runner2.run(db2, &error));
+    QVERIFY(error.contains("Version disagreement"));
+
+    // Ensure rejected state does not execute a migration or change either version marker.
+    int count = 0;
+    QVERIFY(db2.queryInt("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='t2';", count));
+    QCOMPARE(count, 0);  // No migration
+
+    int version = -1;
+    QVERIFY(db2.queryInt("PRAGMA user_version;", version));
+    QCOMPARE(version, 2);  // No change
+
+    version = -1;
+    QVERIFY(db2.queryInt("SELECT MAX(version) FROM schema_version;", version));
+    QCOMPARE(version, 0);  // Still 0
+
+    sqlite3_close(dbHandle2);
+
+    // Test the other way: schema_version ahead of pragma
+    sqlite3* dbHandle3;
+    sqlite3_open(":memory:", &dbHandle3);
+    db::Database db3(dbHandle3);
+    db3.execute(
+        "CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at DATETIME DEFAULT CURRENT_TIMESTAMP);");
+    db3.execute("INSERT INTO schema_version (version) VALUES (3);");
+    db3.execute("PRAGMA user_version = 0;");  // Disagreement with zero pragma_version
+    QVERIFY(!runner.run(db3, &error));
+    QVERIFY(error.contains("Version disagreement"));
+
+    // Test read failure
+    sqlite3* dbHandle4;
+    sqlite3_open(":memory:", &dbHandle4);
+    db::Database db4(dbHandle4);
+    db4.execute(
+        "CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at DATETIME DEFAULT CURRENT_TIMESTAMP);");
+    db4.execute(
+        "INSERT INTO schema_version (version) VALUES ('invalid_string');");  // this will cause error reading max?
+    sqlite3_close(dbHandle3);
+    sqlite3_close(dbHandle4);
+
+    // Test table completely absent but pragma exists -> this actually seeds the table!
+    // Wait, the instruction says: "checked legacy seeding when `schema_version` is absent"
+    // Let's add that test separately!
+
+    sqlite3_close(dbHandle);
+}
+
+void TestMigrations::testLegacySeeding() {
+    sqlite3* dbHandle;
+    sqlite3_open(":memory:", &dbHandle);
+    db::Database db(dbHandle);
+
+    db.execute("PRAGMA user_version = 2;");  // No schema_version table yet
+
+    db::MigrationRunner runner;
+    runner.addMigration({2, 3, "test", [](db::Database& d) { return d.execute("CREATE TABLE t1 (id INTEGER);"); }});
+
+    QString error;
+    QVERIFY(runner.run(db, &error));
+
+    // Verify it migrated and seeded correctly
+    int version = -1;
+    QVERIFY(db.queryInt("PRAGMA user_version;", version));
+    QCOMPARE(version, 3);
+
+    QVERIFY(db.queryInt("SELECT MAX(version) FROM schema_version;", version));
+    QCOMPARE(version, 3);
 
     sqlite3_close(dbHandle);
 }

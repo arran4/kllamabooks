@@ -29,7 +29,7 @@ class MigrationRunner {
 
     bool initSchemaVersionTable(Database& db, QString* error);
     bool getCurrentVersion(Database& db, int& version, QString* error);
-    bool syncLegacyPragmaVersion(Database& db, int& version, QString* error);
+
 };
 
 }  // namespace db

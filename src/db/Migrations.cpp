@@ -13,8 +13,6 @@ bool MigrationRunner::run(Database& db, QString* error) {
               [](const Migration& a, const Migration& b) { return a.fromVersion < b.fromVersion; });
 
     int currentVersion = 0;
-    syncLegacyPragmaVersion(db, currentVersion, error);
-
     if (!initSchemaVersionTable(db, error)) {
         return false;
     }
@@ -67,29 +65,23 @@ bool MigrationRunner::run(Database& db, QString* error) {
     return true;
 }
 
-bool MigrationRunner::syncLegacyPragmaVersion(Database& db, int& version, QString* error) {
-    if (!db.queryInt("PRAGMA user_version;", version, error)) {
-        version = 0;
-    }
-    return true;
-}
-
 bool MigrationRunner::initSchemaVersionTable(Database& db, QString* error) {
     int count = 0;
-    if (!db.queryInt("SELECT count(name) FROM sqlite_master WHERE type='table' AND name='schema_version';", count,
-                     error)) {
+    if (!db.queryInt("SELECT count(name) FROM sqlite_master WHERE type='table' AND name='schema_version';", count, error)) {
         return false;
     }
 
     if (count == 0) {
-        if (!db.execute("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at DATETIME "
-                        "DEFAULT CURRENT_TIMESTAMP);",
-                        error)) {
+        if (!db.execute("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at DATETIME DEFAULT CURRENT_TIMESTAMP);", error)) {
             return false;
         }
 
         int userVersion = 0;
-        if (db.queryInt("PRAGMA user_version;", userVersion) && userVersion > 0) {
+        if (!db.queryInt("PRAGMA user_version;", userVersion, error)) {
+            return false;
+        }
+
+        if (userVersion > 0) {
             QString syncSql = QString("INSERT OR REPLACE INTO schema_version (version) VALUES (%1);").arg(userVersion);
             if (!db.execute(syncSql, error)) {
                 return false;
@@ -101,20 +93,28 @@ bool MigrationRunner::initSchemaVersionTable(Database& db, QString* error) {
 
 bool MigrationRunner::getCurrentVersion(Database& db, int& version, QString* error) {
     int pragmaVersion = 0;
-    db.queryInt("PRAGMA user_version;", pragmaVersion);
-
-    int tableVersion = 0;
-    bool hasTableVersion = db.queryInt("SELECT MAX(version) FROM schema_version;", tableVersion);
-
-    if (hasTableVersion && pragmaVersion > 0 && tableVersion > 0 && pragmaVersion != tableVersion) {
-        if (error)
-            *error = QString("Version disagreement: PRAGMA user_version (%1) does not match schema_version table (%2)")
-                         .arg(pragmaVersion)
-                         .arg(tableVersion);
+    if (!db.queryInt("PRAGMA user_version;", pragmaVersion, error)) {
         return false;
     }
 
-    version = std::max(pragmaVersion, tableVersion);
+    int tableVersion = 0;
+    // MAX(version) will return NULL if table is empty. Our queryInt sets result to 0 if it fails or if NULL is returned. Wait, queryInt sets result if SQLITE_ROW.
+    // If it's an empty table, MAX(version) returns a row with NULL. sqlite3_column_type will be SQLITE_NULL.
+    // We should probably just do a check. queryInt will return true and set tableVersion to 0 (sqlite3_column_int returns 0 for NULL).
+    if (!db.queryInt("SELECT MAX(version) FROM schema_version;", tableVersion, error)) {
+        // If the table is truly empty, queryInt might return false if no rows? No, MAX always returns a row.
+        // But if an actual SQL error occurs, we return false.
+        return false;
+    }
+
+    if (pragmaVersion != tableVersion) {
+        if (error) {
+            *error = QString("Version disagreement: PRAGMA user_version (%1) does not match schema_version table (%2)").arg(pragmaVersion).arg(tableVersion);
+        }
+        return false;
+    }
+
+    version = tableVersion;
     return true;
 }
 
