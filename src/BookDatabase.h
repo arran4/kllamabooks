@@ -242,6 +242,7 @@ class BookDatabase {
     bool dismissNotificationByTargetAndType(int targetId, const QString& targetType, const QString& type);
 
     QString getDatabaseDebugInfo() const;
+    void* getDatabaseHandleForTesting() const { return m_db; }
 
    private:
     QString m_filepath;

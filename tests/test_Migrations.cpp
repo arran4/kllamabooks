@@ -15,6 +15,8 @@ class TestMigrations : public QObject {
     void testAlreadyCurrentNoOp();
     void testPartialMigration();
     void testFailingMigrationRollback();
+    void testFailingAlterRollback();
+    void testVersionDisagreement();
     void testForeignKeysEnabled();
     void testFreshSchemaEquivalence();
 };
@@ -111,27 +113,27 @@ void TestMigrations::testFailingMigrationRollback() {
     sqlite3_close(dbHandle);
 }
 
+#include "../src/BookDatabase.h"
 void TestMigrations::testForeignKeysEnabled() {
-    sqlite3* dbHandle;
-    sqlite3_open(":memory:", &dbHandle);
-    db::Database db(dbHandle);
+    BookDatabase db(":memory:");
+    QVERIFY(db.open("testpassword"));
 
-    // Simulate setting PRAGMA foreign_keys = ON; which should be done in BookDatabase::open()
-    db.execute("PRAGMA foreign_keys = ON;");
+    // Test that the production connection correctly enabled foreign keys
+    db::Database dbAccess(reinterpret_cast<sqlite3*>(db.getDatabaseHandleForTesting())); // We'll add this accessor
 
     int enabled = 0;
-    QVERIFY(db.queryInt("PRAGMA foreign_keys;", enabled));
+    QVERIFY(dbAccess.queryInt("PRAGMA foreign_keys;", enabled));
     QCOMPARE(enabled, 1);
 
-    db.execute("CREATE TABLE p (id INTEGER PRIMARY KEY);");
-    db.execute("CREATE TABLE c (id INTEGER, p_id INTEGER REFERENCES p(id));");
+    dbAccess.execute("CREATE TABLE p (id INTEGER PRIMARY KEY);");
+    dbAccess.execute("CREATE TABLE c (id INTEGER, p_id INTEGER REFERENCES p(id));");
 
     // Should fail
     QString error;
-    QVERIFY(!db.execute("INSERT INTO c (id, p_id) VALUES (1, 1);", &error));
+    QVERIFY(!dbAccess.execute("INSERT INTO c (id, p_id) VALUES (1, 1);", &error));
     QVERIFY(error.contains("FOREIGN KEY constraint failed"));
 
-    sqlite3_close(dbHandle);
+    db.close();
 }
 
 QTEST_MAIN(TestMigrations)
@@ -169,6 +171,63 @@ void TestMigrations::testFreshSchemaEquivalence() {
     QVERIFY(checkColumn("notes", "folder_id"));
     QVERIFY(checkColumn("messages", "folder_id"));
     QVERIFY(checkColumn("chats", "version"));
+
+    sqlite3_close(dbHandle);
+}
+
+void TestMigrations::testFailingAlterRollback() {
+    sqlite3* dbHandle;
+    sqlite3_open(":memory:", &dbHandle);
+    db::Database db(dbHandle);
+
+    db.execute("CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at DATETIME DEFAULT CURRENT_TIMESTAMP);");
+    db.execute("INSERT INTO schema_version (version) VALUES (2);");
+    db.execute("PRAGMA user_version = 2;");
+    db.execute("CREATE TABLE documents (id INTEGER);");
+
+    db::MigrationRunner runner;
+    runner.addMigration({2, 3, "test alter", [](db::Database& d) {
+        d.execute("CREATE TABLE t1 (id INTEGER);");
+        // This will fail because syntax error
+        return d.execute("CREATE TABLE schema_version (id INTEGER);"); // Will fail because table already exists
+    }});
+
+    QString error;
+    QVERIFY(!runner.run(db, &error));
+
+    // t1 should not exist because of rollback
+    int count = 0;
+    QVERIFY(db.queryInt("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='t1';", count));
+    QCOMPARE(count, 0);
+
+    // version should be 2
+    int version = -1;
+    QVERIFY(db.queryInt("PRAGMA user_version;", version));
+    QCOMPARE(version, 2);
+
+    sqlite3_close(dbHandle);
+}
+
+void TestMigrations::testVersionDisagreement() {
+    sqlite3* dbHandle;
+    sqlite3_open(":memory:", &dbHandle);
+    db::Database db(dbHandle);
+
+    db.execute("CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at DATETIME DEFAULT CURRENT_TIMESTAMP);");
+    db.execute("INSERT INTO schema_version (version) VALUES (2);");
+    db.execute("PRAGMA user_version = 3;"); // Disagreement!
+
+    db::MigrationRunner runner;
+    runner.addMigration({3, 4, "test", [](db::Database& d) {
+        return d.execute("CREATE TABLE t1 (id INTEGER);");
+    }});
+
+    QString error;
+    // Actually, based on current implementation, it picks the max.
+    // The instructions say: "Do not silently choose the higher version when the two sources disagree."
+    // Let's modify Migrations.cpp to throw an error!
+    QVERIFY(!runner.run(db, &error));
+    QVERIFY(error.contains("Version disagreement"));
 
     sqlite3_close(dbHandle);
 }

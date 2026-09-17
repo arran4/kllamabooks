@@ -47,3 +47,25 @@ bool Database::queryInt(const QString& sql, int& result, QString* error) {
 }
 
 }  // namespace db
+
+bool db::Database::hasColumn(const QString& table, const QString& column, QString* error) {
+    QString sql = "PRAGMA table_info(" + table + ");";
+    sqlite3_stmt* stmt = nullptr;
+    int rc = sqlite3_prepare_v2(m_db, sql.toUtf8().constData(), -1, &stmt, nullptr);
+    if (rc != SQLITE_OK) {
+        if (error) *error = QString::fromUtf8(sqlite3_errmsg(m_db));
+        return false;
+    }
+
+    bool found = false;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        QString name = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)));
+        if (name == column) {
+            found = true;
+            break;
+        }
+    }
+
+    sqlite3_finalize(stmt);
+    return found;
+}

@@ -19,7 +19,7 @@ bool MigrationRunner::run(Database& db, QString* error) {
         return false;
     }
 
-    getCurrentVersion(db, currentVersion, error);
+    if (!getCurrentVersion(db, currentVersion, error)) return false;
 
     for (const auto& migration : m_migrations) {
         if (currentVersion >= migration.toVersion) {
@@ -101,17 +101,17 @@ bool MigrationRunner::initSchemaVersionTable(Database& db, QString* error) {
 
 bool MigrationRunner::getCurrentVersion(Database& db, int& version, QString* error) {
     int pragmaVersion = 0;
-    if (db.queryInt("PRAGMA user_version;", pragmaVersion)) {
-        version = pragmaVersion;
-    }
+    db.queryInt("PRAGMA user_version;", pragmaVersion);
 
     int tableVersion = 0;
     bool hasTableVersion = db.queryInt("SELECT MAX(version) FROM schema_version;", tableVersion);
 
-    if (hasTableVersion && tableVersion > version) {
-        version = tableVersion;
+    if (hasTableVersion && pragmaVersion > 0 && tableVersion > 0 && pragmaVersion != tableVersion) {
+        if (error) *error = QString("Version disagreement: PRAGMA user_version (%1) does not match schema_version table (%2)").arg(pragmaVersion).arg(tableVersion);
+        return false;
     }
 
+    version = std::max(pragmaVersion, tableVersion);
     return true;
 }
 

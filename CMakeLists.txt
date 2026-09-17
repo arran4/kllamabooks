@@ -164,7 +164,7 @@ target_link_libraries(test_PerformanceMainWindow Qt6::Test Qt6::Core Qt6::Sql ${
 target_include_directories(test_PerformanceMainWindow PRIVATE ${SQLCIPHER_INCLUDE_DIRS})
 add_test(NAME test_PerformanceMainWindow COMMAND test_PerformanceMainWindow)
 
-add_executable(test_Migrations tests/test_Migrations.cpp src/db/Database.cpp src/db/Migrations.cpp src/db/MigrationFactory.cpp)
+add_executable(test_Migrations tests/test_Migrations.cpp src/BookDatabase.cpp src/db/Database.cpp src/db/Migrations.cpp src/db/MigrationFactory.cpp)
 target_link_libraries(test_Migrations Qt6::Test Qt6::Core ${SQLCIPHER_LIBRARIES})
 target_include_directories(test_Migrations PRIVATE ${SQLCIPHER_INCLUDE_DIRS})
 add_test(NAME test_Migrations COMMAND test_Migrations)
