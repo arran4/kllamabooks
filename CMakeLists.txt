@@ -26,6 +26,13 @@ add_executable(kllamabooks
     src/ModelSelectionDialog.h
     src/BookDatabase.cpp
     src/BookDatabase.h
+    src/db/Database.cpp
+    src/db/Database.h
+    src/db/Transaction.h
+    src/db/Migrations.cpp
+    src/db/Migrations.h
+    src/db/MigrationFactory.cpp
+    src/db/MigrationFactory.h
     src/WalletManager.cpp
     src/WalletManager.h
     src/SettingsDialog.cpp
@@ -122,7 +129,7 @@ add_executable(test_TemplateParser tests/test_TemplateParser.cpp src/TemplatePar
 target_link_libraries(test_TemplateParser Qt6::Test Qt6::Core)
 add_test(NAME test_TemplateParser COMMAND test_TemplateParser)
 
-add_executable(test_BookDatabase tests/test_BookDatabase.cpp src/BookDatabase.cpp)
+add_executable(test_BookDatabase tests/test_BookDatabase.cpp src/BookDatabase.cpp src/db/Database.cpp src/db/Migrations.cpp src/db/MigrationFactory.cpp)
 target_link_libraries(test_BookDatabase Qt6::Test Qt6::Core ${SQLCIPHER_LIBRARIES})
 target_include_directories(test_BookDatabase PRIVATE ${SQLCIPHER_INCLUDE_DIRS})
 add_test(NAME test_BookDatabase COMMAND test_BookDatabase)
@@ -148,11 +155,16 @@ install(FILES src/com.arran4.kllamabooks.metainfo.xml
     DESTINATION ${CMAKE_INSTALL_DATADIR}/metainfo
 )
 
-add_executable(test_QueueManager tests/test_QueueManager.cpp src/QueueManager.cpp src/BookDatabase.cpp src/OllamaClient.cpp src/NotificationDelegate.cpp src/DocumentTemplatesManager.cpp src/AIOperationsManager.cpp src/TemplateParser.cpp)
+add_executable(test_QueueManager tests/test_QueueManager.cpp src/QueueManager.cpp src/BookDatabase.cpp src/OllamaClient.cpp src/NotificationDelegate.cpp src/DocumentTemplatesManager.cpp src/AIOperationsManager.cpp src/TemplateParser.cpp src/db/Database.cpp src/db/Migrations.cpp src/db/MigrationFactory.cpp)
 target_link_libraries(test_QueueManager Qt6::Test Qt6::Core Qt6::Widgets Qt6::Network ${SQLCIPHER_LIBRARIES})
 target_include_directories(test_QueueManager PRIVATE ${SQLCIPHER_INCLUDE_DIRS})
 add_test(NAME test_QueueManager COMMAND test_QueueManager)
-add_executable(test_PerformanceMainWindow tests/test_PerformanceMainWindow.cpp src/BookDatabase.cpp)
+add_executable(test_PerformanceMainWindow tests/test_PerformanceMainWindow.cpp src/BookDatabase.cpp src/db/Database.cpp src/db/Migrations.cpp src/db/MigrationFactory.cpp)
 target_link_libraries(test_PerformanceMainWindow Qt6::Test Qt6::Core Qt6::Sql ${SQLCIPHER_LIBRARIES})
 target_include_directories(test_PerformanceMainWindow PRIVATE ${SQLCIPHER_INCLUDE_DIRS})
 add_test(NAME test_PerformanceMainWindow COMMAND test_PerformanceMainWindow)
+
+add_executable(test_Migrations tests/test_Migrations.cpp src/db/Database.cpp src/db/Migrations.cpp src/db/MigrationFactory.cpp)
+target_link_libraries(test_Migrations Qt6::Test Qt6::Core ${SQLCIPHER_LIBRARIES})
+target_include_directories(test_Migrations PRIVATE ${SQLCIPHER_INCLUDE_DIRS})
+add_test(NAME test_Migrations COMMAND test_Migrations)
