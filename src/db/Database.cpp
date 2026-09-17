@@ -48,7 +48,7 @@ bool Database::queryInt(const QString& sql, int& result, QString* error) {
 
 }  // namespace db
 
-bool db::Database::hasColumn(const QString& table, const QString& column, QString* error) {
+bool db::Database::hasColumn(const QString& table, const QString& column, bool& exists, QString* error) {
     QString sql = "PRAGMA table_info(" + table + ");";
     sqlite3_stmt* stmt = nullptr;
     int rc = sqlite3_prepare_v2(m_db, sql.toUtf8().constData(), -1, &stmt, nullptr);
@@ -57,15 +57,21 @@ bool db::Database::hasColumn(const QString& table, const QString& column, QStrin
         return false;
     }
 
-    bool found = false;
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
+    exists = false;
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
         QString name = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)));
         if (name == column) {
-            found = true;
+            exists = true;
             break;
         }
     }
 
+    if (rc != SQLITE_DONE && rc != SQLITE_ROW) {
+        if (error) *error = QString::fromUtf8(sqlite3_errmsg(m_db));
+        sqlite3_finalize(stmt);
+        return false;
+    }
+
     sqlite3_finalize(stmt);
-    return found;
+    return true;
 }

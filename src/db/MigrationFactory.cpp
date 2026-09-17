@@ -80,17 +80,23 @@ MigrationRunner MigrationFactory::createRunner() {
                             "CREATE TABLE IF NOT EXISTS folders (id INTEGER PRIMARY KEY AUTOINCREMENT, parent_id "
                             "INTEGER DEFAULT 0, name TEXT, type TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, "
                             "position INTEGER DEFAULT 0);");
-             if (!db.hasColumn("documents", "folder_id")) {
+             bool hasCol = false;
+             if (!db.hasColumn("documents", "folder_id", hasCol)) return false;
+             if (!hasCol) {
                  ok = ok && db.execute("ALTER TABLE documents ADD COLUMN folder_id INTEGER DEFAULT 0;");
              }
-             if (!db.hasColumn("notes", "folder_id")) {
+             hasCol = false;
+             if (!db.hasColumn("notes", "folder_id", hasCol)) return false;
+             if (!hasCol) {
                  ok = ok && db.execute("ALTER TABLE notes ADD COLUMN folder_id INTEGER DEFAULT 0;");
              }
              return ok;
          }});
 
     runner.addMigration({3, 4, "Messages Folder ID", [](Database& db) {
-                             if (!db.hasColumn("messages", "folder_id")) {
+                             bool hasCol = false;
+                             if (!db.hasColumn("messages", "folder_id", hasCol)) return false;
+                             if (!hasCol) {
                                  return db.execute("ALTER TABLE messages ADD COLUMN folder_id INTEGER DEFAULT 0;");
                              }
                              return true;
@@ -123,7 +129,9 @@ MigrationRunner MigrationFactory::createRunner() {
                          }});
 
     runner.addMigration({7, 8, "Documents Parent ID", [](Database& db) {
-                             if (!db.hasColumn("documents", "parent_id")) {
+                             bool hasCol = false;
+                             if (!db.hasColumn("documents", "parent_id", hasCol)) return false;
+                             if (!hasCol) {
                                  return db.execute("ALTER TABLE documents ADD COLUMN parent_id INTEGER DEFAULT 0;");
                              }
                              return true;

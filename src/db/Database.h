@@ -16,7 +16,7 @@ class Database {
     bool execute(const QString& sql, QString* error = nullptr);
 
     bool queryInt(const QString& sql, int& result, QString* error = nullptr);
-    bool hasColumn(const QString& table, const QString& column, QString* error = nullptr);
+    bool hasColumn(const QString& table, const QString& column, bool& exists, QString* error = nullptr);
 
    private:
     sqlite3* m_db;
