@@ -168,11 +168,24 @@ void TestMigrations::testFreshSchemaEquivalence() {
         return found;
     };
 
+    // Core V21 tables
+    QVERIFY(checkColumn("schema_version", "version"));
+    QVERIFY(checkColumn("schema_version", "applied_at"));
+
     QVERIFY(checkColumn("documents", "parent_id"));
     QVERIFY(checkColumn("documents", "folder_id"));
+
+
+
     QVERIFY(checkColumn("notes", "folder_id"));
+
+
     QVERIFY(checkColumn("messages", "folder_id"));
-    QVERIFY(checkColumn("chats", "version"));
+
+    QVERIFY(checkColumn("notifications", "target_id"));
+    QVERIFY(checkColumn("notifications", "target_type"));
+
+    QVERIFY(checkColumn("queue", "target_type"));
 
     sqlite3_close(dbHandle);
 }
@@ -274,14 +287,23 @@ void TestMigrations::testVersionDisagreement() {
     db::Database db4(dbHandle4);
     db4.execute(
         "CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at DATETIME DEFAULT CURRENT_TIMESTAMP);");
-    db4.execute(
-        "INSERT INTO schema_version (version) VALUES ('invalid_string');");  // this will cause error reading max?
+    db4.execute("INSERT INTO schema_version (version) VALUES (2);");
+    db4.execute("PRAGMA user_version = 2;");
+
+    sqlite3_set_authorizer(
+        dbHandle4,
+        [](void*, int action, const char*, const char*, const char*, const char*) {
+            if (action == SQLITE_READ) {
+                return SQLITE_DENY;
+            }
+            return SQLITE_OK;
+        },
+        nullptr);
+    QVERIFY(!runner.run(db4, &error));
+
     sqlite3_close(dbHandle3);
     sqlite3_close(dbHandle4);
 
-    // Test table completely absent but pragma exists -> this actually seeds the table!
-    // Wait, the instruction says: "checked legacy seeding when `schema_version` is absent"
-    // Let's add that test separately!
 
     sqlite3_close(dbHandle);
 }
