@@ -67,17 +67,26 @@ bool MigrationRunner::run(Database& db, QString* error) {
 
 bool MigrationRunner::initSchemaVersionTable(Database& db, QString* error) {
     int count = 0;
-    if (!db.queryInt("SELECT count(name) FROM sqlite_master WHERE type='table' AND name='schema_version';", count, error)) {
+    if (!db.queryInt("SELECT count(name) FROM sqlite_master WHERE type='table' AND name='schema_version';", count,
+                     error)) {
         return false;
     }
 
     if (count == 0) {
-        if (!db.execute("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at DATETIME DEFAULT CURRENT_TIMESTAMP);", error)) {
+        int userVersion = 0;
+        if (!db.queryInt("PRAGMA user_version;", userVersion, error)) {
             return false;
         }
 
-        int userVersion = 0;
-        if (!db.queryInt("PRAGMA user_version;", userVersion, error)) {
+        Transaction tx(db);
+        if (tx.isFailed()) {
+            if (error) *error = "Failed to start transaction for legacy seeding";
+            return false;
+        }
+
+        if (!db.execute("CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at DATETIME DEFAULT "
+                        "CURRENT_TIMESTAMP);",
+                        error)) {
             return false;
         }
 
@@ -86,6 +95,11 @@ bool MigrationRunner::initSchemaVersionTable(Database& db, QString* error) {
             if (!db.execute(syncSql, error)) {
                 return false;
             }
+        }
+
+        if (!tx.commit()) {
+            if (error) *error = "Failed to commit legacy seeding transaction";
+            return false;
         }
     }
     return true;
@@ -98,9 +112,10 @@ bool MigrationRunner::getCurrentVersion(Database& db, int& version, QString* err
     }
 
     int tableVersion = 0;
-    // MAX(version) will return NULL if table is empty. Our queryInt sets result to 0 if it fails or if NULL is returned. Wait, queryInt sets result if SQLITE_ROW.
-    // If it's an empty table, MAX(version) returns a row with NULL. sqlite3_column_type will be SQLITE_NULL.
-    // We should probably just do a check. queryInt will return true and set tableVersion to 0 (sqlite3_column_int returns 0 for NULL).
+    // MAX(version) will return NULL if table is empty. Our queryInt sets result to 0 if it fails or if NULL is
+    // returned. Wait, queryInt sets result if SQLITE_ROW. If it's an empty table, MAX(version) returns a row with NULL.
+    // sqlite3_column_type will be SQLITE_NULL. We should probably just do a check. queryInt will return true and set
+    // tableVersion to 0 (sqlite3_column_int returns 0 for NULL).
     if (!db.queryInt("SELECT MAX(version) FROM schema_version;", tableVersion, error)) {
         // If the table is truly empty, queryInt might return false if no rows? No, MAX always returns a row.
         // But if an actual SQL error occurs, we return false.
@@ -109,7 +124,9 @@ bool MigrationRunner::getCurrentVersion(Database& db, int& version, QString* err
 
     if (pragmaVersion != tableVersion) {
         if (error) {
-            *error = QString("Version disagreement: PRAGMA user_version (%1) does not match schema_version table (%2)").arg(pragmaVersion).arg(tableVersion);
+            *error = QString("Version disagreement: PRAGMA user_version (%1) does not match schema_version table (%2)")
+                         .arg(pragmaVersion)
+                         .arg(tableVersion);
         }
         return false;
     }

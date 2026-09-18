@@ -20,6 +20,7 @@ class TestMigrations : public QObject {
     void testForeignKeysEnabled();
     void testFreshSchemaEquivalence();
     void testLegacySeeding();
+    void testFailingLegacySeeding();
 };
 
 void TestMigrations::testFreshDatabaseMigration() {
@@ -305,6 +306,48 @@ void TestMigrations::testLegacySeeding() {
 
     QVERIFY(db.queryInt("SELECT MAX(version) FROM schema_version;", version));
     QCOMPARE(version, 3);
+
+    sqlite3_close(dbHandle);
+}
+
+void TestMigrations::testFailingLegacySeeding() {
+    sqlite3* dbHandle;
+    sqlite3_open(":memory:", &dbHandle);
+    db::Database db(dbHandle);
+
+    db.execute("PRAGMA user_version = 2;");  // No schema_version table yet
+
+    // Simulate an error during legacy seeding by causing INSERT to fail
+    sqlite3_set_authorizer(
+        dbHandle,
+        [](void*, int action, const char*, const char*, const char*, const char*) {
+            if (action == SQLITE_INSERT) {
+                return SQLITE_DENY;
+            }
+            return SQLITE_OK;
+        },
+        nullptr);
+
+    db::MigrationRunner runner;
+    runner.addMigration({2, 3, "test", [](db::Database& d) { return d.execute("CREATE TABLE t1 (id INTEGER);"); }});
+
+    QString error;
+    QVERIFY(!runner.run(db, &error));
+
+    // Remove authorizer
+    sqlite3_set_authorizer(dbHandle, nullptr, nullptr);
+
+    // Verify it failed completely
+    int count = 0;
+    QVERIFY(db.queryInt("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='schema_version';", count));
+    QCOMPARE(count, 0);  // schema_version should not exist
+
+    int version = -1;
+    QVERIFY(db.queryInt("PRAGMA user_version;", version));
+    QCOMPARE(version, 2);  // Unchanged
+
+    // Reopen and try again with no authorizer, should succeed
+    QVERIFY(runner.run(db, &error));
 
     sqlite3_close(dbHandle);
 }
