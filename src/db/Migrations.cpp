@@ -17,7 +17,9 @@ bool MigrationRunner::run(Database& db, QString* error) {
         return false;
     }
 
-    if (!getCurrentVersion(db, currentVersion, error)) return false;
+    if (!getCurrentVersion(db, currentVersion, error)) {
+        return false;
+    }
 
     for (const auto& migration : m_migrations) {
         if (currentVersion >= migration.toVersion) {
@@ -112,13 +114,7 @@ bool MigrationRunner::getCurrentVersion(Database& db, int& version, QString* err
     }
 
     int tableVersion = 0;
-    // MAX(version) will return NULL if table is empty. Our queryInt sets result to 0 if it fails or if NULL is
-    // returned. Wait, queryInt sets result if SQLITE_ROW. If it's an empty table, MAX(version) returns a row with NULL.
-    // sqlite3_column_type will be SQLITE_NULL. We should probably just do a check. queryInt will return true and set
-    // tableVersion to 0 (sqlite3_column_int returns 0 for NULL).
     if (!db.queryInt("SELECT MAX(version) FROM schema_version;", tableVersion, error)) {
-        // If the table is truly empty, queryInt might return false if no rows? No, MAX always returns a row.
-        // But if an actual SQL error occurs, we return false.
         return false;
     }
 

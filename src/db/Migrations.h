@@ -26,8 +26,8 @@ class MigrationRunner {
 
    private:
     std::vector<Migration> m_migrations;
-    bool initSchemaVersionTable(Database& db, QString* error);
-    bool getCurrentVersion(Database& db, int& version, QString* error);
+    static bool initSchemaVersionTable(Database& db, QString* error);
+    static bool getCurrentVersion(Database& db, int& version, QString* error);
 };
 
 }  // namespace db

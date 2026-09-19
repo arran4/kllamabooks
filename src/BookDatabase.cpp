@@ -56,10 +56,17 @@ bool BookDatabase::open(const QString& password) {
         return false;
     }
 
-    // Enable foreign keys
-    if (sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "PRAGMA foreign_keys = ON;", nullptr, nullptr, nullptr) !=
-        SQLITE_OK) {
+    db::Database database(reinterpret_cast<sqlite3*>(m_db));
+    QString databaseError;
+    if (!database.execute("PRAGMA foreign_keys = ON;", &databaseError)) {
         qWarning() << "Failed to enable foreign keys";
+        close();
+        return false;
+    }
+
+    int foreignKeysEnabled = 0;
+    if (!database.queryInt("PRAGMA foreign_keys;", foreignKeysEnabled, &databaseError) || foreignKeysEnabled != 1) {
+        qWarning() << "Failed to verify foreign keys are enabled";
         close();
         return false;
     }
