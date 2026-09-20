@@ -49,6 +49,7 @@
 #include "AIOperationsDialog.h"
 #include "AiActionDialog.h"
 #include "CredentialStore.h"
+#include "AppCredentialManager.h"
 #include "ChatSettingsDialog.h"
 #include "DatabaseSettingsDialog.h"
 #include "DocumentEditWindow.h"
@@ -1043,15 +1044,10 @@ void MainWindow::onActiveEndpointChanged(int index) {
     QString fallbackAuthKey = endpointComboBox->itemData(index, Qt::UserRole + 4).toString();
 
     QString authKey;
-    if (hasCredential) {
-        KWalletCredentialStore credentialStore;
-        CredentialStore::Result res = credentialStore.readCredential(id, authKey);
-        if (res != CredentialStore::Result::Success) {
-            qWarning() << "Failed to read credential from wallet for connection ID" << id;
-            QMessageBox::warning(this, tr("Authentication Error"), tr("Failed to read the credential from the secure wallet for this connection. Requests will likely fail."));
-        }
-    } else if (!fallbackAuthKey.isEmpty()) {
-        authKey = fallbackAuthKey;
+    CredentialStore::Result res = AppCredentialManager::getCredential(id, authKey);
+    if (hasCredential && res != CredentialStore::Result::Success) {
+        qWarning() << "Failed to read credential from wallet for connection ID" << id;
+        QMessageBox::warning(this, tr("Authentication Error"), tr("Failed to read the credential from the secure wallet for this connection. Requests will likely fail."));
     }
 
     if (maxConcurrent < 1) maxConcurrent = 1;

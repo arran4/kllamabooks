@@ -15,6 +15,7 @@
 
 #include "CredentialStore.h"
 #include "ConnectionMigration.h"
+#include "AppCredentialManager.h"
 
 ConnectionDialog::ConnectionDialog(QWidget* parent, const QString& name, const QString& backend, const QString& url,
                                    const QString& authKey, int maxConcurrent, bool hasCredential, const QString& id)
@@ -93,8 +94,13 @@ void ConnectionDialog::onTestConnection() {
     if (m_authKeyEdited || !m_hasCredential) {
         authKeyToUse = m_authKeyEdit->text();
     } else {
-        KWalletCredentialStore credentialStore;
-        credentialStore.readCredential(m_id, authKeyToUse);
+        CredentialStore::Result res = AppCredentialManager::getCredential(m_id, authKeyToUse);
+        if (res != CredentialStore::Result::Success) {
+            QMessageBox::warning(this, tr("Test Connection Failed"), tr("Failed to read the credential from the secure wallet."));
+            m_testButton->setEnabled(true);
+            manager->deleteLater();
+            return;
+        }
     }
     QString authKey = authKeyToUse;
     if (!urlStr.endsWith("/")) urlStr += "/";
@@ -470,17 +476,12 @@ void SettingsDialog::onTestConnection() {
     QString fallbackAuthKey = credItem->data(Qt::UserRole + 2).toString();
 
     QString authKey;
-    if (hasCred) {
-        KWalletCredentialStore credentialStore;
-        CredentialStore::Result res = credentialStore.readCredential(id, authKey);
-        if (res != CredentialStore::Result::Success) {
-            QMessageBox::warning(this, tr("Test Connection Failed"), tr("Failed to read the credential from the secure wallet."));
-            m_testButton->setEnabled(true);
-            manager->deleteLater();
-            return;
-        }
-    } else if (!fallbackAuthKey.isEmpty()) {
-        authKey = fallbackAuthKey;
+    CredentialStore::Result res = AppCredentialManager::getCredential(id, authKey);
+    if (hasCred && res != CredentialStore::Result::Success) {
+        QMessageBox::warning(this, tr("Test Connection Failed"), tr("Failed to read the credential from the secure wallet."));
+        m_testButton->setEnabled(true);
+        manager->deleteLater();
+        return;
     }
 
     if (!urlStr.endsWith("/")) urlStr += "/";
