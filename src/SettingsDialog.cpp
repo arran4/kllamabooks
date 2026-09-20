@@ -11,10 +11,14 @@
 #include <QNetworkRequest>
 #include <QSpinBox>
 #include <QTabWidget>
+#include <QUuid>
+
+#include "CredentialStore.h"
+#include "ConnectionMigration.h"
 
 ConnectionDialog::ConnectionDialog(QWidget* parent, const QString& name, const QString& backend, const QString& url,
-                                   const QString& authKey, int maxConcurrent)
-    : QDialog(parent) {
+                                   const QString& authKey, int maxConcurrent, bool hasCredential, const QString& id)
+    : QDialog(parent), m_hasCredential(hasCredential), m_id(id), m_authKeyEdited(false) {
     setWindowTitle(tr("Connection Settings"));
 
     QVBoxLayout* mainLayout = new QVBoxLayout(this);
@@ -33,6 +37,12 @@ ConnectionDialog::ConnectionDialog(QWidget* parent, const QString& name, const Q
 
     m_authKeyEdit = new QLineEdit(authKey, this);
     m_authKeyEdit->setEchoMode(QLineEdit::PasswordEchoOnEdit);
+    if (m_hasCredential) {
+        m_authKeyEdit->setPlaceholderText(tr("<Secret hidden>"));
+    }
+    connect(m_authKeyEdit, &QLineEdit::textEdited, this, [this]() {
+        m_authKeyEdited = true;
+    });
     formLayout->addRow(tr("Auth Key:"), m_authKeyEdit);
 
     m_maxConcurrentSpinBox = new QSpinBox(this);
@@ -69,6 +79,8 @@ QString ConnectionDialog::url() const { return m_urlEdit->text(); }
 
 QString ConnectionDialog::authKey() const { return m_authKeyEdit->text(); }
 
+bool ConnectionDialog::isAuthKeyEdited() const { return m_authKeyEdited; }
+
 int ConnectionDialog::maxConcurrent() const { return m_maxConcurrentSpinBox->value(); }
 
 void ConnectionDialog::onTestConnection() {
@@ -76,7 +88,15 @@ void ConnectionDialog::onTestConnection() {
 
     QNetworkAccessManager* manager = new QNetworkAccessManager(this);
     QString urlStr = m_urlEdit->text();
-    QString authKey = m_authKeyEdit->text();
+
+    QString authKeyToUse;
+    if (m_authKeyEdited || !m_hasCredential) {
+        authKeyToUse = m_authKeyEdit->text();
+    } else {
+        KWalletCredentialStore credentialStore;
+        credentialStore.readCredential(m_id, authKeyToUse);
+    }
+    QString authKey = authKeyToUse;
     if (!urlStr.endsWith("/")) urlStr += "/";
     urlStr += "api/tags";
 
@@ -254,15 +274,32 @@ SettingsDialog::~SettingsDialog() {}
 
 void SettingsDialog::loadConnections() {
     QVariantList connections = m_settings.value("llmConnections").toList();
+    bool needsSave = false;
+    KWalletCredentialStore credentialStore;
+    QStringList migrationErrors;
+
     if (connections.isEmpty() && m_settings.contains("ollamaUrl")) {
         // Migration from old single URL setting
         QVariantMap defaultConn;
+        defaultConn["id"] = QUuid::createUuid().toString(QUuid::WithoutBraces);
         defaultConn["name"] = "Default Ollama";
         defaultConn["backend"] = "Ollama";
         defaultConn["url"] = m_settings.value("ollamaUrl", "http://localhost:11434").toString();
-        defaultConn["authKey"] = "";
         defaultConn["maxConcurrent"] = 1;
+        defaultConn["hasCredential"] = false;
         connections.append(defaultConn);
+        needsSave = true;
+    }
+
+    bool migrated = ConnectionMigration::migrate(connections, credentialStore, migrationErrors);
+    if (migrated || needsSave) {
+        m_settings.setValue("llmConnections", connections);
+    }
+
+    if (!migrationErrors.isEmpty()) {
+        QMessageBox::warning(this, tr("Credential Migration Failed"),
+                             tr("Some connections failed to migrate their credentials securely:\n\n%1\n\nThey will continue to use insecure storage until migration succeeds.")
+                                 .arg(migrationErrors.join("\n")));
     }
 
     m_connectionsTable->setRowCount(0);
@@ -273,7 +310,16 @@ void SettingsDialog::loadConnections() {
         m_connectionsTable->setItem(row, 0, new QTableWidgetItem(map["name"].toString()));
         m_connectionsTable->setItem(row, 1, new QTableWidgetItem(map.value("backend", "Ollama").toString()));
         m_connectionsTable->setItem(row, 2, new QTableWidgetItem(map["url"].toString()));
-        m_connectionsTable->setItem(row, 3, new QTableWidgetItem(map["authKey"].toString()));
+
+        bool hasCred = map.value("hasCredential", false).toBool();
+        QTableWidgetItem* credItem = new QTableWidgetItem(hasCred ? tr("Configured") : tr("Not configured"));
+        credItem->setData(Qt::UserRole, map["id"].toString());
+        credItem->setData(Qt::UserRole + 1, hasCred);
+        if (!hasCred && map.contains("authKey")) {
+            credItem->setData(Qt::UserRole + 2, map["authKey"].toString()); // Stash fallback temporarily
+        }
+        m_connectionsTable->setItem(row, 3, credItem);
+
         m_connectionsTable->setItem(row, 4, new QTableWidgetItem(map.value("maxConcurrent", 1).toString()));
     }
 }
@@ -285,7 +331,16 @@ void SettingsDialog::saveConnections() {
         map["name"] = m_connectionsTable->item(i, 0)->text();
         map["backend"] = m_connectionsTable->item(i, 1)->text();
         map["url"] = m_connectionsTable->item(i, 2)->text();
-        map["authKey"] = m_connectionsTable->item(i, 3)->text();
+
+        QTableWidgetItem* credItem = m_connectionsTable->item(i, 3);
+        map["id"] = credItem->data(Qt::UserRole).toString();
+        map["hasCredential"] = credItem->data(Qt::UserRole + 1).toBool();
+
+        QString fallbackAuthKey = credItem->data(Qt::UserRole + 2).toString();
+        if (!fallbackAuthKey.isEmpty()) {
+            map["authKey"] = fallbackAuthKey;
+        }
+
         map["maxConcurrent"] = m_connectionsTable->item(i, 4)->text().toInt();
         connections.append(map);
     }
@@ -293,14 +348,36 @@ void SettingsDialog::saveConnections() {
 }
 
 void SettingsDialog::onAddConnection() {
-    ConnectionDialog dialog(this);
+    QString id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    ConnectionDialog dialog(this, "New Connection", "Ollama", "http://localhost:11434", "", 1, false, id);
     if (dialog.exec() == QDialog::Accepted) {
+        KWalletCredentialStore credentialStore;
+        bool hasCred = false;
+        QString fallbackAuthKey;
+        if (!dialog.authKey().isEmpty()) {
+            CredentialStore::Result res = credentialStore.writeCredential(id, dialog.authKey());
+            if (res == CredentialStore::Result::Success) {
+                hasCred = true;
+            } else {
+                fallbackAuthKey = dialog.authKey();
+                QMessageBox::warning(this, tr("Save Failed"), tr("Failed to securely store credential. It will be stored insecurely until next migration."));
+            }
+        }
+
         int row = m_connectionsTable->rowCount();
         m_connectionsTable->insertRow(row);
         m_connectionsTable->setItem(row, 0, new QTableWidgetItem(dialog.name()));
         m_connectionsTable->setItem(row, 1, new QTableWidgetItem(dialog.backend()));
         m_connectionsTable->setItem(row, 2, new QTableWidgetItem(dialog.url()));
-        m_connectionsTable->setItem(row, 3, new QTableWidgetItem(dialog.authKey()));
+
+        QTableWidgetItem* credItem = new QTableWidgetItem(hasCred ? tr("Configured") : tr("Not configured"));
+        credItem->setData(Qt::UserRole, id);
+        credItem->setData(Qt::UserRole + 1, hasCred);
+        if (!fallbackAuthKey.isEmpty()) {
+            credItem->setData(Qt::UserRole + 2, fallbackAuthKey);
+        }
+        m_connectionsTable->setItem(row, 3, credItem);
+
         m_connectionsTable->setItem(row, 4, new QTableWidgetItem(QString::number(dialog.maxConcurrent())));
     }
 }
@@ -312,16 +389,49 @@ void SettingsDialog::onEditConnection() {
     QString name = m_connectionsTable->item(row, 0)->text();
     QString backend = m_connectionsTable->item(row, 1)->text();
     QString url = m_connectionsTable->item(row, 2)->text();
-    QString authKey = m_connectionsTable->item(row, 3)->text();
+
+    QTableWidgetItem* credItem = m_connectionsTable->item(row, 3);
+    QString id = credItem->data(Qt::UserRole).toString();
+    bool hasCred = credItem->data(Qt::UserRole + 1).toBool();
+    QString fallbackAuthKey = credItem->data(Qt::UserRole + 2).toString();
+
     int maxConcurrent = m_connectionsTable->item(row, 4)->text().toInt();
     if (maxConcurrent < 1) maxConcurrent = 1;
 
-    ConnectionDialog dialog(this, name, backend, url, authKey, maxConcurrent);
+    // Use fallbackAuthKey if present and we don't have a stored cred
+    bool effectivelyHasCred = hasCred || !fallbackAuthKey.isEmpty();
+    ConnectionDialog dialog(this, name, backend, url, "", maxConcurrent, effectivelyHasCred, id);
     if (dialog.exec() == QDialog::Accepted) {
+        KWalletCredentialStore credentialStore;
+        if (dialog.isAuthKeyEdited()) {
+            if (dialog.authKey().isEmpty()) {
+                credentialStore.deleteCredential(id);
+                hasCred = false;
+                fallbackAuthKey.clear();
+            } else {
+                CredentialStore::Result res = credentialStore.writeCredential(id, dialog.authKey());
+                if (res == CredentialStore::Result::Success) {
+                    hasCred = true;
+                    fallbackAuthKey.clear();
+                } else {
+                    fallbackAuthKey = dialog.authKey();
+                    QMessageBox::warning(this, tr("Save Failed"), tr("Failed to securely store credential. It will be stored insecurely until next migration."));
+                }
+            }
+        }
+
         m_connectionsTable->item(row, 0)->setText(dialog.name());
         m_connectionsTable->item(row, 1)->setText(dialog.backend());
         m_connectionsTable->item(row, 2)->setText(dialog.url());
-        m_connectionsTable->item(row, 3)->setText(dialog.authKey());
+
+        credItem->setText(hasCred ? tr("Configured") : tr("Not configured"));
+        credItem->setData(Qt::UserRole + 1, hasCred);
+        if (!fallbackAuthKey.isEmpty()) {
+            credItem->setData(Qt::UserRole + 2, fallbackAuthKey);
+        } else {
+            credItem->setData(Qt::UserRole + 2, QVariant());
+        }
+
         m_connectionsTable->item(row, 4)->setText(QString::number(dialog.maxConcurrent()));
     }
 }
@@ -329,6 +439,15 @@ void SettingsDialog::onEditConnection() {
 void SettingsDialog::onRemoveConnection() {
     int row = m_connectionsTable->currentRow();
     if (row >= 0) {
+        QTableWidgetItem* credItem = m_connectionsTable->item(row, 3);
+        QString id = credItem->data(Qt::UserRole).toString();
+
+        KWalletCredentialStore credentialStore;
+        CredentialStore::Result res = credentialStore.deleteCredential(id);
+        if (res == CredentialStore::Result::DeleteFailure) {
+            QMessageBox::warning(this, tr("Cleanup Failed"), tr("Failed to remove credential from secure storage."));
+        }
+
         m_connectionsTable->removeRow(row);
     }
 }
@@ -344,7 +463,26 @@ void SettingsDialog::onTestConnection() {
 
     QNetworkAccessManager* manager = new QNetworkAccessManager(this);
     QString urlStr = m_connectionsTable->item(row, 2)->text();
-    QString authKey = m_connectionsTable->item(row, 3)->text();
+
+    QTableWidgetItem* credItem = m_connectionsTable->item(row, 3);
+    QString id = credItem->data(Qt::UserRole).toString();
+    bool hasCred = credItem->data(Qt::UserRole + 1).toBool();
+    QString fallbackAuthKey = credItem->data(Qt::UserRole + 2).toString();
+
+    QString authKey;
+    if (hasCred) {
+        KWalletCredentialStore credentialStore;
+        CredentialStore::Result res = credentialStore.readCredential(id, authKey);
+        if (res != CredentialStore::Result::Success) {
+            QMessageBox::warning(this, tr("Test Connection Failed"), tr("Failed to read the credential from the secure wallet."));
+            m_testButton->setEnabled(true);
+            manager->deleteLater();
+            return;
+        }
+    } else if (!fallbackAuthKey.isEmpty()) {
+        authKey = fallbackAuthKey;
+    }
+
     if (!urlStr.endsWith("/")) urlStr += "/";
     urlStr += "api/tags";
 

@@ -35,6 +35,10 @@ add_executable(kllamabooks
     src/db/MigrationFactory.h
     src/WalletManager.cpp
     src/WalletManager.h
+    src/CredentialStore.cpp
+    src/CredentialStore.h
+    src/ConnectionMigration.cpp
+    src/ConnectionMigration.h
     src/SettingsDialog.cpp
     src/SettingsDialog.h
     src/DatabaseSettingsDialog.cpp
@@ -168,3 +172,11 @@ add_executable(test_Migrations tests/test_Migrations.cpp src/BookDatabase.cpp sr
 target_link_libraries(test_Migrations Qt6::Test Qt6::Core ${SQLCIPHER_LIBRARIES})
 target_include_directories(test_Migrations PRIVATE ${SQLCIPHER_INCLUDE_DIRS})
 add_test(NAME test_Migrations COMMAND test_Migrations)
+
+add_executable(test_CredentialStore tests/test_CredentialStore.cpp src/CredentialStore.cpp src/ConnectionMigration.cpp)
+target_link_libraries(test_CredentialStore Qt6::Test Qt6::Core KF6::Wallet)
+add_test(NAME test_CredentialStore COMMAND test_CredentialStore)
+
+add_executable(test_ConnectionMigration tests/test_ConnectionMigration.cpp src/ConnectionMigration.cpp src/CredentialStore.cpp)
+target_link_libraries(test_ConnectionMigration Qt6::Test Qt6::Core KF6::Wallet)
+add_test(NAME test_ConnectionMigration COMMAND test_ConnectionMigration)
