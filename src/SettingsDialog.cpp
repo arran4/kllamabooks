@@ -556,7 +556,8 @@ void SettingsDialog::onApply() {
             }
 
             if (readRes == CredentialStore::Result::Success) {
-                rollbackOperations.prepend([=]() { return credentialStore->writeCredential(it.key(), existingSecret); });
+                rollbackOperations.prepend(
+                    [=]() { return credentialStore->writeCredential(it.key(), existingSecret); });
             } else {
                 rollbackOperations.prepend([=]() { return credentialStore->deleteCredential(it.key()); });
             }
