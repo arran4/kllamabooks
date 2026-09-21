@@ -524,13 +524,29 @@ void SettingsDialog::onApply() {
     }
 
     // For failed writes, we must revert the UI state so saveConnections() doesn't mark them as configured.
-    for (const QString& id : failedWrites) {
-        for (int i = 0; i < m_connectionsTable->rowCount(); ++i) {
-            QTableWidgetItem* credItem = m_connectionsTable->item(i, 3);
-            if (credItem->data(Qt::UserRole).toString() == id) {
-                bool effectivelyHasCred = m_legacyCredentials.contains(id);
-                credItem->setText(effectivelyHasCred ? tr("Configured") : tr("Not configured"));
-                credItem->setData(Qt::UserRole + 1, effectivelyHasCred);
+    // If it was a new connection, removing the row prevents creating a persistent but unusable connection.
+    QVariantList originalConnections = m_settings.value("llmConnections").toList();
+    for (int i = m_connectionsTable->rowCount() - 1; i >= 0; --i) {
+        QTableWidgetItem* credItem = m_connectionsTable->item(i, 3);
+        QString id = credItem->data(Qt::UserRole).toString();
+
+        if (failedWrites.contains(id)) {
+            bool isNew = true;
+            bool originalHasCred = false;
+            for (const QVariant& v : originalConnections) {
+                QVariantMap map = v.toMap();
+                if (map["id"].toString() == id) {
+                    isNew = false;
+                    originalHasCred = map.value("hasCredential", false).toBool() || map.contains("authKey");
+                    break;
+                }
+            }
+
+            if (isNew) {
+                m_connectionsTable->removeRow(i);
+            } else {
+                credItem->setText(originalHasCred ? tr("Configured") : tr("Not configured"));
+                credItem->setData(Qt::UserRole + 1, originalHasCred);
             }
         }
     }
