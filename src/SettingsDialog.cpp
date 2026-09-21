@@ -584,10 +584,8 @@ void SettingsDialog::onApply() {
                                     "Please resolve wallet issues and try again."));
         }
 
-        // Unhide deleted rows since we didn't apply
-        for (int i = 0; i < m_connectionsTable->rowCount(); ++i) {
-            m_connectionsTable->setRowHidden(i, false);
-        }
+        // We do not unhide rows or alter the UI. We leave the dialog exactly as it was
+        // so the user can cancel safely or retry later.
         return;
     }
 
