@@ -4,15 +4,8 @@
 #include <QString>
 
 class CredentialStore {
-public:
-    enum class Result {
-        Success,
-        NotFound,
-        WalletUnavailable,
-        ReadFailure,
-        WriteFailure,
-        DeleteFailure
-    };
+   public:
+    enum class Result { Success, NotFound, WalletUnavailable, ReadFailure, WriteFailure, DeleteFailure };
 
     virtual ~CredentialStore() = default;
 
@@ -22,7 +15,7 @@ public:
 };
 
 class KWalletCredentialStore : public CredentialStore {
-public:
+   public:
     KWalletCredentialStore();
     ~KWalletCredentialStore() override;
 
@@ -31,4 +24,4 @@ public:
     Result deleteCredential(const QString& id) override;
 };
 
-#endif // CREDENTIALSTORE_H
+#endif  // CREDENTIALSTORE_H

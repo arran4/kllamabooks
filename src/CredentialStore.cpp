@@ -1,4 +1,5 @@
 #include "CredentialStore.h"
+
 #include <KF6/KWallet/KWallet>
 
 namespace {
@@ -60,13 +61,13 @@ CredentialStore::Result KWalletCredentialStore::deleteCredential(const QString& 
 
     if (!wallet->hasFolder(FOLDER_NAME)) {
         delete wallet;
-        return Result::Success; // Already gone
+        return Result::Success;  // Already gone
     }
     wallet->setFolder(FOLDER_NAME);
 
     if (!wallet->hasEntry(id)) {
         delete wallet;
-        return Result::Success; // Already gone
+        return Result::Success;  // Already gone
     }
 
     int ret = wallet->removeEntry(id);

@@ -1,7 +1,8 @@
 #include "ConnectionMigration.h"
+
+#include <QDebug>
 #include <QUuid>
 #include <QVariantMap>
-#include <QDebug>
 
 bool ConnectionMigration::migrate(QVariantList& connections, CredentialStore& store, QStringList& errorMessages) {
     bool needsSave = false;
@@ -25,7 +26,8 @@ bool ConnectionMigration::migrate(QVariantList& connections, CredentialStore& st
                     map["hasCredential"] = true;
                     needsSave = true;
                 } else {
-                    errorMessages.append(QString("Failed to migrate credential for connection '%1' to KWallet.").arg(map["name"].toString()));
+                    errorMessages.append(QString("Failed to migrate credential for connection '%1' to KWallet.")
+                                             .arg(map["name"].toString()));
                     // IMPORTANT: Do NOT remove authKey or set hasCredential if migration fails.
                 }
             } else {

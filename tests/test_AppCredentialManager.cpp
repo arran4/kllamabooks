@@ -1,8 +1,8 @@
-#include <QtTest>
+#include <QSettings>
 #include <QUuid>
 #include <QVariantList>
 #include <QVariantMap>
-#include <QSettings>
+#include <QtTest>
 
 #include "../src/AppCredentialManager.h"
 #include "FakeCredentialStore.h"
@@ -10,13 +10,14 @@
 class TestAppCredentialManager : public QObject {
     Q_OBJECT
 
-private slots:
+   private slots:
     void init();
     void cleanup();
     void testSuccessFromStore();
     void testFallbackFromQSettings();
     void testFallbackIgnoredWhenStoreHasIt();
     void testFailurePropagates();
+    void testUnmigratedCredentialFallback();
 };
 
 void TestAppCredentialManager::init() {
@@ -44,7 +45,7 @@ void TestAppCredentialManager::testSuccessFromStore() {
 
 void TestAppCredentialManager::testFallbackFromQSettings() {
     FakeCredentialStore store;
-    store.simulateUnavailable = true; // Wallet is locked
+    store.simulateUnavailable = true;  // Wallet is locked
 
     QSettings settings;
     QVariantList connections;
@@ -70,8 +71,8 @@ void TestAppCredentialManager::testFallbackIgnoredWhenStoreHasIt() {
     QVariantList connections;
     QVariantMap conn1;
     conn1["id"] = "conn-fallback";
-    conn1["hasCredential"] = true; // Pretend it has credential
-    conn1["authKey"] = "fallback_secret"; // Should be ignored because hasCredential is true
+    conn1["hasCredential"] = true;         // Pretend it has credential
+    conn1["authKey"] = "fallback_secret";  // Should be ignored because hasCredential is true
     connections.append(conn1);
     settings.setValue("llmConnections", connections);
 
@@ -91,6 +92,25 @@ void TestAppCredentialManager::testFailurePropagates() {
     CredentialStore::Result res = AppCredentialManager::getCredential("missing-conn", secret, &store);
 
     QCOMPARE(res, CredentialStore::Result::WalletUnavailable);
+}
+
+void TestAppCredentialManager::testUnmigratedCredentialFallback() {
+    FakeCredentialStore store;
+    store.simulateUnavailable = true;
+
+    QSettings settings;
+    QVariantList connections;
+    QVariantMap conn1;
+    conn1["id"] = "conn-fallback";
+    conn1["authKey"] = "fallback_secret";
+    // no hasCredential field
+    connections.append(conn1);
+    settings.setValue("llmConnections", connections);
+
+    QString secret;
+    CredentialStore::Result res = AppCredentialManager::getCredential("conn-fallback", secret, &store);
+    QCOMPARE(res, CredentialStore::Result::Success);
+    QCOMPARE(secret, QString("fallback_secret"));
 }
 
 QTEST_MAIN(TestAppCredentialManager)

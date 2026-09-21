@@ -1,9 +1,11 @@
 #include "AppCredentialManager.h"
+
+#include <QScopedPointer>
 #include <QVariantList>
 #include <QVariantMap>
-#include <QScopedPointer>
 
-CredentialStore::Result AppCredentialManager::getCredential(const QString& id, QString& secret, CredentialStore* store) {
+CredentialStore::Result AppCredentialManager::getCredential(const QString& id, QString& secret,
+                                                            CredentialStore* store) {
     QScopedPointer<CredentialStore> defaultStore;
     if (!store) {
         defaultStore.reset(new KWalletCredentialStore());

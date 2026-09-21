@@ -1,13 +1,14 @@
 #ifndef APPCREDENTIALMANAGER_H
 #define APPCREDENTIALMANAGER_H
 
-#include "CredentialStore.h"
-#include <QString>
 #include <QSettings>
+#include <QString>
+
+#include "CredentialStore.h"
 
 class AppCredentialManager {
-public:
+   public:
     static CredentialStore::Result getCredential(const QString& id, QString& secret, CredentialStore* store = nullptr);
 };
 
-#endif // APPCREDENTIALMANAGER_H
+#endif  // APPCREDENTIALMANAGER_H

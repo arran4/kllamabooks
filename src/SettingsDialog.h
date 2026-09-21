@@ -10,6 +10,7 @@
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QSet>
 #include <QSettings>
 #include <QSpinBox>
 #include <QTableWidget>
@@ -17,7 +18,6 @@
 #include <QVBoxLayout>
 #include <QVariantList>
 #include <QVariantMap>
-#include <QSet>
 
 #include "AIOperationsEditorWidget.h"
 #include "DocumentTemplatesEditorWidget.h"
@@ -27,7 +27,8 @@ class ConnectionDialog : public QDialog {
    public:
     explicit ConnectionDialog(QWidget* parent = nullptr, const QString& name = "New Connection",
                               const QString& backend = "Ollama", const QString& url = "http://localhost:11434",
-                              const QString& authKey = "", int maxConcurrent = 1, bool hasCredential = false, const QString& id = "");
+                              const QString& authKey = "", int maxConcurrent = 1, bool hasCredential = false,
+                              const QString& id = "");
     ~ConnectionDialog();
 
     QString name() const;

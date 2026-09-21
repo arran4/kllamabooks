@@ -48,9 +48,9 @@
 
 #include "AIOperationsDialog.h"
 #include "AiActionDialog.h"
-#include "CredentialStore.h"
 #include "AppCredentialManager.h"
 #include "ChatSettingsDialog.h"
+#include "CredentialStore.h"
 #include "DatabaseSettingsDialog.h"
 #include "DocumentEditWindow.h"
 #include "DocumentHistoryDialog.h"
@@ -1007,9 +1007,9 @@ void MainWindow::updateEndpointsList() {
     if (connections.isEmpty() && settings.contains("ollamaUrl")) {
         // Fallback for old setting
         endpointComboBox->addItem("Default Ollama", settings.value("ollamaUrl", "http://localhost:11434").toString());
-        endpointComboBox->setItemData(0, "", Qt::UserRole + 1);  // ID
-        endpointComboBox->setItemData(0, false, Qt::UserRole + 2); // hasCredential
-        endpointComboBox->setItemData(0, 1, Qt::UserRole + 3);   // Max Concurrent
+        endpointComboBox->setItemData(0, "", Qt::UserRole + 1);     // ID
+        endpointComboBox->setItemData(0, false, Qt::UserRole + 2);  // hasCredential
+        endpointComboBox->setItemData(0, 1, Qt::UserRole + 3);      // Max Concurrent
     } else {
         for (int i = 0; i < connections.size(); ++i) {
             QVariantMap map = connections[i].toMap();
@@ -1047,7 +1047,9 @@ void MainWindow::onActiveEndpointChanged(int index) {
     CredentialStore::Result res = AppCredentialManager::getCredential(id, authKey);
     if (hasCredential && res != CredentialStore::Result::Success) {
         qWarning() << "Failed to read credential from wallet for connection ID" << id;
-        QMessageBox::warning(this, tr("Authentication Error"), tr("Failed to read the credential from the secure wallet for this connection. Requests will likely fail."));
+        QMessageBox::warning(
+            this, tr("Authentication Error"),
+            tr("Failed to read the credential from the secure wallet for this connection. Requests will likely fail."));
     }
 
     if (maxConcurrent < 1) maxConcurrent = 1;

@@ -1,11 +1,10 @@
 #include <sqlcipher/sqlite3.h>
 
-#include <cstring>
-#include <initializer_list>
-
 #include <QSet>
 #include <QVector>
 #include <QtTest>
+#include <cstring>
+#include <initializer_list>
 
 #include "../src/BookDatabase.h"
 #include "../src/db/Database.h"

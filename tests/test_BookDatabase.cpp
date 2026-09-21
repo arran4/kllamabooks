@@ -147,9 +147,6 @@ void TestBookDatabase::testAddDocumentUnopenedDb() {
     QCOMPARE(docId, -1);
 }
 
-
-
-
 void TestBookDatabase::testChatRenamePreservesMessageContent() {
     BookDatabase db(":memory:");
     QVERIFY(db.open(""));

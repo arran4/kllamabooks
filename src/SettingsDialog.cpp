@@ -13,9 +13,9 @@
 #include <QTabWidget>
 #include <QUuid>
 
-#include "CredentialStore.h"
-#include "ConnectionMigration.h"
 #include "AppCredentialManager.h"
+#include "ConnectionMigration.h"
+#include "CredentialStore.h"
 
 ConnectionDialog::ConnectionDialog(QWidget* parent, const QString& name, const QString& backend, const QString& url,
                                    const QString& authKey, int maxConcurrent, bool hasCredential, const QString& id)
@@ -41,9 +41,7 @@ ConnectionDialog::ConnectionDialog(QWidget* parent, const QString& name, const Q
     if (m_hasCredential) {
         m_authKeyEdit->setPlaceholderText(tr("<Secret hidden>"));
     }
-    connect(m_authKeyEdit, &QLineEdit::textEdited, this, [this]() {
-        m_authKeyEdited = true;
-    });
+    connect(m_authKeyEdit, &QLineEdit::textEdited, this, [this]() { m_authKeyEdited = true; });
     formLayout->addRow(tr("Auth Key:"), m_authKeyEdit);
 
     m_maxConcurrentSpinBox = new QSpinBox(this);
@@ -96,7 +94,8 @@ void ConnectionDialog::onTestConnection() {
     } else {
         CredentialStore::Result res = AppCredentialManager::getCredential(m_id, authKeyToUse);
         if (res != CredentialStore::Result::Success) {
-            QMessageBox::warning(this, tr("Test Connection Failed"), tr("Failed to read the credential from the secure wallet."));
+            QMessageBox::warning(this, tr("Test Connection Failed"),
+                                 tr("Failed to read the credential from the secure wallet."));
             m_testButton->setEnabled(true);
             manager->deleteLater();
             return;
@@ -304,7 +303,8 @@ void SettingsDialog::loadConnections() {
 
     if (!migrationErrors.isEmpty()) {
         QMessageBox::warning(this, tr("Credential Migration Failed"),
-                             tr("Some connections failed to migrate their credentials securely:\n\n%1\n\nThey will continue to use insecure storage until migration succeeds.")
+                             tr("Some connections failed to migrate their credentials securely:\n\n%1\n\nThey will "
+                                "continue to use insecure storage until migration succeeds.")
                                  .arg(migrationErrors.join("\n")));
     }
 
@@ -364,7 +364,7 @@ void SettingsDialog::onAddConnection() {
         bool hasCred = false;
         if (!dialog.authKey().isEmpty()) {
             m_pendingWrites[id] = dialog.authKey();
-            hasCred = true; // Assume true until Apply
+            hasCred = true;  // Assume true until Apply
             m_pendingDeletes.remove(id);
         }
 
@@ -406,12 +406,10 @@ void SettingsDialog::onEditConnection() {
                 m_pendingDeletes.insert(id);
                 m_pendingWrites.remove(id);
                 hasCred = false;
-                m_legacyCredentials.remove(id);
             } else {
                 m_pendingWrites[id] = dialog.authKey();
                 m_pendingDeletes.remove(id);
-                hasCred = true; // Assume true until Apply
-                m_legacyCredentials.remove(id);
+                hasCred = true;  // Assume true until Apply
             }
         }
 
@@ -434,8 +432,9 @@ void SettingsDialog::onRemoveConnection() {
 
         m_pendingDeletes.insert(id);
         m_pendingWrites.remove(id);
-        m_legacyCredentials.remove(id);
 
+        // We can just hide the row or remove it from the table model.
+        // If they click Cancel, the table model is discarded anyway, so it doesn't matter.
         m_connectionsTable->removeRow(row);
     }
 }
@@ -463,7 +462,8 @@ void SettingsDialog::onTestConnection() {
     } else if (!m_pendingDeletes.contains(id)) {
         CredentialStore::Result res = AppCredentialManager::getCredential(id, authKey);
         if (hasCred && res != CredentialStore::Result::Success) {
-            QMessageBox::warning(this, tr("Test Connection Failed"), tr("Failed to read the credential from the secure wallet."));
+            QMessageBox::warning(this, tr("Test Connection Failed"),
+                                 tr("Failed to read the credential from the secure wallet."));
             m_testButton->setEnabled(true);
             manager->deleteLater();
             return;
@@ -497,58 +497,34 @@ void SettingsDialog::onApply() {
     QStringList failedWrites;
     QStringList failedDeletes;
 
-    // Apply pending deletes
+    // Apply pending deletes. Any failure (including WalletUnavailable) is a failed delete.
     for (const QString& id : m_pendingDeletes) {
         CredentialStore::Result res = credentialStore.deleteCredential(id);
-        if (res == CredentialStore::Result::DeleteFailure) {
+        if (res != CredentialStore::Result::Success && res != CredentialStore::Result::NotFound) {
             failedDeletes.append(id);
         }
     }
 
-    // Apply pending writes
+    // Apply pending writes. Any failure is a failed write.
     for (auto it = m_pendingWrites.begin(); it != m_pendingWrites.end(); ++it) {
         CredentialStore::Result res = credentialStore.writeCredential(it.key(), it.value());
         if (res != CredentialStore::Result::Success) {
             failedWrites.append(it.key());
-        } else {
-            // Success, remove from legacy if it was there
-            m_legacyCredentials.remove(it.key());
         }
     }
 
-    if (!failedDeletes.isEmpty()) {
-        QMessageBox::warning(this, tr("Cleanup Failed"), tr("Failed to remove some credentials from secure storage."));
+    if (!failedDeletes.isEmpty() || !failedWrites.isEmpty()) {
+        QMessageBox::warning(this, tr("Save Failed"),
+                             tr("Failed to update credentials securely in KWallet. Your edits have not been saved. "
+                                "Please resolve wallet issues and try again."));
+        // DO NOT call saveConnections() or accept(), we want to keep the dialog open.
+        // The user can retry. The UI states and m_pendingWrites/m_pendingDeletes are preserved.
+        return;
     }
-    if (!failedWrites.isEmpty()) {
-        QMessageBox::warning(this, tr("Save Failed"), tr("Failed to securely store some newly entered credentials. They have not been saved. Please try again."));
-    }
 
-    // For failed writes, we must revert the UI state so saveConnections() doesn't mark them as configured.
-    // If it was a new connection, removing the row prevents creating a persistent but unusable connection.
-    QVariantList originalConnections = m_settings.value("llmConnections").toList();
-    for (int i = m_connectionsTable->rowCount() - 1; i >= 0; --i) {
-        QTableWidgetItem* credItem = m_connectionsTable->item(i, 3);
-        QString id = credItem->data(Qt::UserRole).toString();
-
-        if (failedWrites.contains(id)) {
-            bool isNew = true;
-            bool originalHasCred = false;
-            for (const QVariant& v : originalConnections) {
-                QVariantMap map = v.toMap();
-                if (map["id"].toString() == id) {
-                    isNew = false;
-                    originalHasCred = map.value("hasCredential", false).toBool() || map.contains("authKey");
-                    break;
-                }
-            }
-
-            if (isNew) {
-                m_connectionsTable->removeRow(i);
-            } else {
-                credItem->setText(originalHasCred ? tr("Configured") : tr("Not configured"));
-                credItem->setData(Qt::UserRole + 1, originalHasCred);
-            }
-        }
+    // Success, we can now remove successfully written items from legacy credentials
+    for (auto it = m_pendingWrites.begin(); it != m_pendingWrites.end(); ++it) {
+        m_legacyCredentials.remove(it.key());
     }
 
     m_pendingWrites.clear();

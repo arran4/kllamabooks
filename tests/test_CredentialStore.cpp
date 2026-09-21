@@ -1,10 +1,11 @@
 #include <QtTest>
+
 #include "FakeCredentialStore.h"
 
 class TestCredentialStore : public QObject {
     Q_OBJECT
 
-private slots:
+   private slots:
     void testSuccessFlow();
     void testMissingCredential();
     void testWriteFailure();

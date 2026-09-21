@@ -1,7 +1,7 @@
-#include <QtTest>
 #include <QUuid>
 #include <QVariantList>
 #include <QVariantMap>
+#include <QtTest>
 
 #include "../src/ConnectionMigration.h"
 #include "FakeCredentialStore.h"
@@ -9,7 +9,7 @@
 class TestConnectionMigration : public QObject {
     Q_OBJECT
 
-private slots:
+   private slots:
     void testSuccessfulMigration();
     void testMigrationFailurePreservesAuthKey();
     void testIdempotentMigration();
@@ -63,7 +63,7 @@ void TestConnectionMigration::testMigrationFailurePreservesAuthKey() {
 
     QVariantMap migratedConn = connections[0].toMap();
     QVERIFY(migratedConn.contains("id"));
-    QVERIFY(migratedConn.contains("authKey")); // Auth key preserved
+    QVERIFY(migratedConn.contains("authKey"));  // Auth key preserved
     QCOMPARE(migratedConn["authKey"].toString(), QString("my_secret_key"));
     QVERIFY(!migratedConn.contains("hasCredential"));
 
@@ -84,7 +84,7 @@ void TestConnectionMigration::testIdempotentMigration() {
     QStringList errors;
     bool needsSave = ConnectionMigration::migrate(connections, store, errors);
 
-    QVERIFY(!needsSave); // No changes needed
+    QVERIFY(!needsSave);  // No changes needed
     QVERIFY(errors.isEmpty());
 
     QVariantMap migratedConn = connections[0].toMap();
@@ -99,7 +99,7 @@ void TestConnectionMigration::testNoAuthKeyMigration() {
     QVariantList connections;
     QVariantMap conn1;
     conn1["name"] = "Ollama 1";
-    conn1["authKey"] = ""; // Empty explicitly
+    conn1["authKey"] = "";  // Empty explicitly
     connections.append(conn1);
 
     QStringList errors;

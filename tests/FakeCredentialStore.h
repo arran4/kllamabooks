@@ -1,11 +1,12 @@
 #ifndef FAKECREDENTIALSTORE_H
 #define FAKECREDENTIALSTORE_H
 
-#include "../src/CredentialStore.h"
 #include <QHash>
 
+#include "../src/CredentialStore.h"
+
 class FakeCredentialStore : public CredentialStore {
-public:
+   public:
     Result writeCredential(const QString& id, const QString& secret) override {
         if (simulateUnavailable) return Result::WalletUnavailable;
         if (simulateWriteFailure) return Result::WriteFailure;
@@ -35,13 +36,9 @@ public:
     }
 
     // For test verification
-    bool hasCredential(const QString& id) const {
-        return m_store.contains(id);
-    }
+    bool hasCredential(const QString& id) const { return m_store.contains(id); }
 
-    QString getCredential(const QString& id) const {
-        return m_store.value(id);
-    }
+    QString getCredential(const QString& id) const { return m_store.value(id); }
 
     void clear() {
         m_store.clear();
@@ -57,8 +54,8 @@ public:
     bool simulateReadFailure = false;
     bool simulateDeleteFailure = false;
 
-private:
+   private:
     QHash<QString, QString> m_store;
 };
 
-#endif // FAKECREDENTIALSTORE_H
+#endif  // FAKECREDENTIALSTORE_H
