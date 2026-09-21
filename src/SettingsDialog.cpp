@@ -280,7 +280,14 @@ SettingsDialog::~SettingsDialog() {}
 void SettingsDialog::loadConnections() {
     QVariantList connections = m_settings.value("llmConnections").toList();
     bool needsSave = false;
-    KWalletCredentialStore credentialStore;
+
+    QScopedPointer<CredentialStore> defaultStore;
+    CredentialStore* credentialStore = AppCredentialManager::getStoreFactory()();
+    if (!credentialStore) {
+        defaultStore.reset(new KWalletCredentialStore());
+        credentialStore = defaultStore.data();
+    }
+
     QStringList migrationErrors;
 
     if (connections.isEmpty() && m_settings.contains("ollamaUrl")) {
@@ -296,7 +303,7 @@ void SettingsDialog::loadConnections() {
         needsSave = true;
     }
 
-    bool migrated = ConnectionMigration::migrate(connections, credentialStore, migrationErrors);
+    bool migrated = ConnectionMigration::migrate(connections, *credentialStore, migrationErrors);
     if (migrated || needsSave) {
         m_settings.setValue("llmConnections", connections);
     }
@@ -433,9 +440,8 @@ void SettingsDialog::onRemoveConnection() {
         m_pendingDeletes.insert(id);
         m_pendingWrites.remove(id);
 
-        // We can just hide the row or remove it from the table model.
-        // If they click Cancel, the table model is discarded anyway, so it doesn't matter.
-        m_connectionsTable->removeRow(row);
+        // Hide it so we can unhide it on rollback failure
+        m_connectionsTable->setRowHidden(row, true);
     }
 }
 
@@ -493,32 +499,77 @@ void SettingsDialog::onTestConnection() {
 }
 
 void SettingsDialog::onApply() {
-    KWalletCredentialStore credentialStore;
+    QScopedPointer<CredentialStore> defaultStore;
+    CredentialStore* credentialStore = AppCredentialManager::getStoreFactory()();
+    if (!credentialStore) {
+        defaultStore.reset(new KWalletCredentialStore());
+        credentialStore = defaultStore.data();
+    }
+
     QStringList failedWrites;
     QStringList failedDeletes;
 
+    // Prepare for rollback by saving existing values
+    QMap<QString, QString> rollbackValues;
+
+    bool transactionFailed = false;
+
     // Apply pending deletes. Any failure (including WalletUnavailable) is a failed delete.
     for (const QString& id : m_pendingDeletes) {
-        CredentialStore::Result res = credentialStore.deleteCredential(id);
+        QString existingSecret;
+        if (credentialStore->readCredential(id, existingSecret) == CredentialStore::Result::Success) {
+            rollbackValues[id] = existingSecret;
+        }
+        CredentialStore::Result res = credentialStore->deleteCredential(id);
         if (res != CredentialStore::Result::Success && res != CredentialStore::Result::NotFound) {
             failedDeletes.append(id);
+            transactionFailed = true;
+            break;  // Stop immediately
         }
     }
 
-    // Apply pending writes. Any failure is a failed write.
-    for (auto it = m_pendingWrites.begin(); it != m_pendingWrites.end(); ++it) {
-        CredentialStore::Result res = credentialStore.writeCredential(it.key(), it.value());
-        if (res != CredentialStore::Result::Success) {
-            failedWrites.append(it.key());
+    if (!transactionFailed) {
+        // Apply pending writes. Any failure is a failed write.
+        for (auto it = m_pendingWrites.begin(); it != m_pendingWrites.end(); ++it) {
+            QString existingSecret;
+            if (credentialStore->readCredential(it.key(), existingSecret) == CredentialStore::Result::Success) {
+                if (!rollbackValues.contains(it.key())) {
+                    rollbackValues[it.key()] = existingSecret;
+                }
+            }
+            CredentialStore::Result res = credentialStore->writeCredential(it.key(), it.value());
+            if (res != CredentialStore::Result::Success) {
+                failedWrites.append(it.key());
+                transactionFailed = true;
+                break;  // Stop immediately
+            }
         }
     }
 
-    if (!failedDeletes.isEmpty() || !failedWrites.isEmpty()) {
-        QMessageBox::warning(this, tr("Save Failed"),
-                             tr("Failed to update credentials securely in KWallet. Your edits have not been saved. "
-                                "Please resolve wallet issues and try again."));
-        // DO NOT call saveConnections() or accept(), we want to keep the dialog open.
-        // The user can retry. The UI states and m_pendingWrites/m_pendingDeletes are preserved.
+    if (transactionFailed) {
+        // Rollback whatever we did successfully
+        bool rollbackFailed = false;
+        for (auto it = rollbackValues.begin(); it != rollbackValues.end(); ++it) {
+            if (credentialStore->writeCredential(it.key(), it.value()) != CredentialStore::Result::Success) {
+                rollbackFailed = true;
+            }
+        }
+
+        if (rollbackFailed) {
+            QMessageBox::critical(
+                this, tr("Critical Failure"),
+                tr("Failed to update credentials securely in KWallet, and automatic rollback also encountered errors. "
+                   "Your credentials may be in an inconsistent state. Please check your wallet manually."));
+        } else {
+            QMessageBox::warning(this, tr("Save Failed"),
+                                 tr("Failed to update credentials securely in KWallet. Your edits have not been saved. "
+                                    "Please resolve wallet issues and try again."));
+        }
+
+        // Unhide deleted rows since we didn't apply
+        for (int i = 0; i < m_connectionsTable->rowCount(); ++i) {
+            m_connectionsTable->setRowHidden(i, false);
+        }
         return;
     }
 
@@ -526,9 +577,19 @@ void SettingsDialog::onApply() {
     for (auto it = m_pendingWrites.begin(); it != m_pendingWrites.end(); ++it) {
         m_legacyCredentials.remove(it.key());
     }
+    for (const QString& id : m_pendingDeletes) {
+        m_legacyCredentials.remove(id);
+    }
 
     m_pendingWrites.clear();
     m_pendingDeletes.clear();
+
+    // Now safe to drop hidden rows entirely
+    for (int i = m_connectionsTable->rowCount() - 1; i >= 0; --i) {
+        if (m_connectionsTable->isRowHidden(i)) {
+            m_connectionsTable->removeRow(i);
+        }
+    }
 
     saveConnections();
 

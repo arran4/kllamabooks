@@ -4,6 +4,12 @@
 #include <QVariantList>
 #include <QVariantMap>
 
+AppCredentialManager::StoreFactory AppCredentialManager::s_storeFactory = []() -> CredentialStore* { return nullptr; };
+
+void AppCredentialManager::setStoreFactory(AppCredentialManager::StoreFactory factory) { s_storeFactory = factory; }
+
+AppCredentialManager::StoreFactory AppCredentialManager::getStoreFactory() { return s_storeFactory; }
+
 CredentialStore::Result AppCredentialManager::getCredential(const QString& id, QString& secret,
                                                             CredentialStore* store) {
     QScopedPointer<CredentialStore> defaultStore;
