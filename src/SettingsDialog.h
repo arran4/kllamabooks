@@ -17,6 +17,7 @@
 #include <QVBoxLayout>
 #include <QVariantList>
 #include <QVariantMap>
+#include <QSet>
 
 #include "AIOperationsEditorWidget.h"
 #include "DocumentTemplatesEditorWidget.h"
@@ -87,6 +88,10 @@ class SettingsDialog : public QDialog {
 
     AIOperationsEditorWidget* m_aiOperationsEditor;
     DocumentTemplatesEditorWidget* m_documentTemplatesEditor;
+
+    QMap<QString, QString> m_pendingWrites;
+    QSet<QString> m_pendingDeletes;
+    QMap<QString, QString> m_legacyCredentials;
 };
 
 #endif  // SETTINGSDIALOG_H

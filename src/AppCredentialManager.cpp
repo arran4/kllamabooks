@@ -14,17 +14,14 @@ CredentialStore::Result AppCredentialManager::getCredential(const QString& id, Q
     if (res == CredentialStore::Result::Success) {
         return res;
     }
-    if (res == CredentialStore::Result::WalletUnavailable || res == CredentialStore::Result::ReadFailure) {
-        return res;
-    }
 
-    // Fallback to QSettings for unmigrated legacy credentials
+    // Check fallback to QSettings for unmigrated legacy credentials or ones that failed to migrate
     QSettings settings;
     QVariantList connections = settings.value("llmConnections").toList();
     for (const QVariant& v : connections) {
         QVariantMap map = v.toMap();
         if (map["id"].toString() == id) {
-            if (map.contains("authKey")) {
+            if (map.contains("authKey") && !map.value("hasCredential", false).toBool()) {
                 secret = map["authKey"].toString();
                 if (!secret.isEmpty()) {
                     return CredentialStore::Result::Success;
@@ -34,5 +31,7 @@ CredentialStore::Result AppCredentialManager::getCredential(const QString& id, Q
         }
     }
 
-    return CredentialStore::Result::NotFound;
+    // If no fallback was available, return the original failure (e.g. WalletUnavailable)
+    // so the caller can distinguish missing vs broken.
+    return res;
 }

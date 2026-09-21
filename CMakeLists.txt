@@ -182,3 +182,7 @@ add_test(NAME test_CredentialStore COMMAND test_CredentialStore)
 add_executable(test_ConnectionMigration tests/test_ConnectionMigration.cpp src/ConnectionMigration.cpp src/CredentialStore.cpp)
 target_link_libraries(test_ConnectionMigration Qt6::Test Qt6::Core KF6::Wallet)
 add_test(NAME test_ConnectionMigration COMMAND test_ConnectionMigration)
+
+add_executable(test_AppCredentialManager tests/test_AppCredentialManager.cpp src/AppCredentialManager.cpp src/CredentialStore.cpp)
+target_link_libraries(test_AppCredentialManager Qt6::Test Qt6::Core KF6::Wallet)
+add_test(NAME test_AppCredentialManager COMMAND test_AppCredentialManager)
