@@ -8,7 +8,12 @@ AppCredentialManager::StoreFactory AppCredentialManager::s_storeFactory = []() -
 
 void AppCredentialManager::setStoreFactory(AppCredentialManager::StoreFactory factory) { s_storeFactory = factory; }
 
-AppCredentialManager::StoreFactory AppCredentialManager::getStoreFactory() { return s_storeFactory; }
+AppCredentialManager::StoreFactory AppCredentialManager::getStoreFactory() {
+    if (!s_storeFactory) {
+        return []() -> CredentialStore* { return nullptr; };
+    }
+    return s_storeFactory;
+}
 
 CredentialStore::Result AppCredentialManager::getCredential(const QString& id, QString& secret,
                                                             CredentialStore* store) {

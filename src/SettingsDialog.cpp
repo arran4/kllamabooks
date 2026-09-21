@@ -509,22 +509,31 @@ void SettingsDialog::onApply() {
     QStringList failedWrites;
     QStringList failedDeletes;
 
-    // Prepare for rollback by saving existing values
-    QMap<QString, QString> rollbackValues;
+    // Sequence of operations to reverse successful steps if a later one fails
+    QList<std::function<CredentialStore::Result()>> rollbackOperations;
 
     bool transactionFailed = false;
 
     // Apply pending deletes. Any failure (including WalletUnavailable) is a failed delete.
     for (const QString& id : m_pendingDeletes) {
         QString existingSecret;
-        if (credentialStore->readCredential(id, existingSecret) == CredentialStore::Result::Success) {
-            rollbackValues[id] = existingSecret;
+        CredentialStore::Result readRes = credentialStore->readCredential(id, existingSecret);
+        if (readRes != CredentialStore::Result::Success && readRes != CredentialStore::Result::NotFound) {
+            // Cannot reliably rollback if we can't read the previous state
+            failedDeletes.append(id);
+            transactionFailed = true;
+            break;
         }
+
         CredentialStore::Result res = credentialStore->deleteCredential(id);
         if (res != CredentialStore::Result::Success && res != CredentialStore::Result::NotFound) {
             failedDeletes.append(id);
             transactionFailed = true;
             break;  // Stop immediately
+        }
+
+        if (readRes == CredentialStore::Result::Success) {
+            rollbackOperations.prepend([=]() { return credentialStore->writeCredential(id, existingSecret); });
         }
     }
 
@@ -532,25 +541,33 @@ void SettingsDialog::onApply() {
         // Apply pending writes. Any failure is a failed write.
         for (auto it = m_pendingWrites.begin(); it != m_pendingWrites.end(); ++it) {
             QString existingSecret;
-            if (credentialStore->readCredential(it.key(), existingSecret) == CredentialStore::Result::Success) {
-                if (!rollbackValues.contains(it.key())) {
-                    rollbackValues[it.key()] = existingSecret;
-                }
+            CredentialStore::Result readRes = credentialStore->readCredential(it.key(), existingSecret);
+            if (readRes != CredentialStore::Result::Success && readRes != CredentialStore::Result::NotFound) {
+                failedWrites.append(it.key());
+                transactionFailed = true;
+                break;
             }
+
             CredentialStore::Result res = credentialStore->writeCredential(it.key(), it.value());
             if (res != CredentialStore::Result::Success) {
                 failedWrites.append(it.key());
                 transactionFailed = true;
                 break;  // Stop immediately
             }
+
+            if (readRes == CredentialStore::Result::Success) {
+                rollbackOperations.prepend([=]() { return credentialStore->writeCredential(it.key(), existingSecret); });
+            } else {
+                rollbackOperations.prepend([=]() { return credentialStore->deleteCredential(it.key()); });
+            }
         }
     }
 
     if (transactionFailed) {
-        // Rollback whatever we did successfully
+        // Rollback whatever we did successfully in reverse order
         bool rollbackFailed = false;
-        for (auto it = rollbackValues.begin(); it != rollbackValues.end(); ++it) {
-            if (credentialStore->writeCredential(it.key(), it.value()) != CredentialStore::Result::Success) {
+        for (const auto& rollbackOp : rollbackOperations) {
+            if (rollbackOp() != CredentialStore::Result::Success) {
                 rollbackFailed = true;
             }
         }
