@@ -346,9 +346,10 @@ void SettingsDialog::saveConnections() {
         if (m_legacyCredentials.contains(id)) {
             map["authKey"] = m_legacyCredentials[id];
         }
-        if (!map["hasCredential"].toBool() && m_pendingWrites.contains(id)) {
-             map["authKey"] = m_pendingWrites[id]; // Migration failed, save as plaintext so it is not lost
-        }
+
+        // IMPORTANT: We never write a newly entered password into QSettings.
+        // If m_pendingWrites contains it, it means the wallet write failed during onApply.
+        // We do not save it as plaintext.
 
         map["maxConcurrent"] = m_connectionsTable->item(i, 4)->text().toInt();
         connections.append(map);
@@ -519,20 +520,23 @@ void SettingsDialog::onApply() {
         QMessageBox::warning(this, tr("Cleanup Failed"), tr("Failed to remove some credentials from secure storage."));
     }
     if (!failedWrites.isEmpty()) {
-        QMessageBox::warning(this, tr("Save Failed"), tr("Failed to securely store some credentials. They will be stored insecurely until next migration."));
+        QMessageBox::warning(this, tr("Save Failed"), tr("Failed to securely store some newly entered credentials. They have not been saved. Please try again."));
     }
 
-    // Any remaining pendingWrites where write failed will be picked up by saveConnections
-    // to fall back to insecure storage as requested. We leave them in m_pendingWrites.
-    // If they succeeded, we should remove them from m_pendingWrites to avoid falling back,
-    // but the simplest is just to remove successful writes.
-    for (auto it = m_pendingWrites.begin(); it != m_pendingWrites.end();) {
-        if (!failedWrites.contains(it.key())) {
-            it = m_pendingWrites.erase(it);
-        } else {
-            ++it;
+    // For failed writes, we must revert the UI state so saveConnections() doesn't mark them as configured.
+    for (const QString& id : failedWrites) {
+        for (int i = 0; i < m_connectionsTable->rowCount(); ++i) {
+            QTableWidgetItem* credItem = m_connectionsTable->item(i, 3);
+            if (credItem->data(Qt::UserRole).toString() == id) {
+                bool effectivelyHasCred = m_legacyCredentials.contains(id);
+                credItem->setText(effectivelyHasCred ? tr("Configured") : tr("Not configured"));
+                credItem->setData(Qt::UserRole + 1, effectivelyHasCred);
+            }
         }
     }
+
+    m_pendingWrites.clear();
+    m_pendingDeletes.clear();
 
     saveConnections();
 
