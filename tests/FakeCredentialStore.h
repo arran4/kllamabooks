@@ -29,7 +29,7 @@ class FakeCredentialStore : public CredentialStore {
 
     Result deleteCredential(const QString& id) override {
         if (simulateUnavailable) return Result::WalletUnavailable;
-        if (simulateDeleteFailure) return Result::DeleteFailure;
+        if (simulateDeleteFailure || failDeleteIds.contains(id)) return Result::DeleteFailure;
 
         m_store.remove(id);
         return Result::Success;
@@ -52,6 +52,7 @@ class FakeCredentialStore : public CredentialStore {
     bool simulateUnavailable = false;
     bool simulateWriteFailure = false;
     QSet<QString> failWriteIds;
+    QSet<QString> failDeleteIds;
     bool simulateReadFailure = false;
     bool simulateDeleteFailure = false;
 
