@@ -1,9 +1,9 @@
 #include <QApplication>
+#include <QPushButton>
 #include <QSettings>
+#include <QTableWidget>
 #include <QTimer>
 #include <QUuid>
-#include <QTableWidget>
-#include <QPushButton>
 #include <QtTest>
 
 #define private public
@@ -110,7 +110,6 @@ void TestSettingsApply::testPartialFailureRollback() {
     m_fakeStore->writeCredential("conn3", "secret3");
     m_fakeStore->failWriteIds.insert("conn2");
 
-
     QStringList failedWrites;
     QStringList failedDeletes;
     bool rollbackFailed = false;
@@ -134,6 +133,16 @@ void TestSettingsApply::testPartialFailureRollback() {
 }
 
 void TestSettingsApply::testFailedApplyRetainsUIState() {
+    QSettings settings;
+    QVariantList initialConnections;
+    QVariantMap existingConn;
+    existingConn["id"] = "conn1";
+    existingConn["hasCredential"] = true;
+    initialConnections.append(existingConn);
+    settings.setValue("llmConnections", initialConnections);
+
+    m_fakeStore->writeCredential("conn1", "secret1");
+
     SettingsDialog dlg(nullptr);
 
     // Add row to table
@@ -144,24 +153,34 @@ void TestSettingsApply::testFailedApplyRetainsUIState() {
     dlg.m_connectionsTable->setRowHidden(0, true);
 
     dlg.m_pendingDeletes.insert("conn1");
-    m_fakeStore->writeCredential("conn1", "secret1");
+
     m_fakeStore->simulateDeleteFailure = true;
 
-    QStringList failedWrites;
-    QStringList failedDeletes;
-    bool rollbackFailed = false;
+    QTimer::singleShot(0, []() {
+        QWidget* activeWindow = QApplication::activeModalWidget();
+        if (QMessageBox* msgBox = qobject_cast<QMessageBox*>(activeWindow)) {
+            msgBox->close();
+        }
+    });
 
-    bool result = dlg.commitChanges(failedWrites, failedDeletes, rollbackFailed);
-    QVERIFY(!result); // transaction failed
+    dlg.onApply();
 
-    // The test requirements mention testing the UI-state handler in onApply,
-    // but without calling QMessageBox. We will verify that commitChanges itself returns false
-    // and that the state lists are preserved.
+    // UI state should be preserved
     QVERIFY(dlg.m_pendingDeletes.contains("conn1"));
+    QVERIFY(dlg.m_connectionsTable->isRowHidden(0));
 
-    // In onApply, unhide is done for ALL rows, we can't test that here directly without invoking onApply.
-    // However, the test requirements: "testFailedApplyRetainsUIState() ... test ... failed Apply -> retry/Cancel ... For the retry path, exercise the actual onApply() UI-state handler as well"
-    // To do this, we need to bypass QMessageBox.
+    // Retry apply and succeed
+    m_fakeStore->simulateDeleteFailure = false;
+
+    dlg.onApply();
+
+    // It should now be gone from the store
+    QString secret;
+    QCOMPARE(m_fakeStore->readCredential("conn1", secret), CredentialStore::Result::NotFound);
+
+    // And gone from llmConnections
+    QVariantList newConnections = settings.value("llmConnections").toList();
+    QVERIFY(newConnections.isEmpty());
 }
 
 void TestSettingsApply::testLegacyOnlyRemovalWalletUnavailable() {
@@ -169,13 +188,18 @@ void TestSettingsApply::testLegacyOnlyRemovalWalletUnavailable() {
     QVariantList initialConnections;
     QVariantMap existingConn;
     existingConn["id"] = "legacy_conn";
-    existingConn["hasCredential"] = false; // Plaintext secret is still in settings
+    existingConn["hasCredential"] = false;  // Plaintext secret is still in settings
     initialConnections.append(existingConn);
     settings.setValue("llmConnections", initialConnections);
 
     SettingsDialog dlg(nullptr);
     dlg.m_legacyCredentials["legacy_conn"] = "plaintext_secret";
     dlg.m_pendingDeletes.insert("legacy_conn");
+    for (int i = 0; i < dlg.m_connectionsTable->rowCount(); ++i) {
+        if (dlg.m_connectionsTable->item(i, 3)->data(Qt::UserRole).toString() == "legacy_conn") {
+            dlg.m_connectionsTable->setRowHidden(i, true);
+        }
+    }
 
     m_fakeStore->simulateUnavailable = true;
 
@@ -183,11 +207,15 @@ void TestSettingsApply::testLegacyOnlyRemovalWalletUnavailable() {
     QStringList failedDeletes;
     bool rollbackFailed = false;
 
-    bool result = dlg.commitChanges(failedWrites, failedDeletes, rollbackFailed);
+    // Close the success dialog? onApply doesn't show one on success, it just calls accept()
+    dlg.onApply();
 
     // It should succeed because it ignores wallet failure for purely legacy deletions
-    QVERIFY(result);
-    QVERIFY(!rollbackFailed);
+    QVariantList newConnections = settings.value("llmConnections").toList();
+    QVERIFY(newConnections.isEmpty());
+    QVERIFY(!dlg.m_legacyCredentials.contains("legacy_conn"));
+    // We expect the original wallet failure simulation to not block completion
+    QVERIFY(m_fakeStore->simulateUnavailable);  // the flag was indeed set
 }
 
 QTEST_MAIN(TestSettingsApply)

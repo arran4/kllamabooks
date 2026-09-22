@@ -517,10 +517,8 @@ void SettingsDialog::onApply() {
                                     "Please resolve wallet issues and try again."));
         }
 
-        // Unhide deleted rows since we didn't apply
-        for (int i = 0; i < m_connectionsTable->rowCount(); ++i) {
-            m_connectionsTable->setRowHidden(i, false);
-        }
+        // Preserve pending-delete/hidden-row state together on failure so a subsequent Apply retry behaves
+        // consistently.
         return;
     }
 
@@ -540,7 +538,6 @@ bool SettingsDialog::commitChanges(QStringList& failedWrites, QStringList& faile
     QList<std::function<CredentialStore::Result()>> rollbackOperations;
 
     bool transactionFailed = false;
-
 
     // Apply pending deletes. Any failure (including WalletUnavailable) is a failed delete.
     for (const QString& id : m_pendingDeletes) {
@@ -577,7 +574,6 @@ bool SettingsDialog::commitChanges(QStringList& failedWrites, QStringList& faile
                 break;  // Stop immediately
             }
         }
-
 
         if (readRes == CredentialStore::Result::Success) {
             rollbackOperations.prepend([=]() { return credentialStore->writeCredential(id, existingSecret); });
