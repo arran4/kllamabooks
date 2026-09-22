@@ -93,6 +93,9 @@ class SettingsDialog : public QDialog {
     QMap<QString, QString> m_pendingWrites;
     QSet<QString> m_pendingDeletes;
     QMap<QString, QString> m_legacyCredentials;
+
+   public:
+    bool commitChanges(QStringList& failedWrites, QStringList& failedDeletes, bool& rollbackFailed);
 };
 
 #endif  // SETTINGSDIALOG_H

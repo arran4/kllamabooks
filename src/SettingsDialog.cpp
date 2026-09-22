@@ -499,15 +499,42 @@ void SettingsDialog::onTestConnection() {
 }
 
 void SettingsDialog::onApply() {
+    bool rollbackFailed = false;
+
+    QStringList failedWrites;
+    QStringList failedDeletes;
+    bool transactionSucceeded = commitChanges(failedWrites, failedDeletes, rollbackFailed);
+
+    if (!transactionSucceeded) {
+        if (rollbackFailed) {
+            QMessageBox::critical(
+                this, tr("Critical Failure"),
+                tr("Failed to update credentials securely in KWallet, and automatic rollback also encountered errors. "
+                   "Your credentials may be in an inconsistent state. Please check your wallet manually."));
+        } else {
+            QMessageBox::warning(this, tr("Save Failed"),
+                                 tr("Failed to update credentials securely in KWallet. Your edits have not been saved. "
+                                    "Please resolve wallet issues and try again."));
+        }
+
+        // Unhide deleted rows since we didn't apply
+        for (int i = 0; i < m_connectionsTable->rowCount(); ++i) {
+            m_connectionsTable->setRowHidden(i, false);
+        }
+        return;
+    }
+
+    emit settingsApplied();
+    accept();
+}
+
+bool SettingsDialog::commitChanges(QStringList& failedWrites, QStringList& failedDeletes, bool& rollbackFailed) {
     QScopedPointer<CredentialStore> defaultStore;
     CredentialStore* credentialStore = AppCredentialManager::getStoreFactory()();
     if (!credentialStore) {
         defaultStore.reset(new KWalletCredentialStore());
         credentialStore = defaultStore.data();
     }
-
-    QStringList failedWrites;
-    QStringList failedDeletes;
 
     // Sequence of operations to reverse successful steps if a later one fails
     QList<std::function<CredentialStore::Result()>> rollbackOperations;
@@ -517,34 +544,19 @@ void SettingsDialog::onApply() {
     // Apply pending deletes. Any failure (including WalletUnavailable) is a failed delete.
     for (const QString& id : m_pendingDeletes) {
         QString existingSecret;
-
-        bool isLegacyOnly = false;
-        // Even if it's hidden (removed), it's still in the table model. We can check if it had a credential.
-        for (int i = 0; i < m_connectionsTable->rowCount(); ++i) {
-            QTableWidgetItem* credItem = m_connectionsTable->item(i, 3);
-            if (credItem && credItem->data(Qt::UserRole).toString() == id &&
-                !credItem->data(Qt::UserRole + 1).toBool() && m_legacyCredentials.contains(id)) {
-                isLegacyOnly = true;
-            }
-        }
-
         CredentialStore::Result readRes = credentialStore->readCredential(id, existingSecret);
         if (readRes != CredentialStore::Result::Success && readRes != CredentialStore::Result::NotFound) {
             // Cannot reliably rollback if we can't read the previous state
-            if (!isLegacyOnly) {
-                failedDeletes.append(id);
-                transactionFailed = true;
-                break;
-            }
+            failedDeletes.append(id);
+            transactionFailed = true;
+            break;
         }
 
         CredentialStore::Result res = credentialStore->deleteCredential(id);
         if (res != CredentialStore::Result::Success && res != CredentialStore::Result::NotFound) {
-            if (!isLegacyOnly) {
-                failedDeletes.append(id);
-                transactionFailed = true;
-                break;  // Stop immediately
-            }
+            failedDeletes.append(id);
+            transactionFailed = true;
+            break;  // Stop immediately
         }
 
         if (readRes == CredentialStore::Result::Success) {
@@ -581,29 +593,13 @@ void SettingsDialog::onApply() {
 
     if (transactionFailed) {
         // Rollback whatever we did successfully in reverse order
-        bool rollbackFailed = false;
+        rollbackFailed = false;
         for (const auto& rollbackOp : rollbackOperations) {
             if (rollbackOp() != CredentialStore::Result::Success) {
                 rollbackFailed = true;
             }
         }
-
-        if (rollbackFailed) {
-            QMessageBox::critical(
-                this, tr("Critical Failure"),
-                tr("Failed to update credentials securely in KWallet, and automatic rollback also encountered errors. "
-                   "Your credentials may be in an inconsistent state. Please check your wallet manually."));
-        } else {
-            QMessageBox::warning(this, tr("Save Failed"),
-                                 tr("Failed to update credentials securely in KWallet. Your edits have not been saved. "
-                                    "Please resolve wallet issues and try again."));
-        }
-
-        // Unhide deleted rows since we didn't apply
-        for (int i = 0; i < m_connectionsTable->rowCount(); ++i) {
-            m_connectionsTable->setRowHidden(i, false);
-        }
-        return;
+        return false;
     }
 
     // Success, we can now remove successfully written items from legacy credentials
@@ -639,6 +635,5 @@ void SettingsDialog::onApply() {
     AIOperationsManager::setGlobalOperations(m_aiOperationsEditor->getOperations());
     DocumentTemplatesManager::setGlobalTemplates(m_documentTemplatesEditor->getTemplates());
 
-    emit settingsApplied();
-    accept();
+    return true;
 }
