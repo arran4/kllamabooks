@@ -541,23 +541,43 @@ bool SettingsDialog::commitChanges(QStringList& failedWrites, QStringList& faile
 
     bool transactionFailed = false;
 
+
     // Apply pending deletes. Any failure (including WalletUnavailable) is a failed delete.
     for (const QString& id : m_pendingDeletes) {
         QString existingSecret;
+
+        bool isLegacyOnly = false;
+        // Look up original state in QSettings to safely determine if this was a purely legacy credential
+        QVariantList originalConnections = m_settings.value("llmConnections").toList();
+        for (const QVariant& v : originalConnections) {
+            QVariantMap map = v.toMap();
+            if (map["id"].toString() == id) {
+                if (!map.value("hasCredential", false).toBool() && m_legacyCredentials.contains(id)) {
+                    isLegacyOnly = true;
+                }
+                break;
+            }
+        }
+
         CredentialStore::Result readRes = credentialStore->readCredential(id, existingSecret);
         if (readRes != CredentialStore::Result::Success && readRes != CredentialStore::Result::NotFound) {
             // Cannot reliably rollback if we can't read the previous state
-            failedDeletes.append(id);
-            transactionFailed = true;
-            break;
+            if (!isLegacyOnly) {
+                failedDeletes.append(id);
+                transactionFailed = true;
+                break;
+            }
         }
 
         CredentialStore::Result res = credentialStore->deleteCredential(id);
         if (res != CredentialStore::Result::Success && res != CredentialStore::Result::NotFound) {
-            failedDeletes.append(id);
-            transactionFailed = true;
-            break;  // Stop immediately
+            if (!isLegacyOnly) {
+                failedDeletes.append(id);
+                transactionFailed = true;
+                break;  // Stop immediately
+            }
         }
+
 
         if (readRes == CredentialStore::Result::Success) {
             rollbackOperations.prepend([=]() { return credentialStore->writeCredential(id, existingSecret); });

@@ -9,7 +9,7 @@ class FakeCredentialStore : public CredentialStore {
    public:
     Result writeCredential(const QString& id, const QString& secret) override {
         if (simulateUnavailable) return Result::WalletUnavailable;
-        if (simulateWriteFailure) return Result::WriteFailure;
+        if (simulateWriteFailure || failWriteIds.contains(id)) return Result::WriteFailure;
 
         m_store[id] = secret;
         return Result::Success;
@@ -51,6 +51,7 @@ class FakeCredentialStore : public CredentialStore {
     // Toggles for simulating errors
     bool simulateUnavailable = false;
     bool simulateWriteFailure = false;
+    QSet<QString> failWriteIds;
     bool simulateReadFailure = false;
     bool simulateDeleteFailure = false;
 
