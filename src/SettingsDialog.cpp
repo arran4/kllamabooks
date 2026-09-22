@@ -11,10 +11,15 @@
 #include <QNetworkRequest>
 #include <QSpinBox>
 #include <QTabWidget>
+#include <QUuid>
+
+#include "AppCredentialManager.h"
+#include "ConnectionMigration.h"
+#include "CredentialStore.h"
 
 ConnectionDialog::ConnectionDialog(QWidget* parent, const QString& name, const QString& backend, const QString& url,
-                                   const QString& authKey, int maxConcurrent)
-    : QDialog(parent) {
+                                   const QString& authKey, int maxConcurrent, bool hasCredential, const QString& id)
+    : QDialog(parent), m_hasCredential(hasCredential), m_id(id), m_authKeyEdited(false) {
     setWindowTitle(tr("Connection Settings"));
 
     QVBoxLayout* mainLayout = new QVBoxLayout(this);
@@ -33,6 +38,10 @@ ConnectionDialog::ConnectionDialog(QWidget* parent, const QString& name, const Q
 
     m_authKeyEdit = new QLineEdit(authKey, this);
     m_authKeyEdit->setEchoMode(QLineEdit::PasswordEchoOnEdit);
+    if (m_hasCredential) {
+        m_authKeyEdit->setPlaceholderText(tr("<Secret hidden>"));
+    }
+    connect(m_authKeyEdit, &QLineEdit::textEdited, this, [this]() { m_authKeyEdited = true; });
     formLayout->addRow(tr("Auth Key:"), m_authKeyEdit);
 
     m_maxConcurrentSpinBox = new QSpinBox(this);
@@ -69,6 +78,8 @@ QString ConnectionDialog::url() const { return m_urlEdit->text(); }
 
 QString ConnectionDialog::authKey() const { return m_authKeyEdit->text(); }
 
+bool ConnectionDialog::isAuthKeyEdited() const { return m_authKeyEdited; }
+
 int ConnectionDialog::maxConcurrent() const { return m_maxConcurrentSpinBox->value(); }
 
 void ConnectionDialog::onTestConnection() {
@@ -76,7 +87,21 @@ void ConnectionDialog::onTestConnection() {
 
     QNetworkAccessManager* manager = new QNetworkAccessManager(this);
     QString urlStr = m_urlEdit->text();
-    QString authKey = m_authKeyEdit->text();
+
+    QString authKeyToUse;
+    if (m_authKeyEdited || !m_hasCredential) {
+        authKeyToUse = m_authKeyEdit->text();
+    } else {
+        CredentialStore::Result res = AppCredentialManager::getCredential(m_id, authKeyToUse);
+        if (res != CredentialStore::Result::Success) {
+            QMessageBox::warning(this, tr("Test Connection Failed"),
+                                 tr("Failed to read the credential from the secure wallet."));
+            m_testButton->setEnabled(true);
+            manager->deleteLater();
+            return;
+        }
+    }
+    QString authKey = authKeyToUse;
     if (!urlStr.endsWith("/")) urlStr += "/";
     urlStr += "api/tags";
 
@@ -254,15 +279,72 @@ SettingsDialog::~SettingsDialog() {}
 
 void SettingsDialog::loadConnections() {
     QVariantList connections = m_settings.value("llmConnections").toList();
+    bool needsSave = false;
+
+    QScopedPointer<CredentialStore> defaultStore;
+    CredentialStore* credentialStore = AppCredentialManager::getStoreFactory()();
+    if (!credentialStore) {
+        defaultStore.reset(new KWalletCredentialStore());
+        credentialStore = defaultStore.data();
+    }
+
+    // Process deferred orphan deletions
+    QStringList pendingOrphans = m_settings.value("pendingOrphanDeletes").toStringList();
+    if (!pendingOrphans.isEmpty()) {
+        QStringList remainingOrphans;
+        // Collect currently active IDs
+        QSet<QString> activeIds;
+        for (const QVariant& v : connections) {
+            activeIds.insert(v.toMap()["id"].toString());
+        }
+
+        for (const QString& orphanId : pendingOrphans) {
+            if (activeIds.contains(orphanId)) {
+                // ID is in use again, abort deletion of this orphan
+                continue;
+            }
+
+            CredentialStore::Result res = credentialStore->deleteCredential(orphanId);
+            if (res == CredentialStore::Result::Success || res == CredentialStore::Result::NotFound) {
+                // Successfully cleaned up
+            } else {
+                // Failed (e.g. wallet unavailable), keep it for next time
+                remainingOrphans.append(orphanId);
+            }
+        }
+
+        if (remainingOrphans.isEmpty()) {
+            m_settings.remove("pendingOrphanDeletes");
+        } else if (remainingOrphans != pendingOrphans) {
+            m_settings.setValue("pendingOrphanDeletes", remainingOrphans);
+        }
+    }
+
+    QStringList migrationErrors;
+
     if (connections.isEmpty() && m_settings.contains("ollamaUrl")) {
         // Migration from old single URL setting
         QVariantMap defaultConn;
+        defaultConn["id"] = QUuid::createUuid().toString(QUuid::WithoutBraces);
         defaultConn["name"] = "Default Ollama";
         defaultConn["backend"] = "Ollama";
         defaultConn["url"] = m_settings.value("ollamaUrl", "http://localhost:11434").toString();
-        defaultConn["authKey"] = "";
         defaultConn["maxConcurrent"] = 1;
+        defaultConn["hasCredential"] = false;
         connections.append(defaultConn);
+        needsSave = true;
+    }
+
+    bool migrated = ConnectionMigration::migrate(connections, *credentialStore, migrationErrors);
+    if (migrated || needsSave) {
+        m_settings.setValue("llmConnections", connections);
+    }
+
+    if (!migrationErrors.isEmpty()) {
+        QMessageBox::warning(this, tr("Credential Migration Failed"),
+                             tr("Some connections failed to migrate their credentials securely:\n\n%1\n\nThey will "
+                                "continue to use insecure storage until migration succeeds.")
+                                 .arg(migrationErrors.join("\n")));
     }
 
     m_connectionsTable->setRowCount(0);
@@ -273,7 +355,16 @@ void SettingsDialog::loadConnections() {
         m_connectionsTable->setItem(row, 0, new QTableWidgetItem(map["name"].toString()));
         m_connectionsTable->setItem(row, 1, new QTableWidgetItem(map.value("backend", "Ollama").toString()));
         m_connectionsTable->setItem(row, 2, new QTableWidgetItem(map["url"].toString()));
-        m_connectionsTable->setItem(row, 3, new QTableWidgetItem(map["authKey"].toString()));
+
+        bool hasCred = map.value("hasCredential", false).toBool();
+        QTableWidgetItem* credItem = new QTableWidgetItem(hasCred ? tr("Configured") : tr("Not configured"));
+        credItem->setData(Qt::UserRole, map["id"].toString());
+        credItem->setData(Qt::UserRole + 1, hasCred);
+        if (!hasCred && map.contains("authKey")) {
+            m_legacyCredentials[map["id"].toString()] = map["authKey"].toString();
+        }
+        m_connectionsTable->setItem(row, 3, credItem);
+
         m_connectionsTable->setItem(row, 4, new QTableWidgetItem(map.value("maxConcurrent", 1).toString()));
     }
 }
@@ -285,7 +376,20 @@ void SettingsDialog::saveConnections() {
         map["name"] = m_connectionsTable->item(i, 0)->text();
         map["backend"] = m_connectionsTable->item(i, 1)->text();
         map["url"] = m_connectionsTable->item(i, 2)->text();
-        map["authKey"] = m_connectionsTable->item(i, 3)->text();
+
+        QTableWidgetItem* credItem = m_connectionsTable->item(i, 3);
+        QString id = credItem->data(Qt::UserRole).toString();
+        map["id"] = id;
+        map["hasCredential"] = credItem->data(Qt::UserRole + 1).toBool();
+
+        if (m_legacyCredentials.contains(id)) {
+            map["authKey"] = m_legacyCredentials[id];
+        }
+
+        // IMPORTANT: We never write a newly entered password into QSettings.
+        // If m_pendingWrites contains it, it means the wallet write failed during onApply.
+        // We do not save it as plaintext.
+
         map["maxConcurrent"] = m_connectionsTable->item(i, 4)->text().toInt();
         connections.append(map);
     }
@@ -293,14 +397,27 @@ void SettingsDialog::saveConnections() {
 }
 
 void SettingsDialog::onAddConnection() {
-    ConnectionDialog dialog(this);
+    QString id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    ConnectionDialog dialog(this, "New Connection", "Ollama", "http://localhost:11434", "", 1, false, id);
     if (dialog.exec() == QDialog::Accepted) {
+        bool hasCred = false;
+        if (!dialog.authKey().isEmpty()) {
+            m_pendingWrites[id] = dialog.authKey();
+            hasCred = true;  // Assume true until Apply
+            m_pendingDeletes.remove(id);
+        }
+
         int row = m_connectionsTable->rowCount();
         m_connectionsTable->insertRow(row);
         m_connectionsTable->setItem(row, 0, new QTableWidgetItem(dialog.name()));
         m_connectionsTable->setItem(row, 1, new QTableWidgetItem(dialog.backend()));
         m_connectionsTable->setItem(row, 2, new QTableWidgetItem(dialog.url()));
-        m_connectionsTable->setItem(row, 3, new QTableWidgetItem(dialog.authKey()));
+
+        QTableWidgetItem* credItem = new QTableWidgetItem(hasCred ? tr("Configured") : tr("Not configured"));
+        credItem->setData(Qt::UserRole, id);
+        credItem->setData(Qt::UserRole + 1, hasCred);
+        m_connectionsTable->setItem(row, 3, credItem);
+
         m_connectionsTable->setItem(row, 4, new QTableWidgetItem(QString::number(dialog.maxConcurrent())));
     }
 }
@@ -312,16 +429,36 @@ void SettingsDialog::onEditConnection() {
     QString name = m_connectionsTable->item(row, 0)->text();
     QString backend = m_connectionsTable->item(row, 1)->text();
     QString url = m_connectionsTable->item(row, 2)->text();
-    QString authKey = m_connectionsTable->item(row, 3)->text();
+
+    QTableWidgetItem* credItem = m_connectionsTable->item(row, 3);
+    QString id = credItem->data(Qt::UserRole).toString();
+    bool hasCred = credItem->data(Qt::UserRole + 1).toBool();
+
     int maxConcurrent = m_connectionsTable->item(row, 4)->text().toInt();
     if (maxConcurrent < 1) maxConcurrent = 1;
 
-    ConnectionDialog dialog(this, name, backend, url, authKey, maxConcurrent);
+    bool effectivelyHasCred = hasCred || m_legacyCredentials.contains(id);
+    ConnectionDialog dialog(this, name, backend, url, "", maxConcurrent, effectivelyHasCred, id);
     if (dialog.exec() == QDialog::Accepted) {
+        if (dialog.isAuthKeyEdited()) {
+            if (dialog.authKey().isEmpty()) {
+                m_pendingDeletes.insert(id);
+                m_pendingWrites.remove(id);
+                hasCred = false;
+            } else {
+                m_pendingWrites[id] = dialog.authKey();
+                m_pendingDeletes.remove(id);
+                hasCred = true;  // Assume true until Apply
+            }
+        }
+
         m_connectionsTable->item(row, 0)->setText(dialog.name());
         m_connectionsTable->item(row, 1)->setText(dialog.backend());
         m_connectionsTable->item(row, 2)->setText(dialog.url());
-        m_connectionsTable->item(row, 3)->setText(dialog.authKey());
+
+        credItem->setText(hasCred ? tr("Configured") : tr("Not configured"));
+        credItem->setData(Qt::UserRole + 1, hasCred);
+
         m_connectionsTable->item(row, 4)->setText(QString::number(dialog.maxConcurrent()));
     }
 }
@@ -329,7 +466,33 @@ void SettingsDialog::onEditConnection() {
 void SettingsDialog::onRemoveConnection() {
     int row = m_connectionsTable->currentRow();
     if (row >= 0) {
-        m_connectionsTable->removeRow(row);
+        QTableWidgetItem* credItem = m_connectionsTable->item(row, 3);
+        QString id = credItem->data(Qt::UserRole).toString();
+
+        // If it was just added in this dialog session, we don't need to try and delete it from the wallet.
+        bool isBrandNew = false;
+        QVariantList originalConnections = m_settings.value("llmConnections").toList();
+        bool found = false;
+        for (const QVariant& v : originalConnections) {
+            if (v.toMap()["id"].toString() == id) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            isBrandNew = true;
+        }
+
+        if (isBrandNew) {
+            // It hasn't been saved yet, so we can just completely forget about it instead of pending a delete.
+            m_pendingWrites.remove(id);
+        } else {
+            m_pendingDeletes.insert(id);
+            m_pendingWrites.remove(id);
+        }
+
+        // Hide it
+        m_connectionsTable->setRowHidden(row, true);
     }
 }
 
@@ -344,7 +507,26 @@ void SettingsDialog::onTestConnection() {
 
     QNetworkAccessManager* manager = new QNetworkAccessManager(this);
     QString urlStr = m_connectionsTable->item(row, 2)->text();
-    QString authKey = m_connectionsTable->item(row, 3)->text();
+
+    QTableWidgetItem* credItem = m_connectionsTable->item(row, 3);
+    QString id = credItem->data(Qt::UserRole).toString();
+    bool hasCred = credItem->data(Qt::UserRole + 1).toBool();
+    QString fallbackAuthKey = credItem->data(Qt::UserRole + 2).toString();
+
+    QString authKey;
+    if (m_pendingWrites.contains(id)) {
+        authKey = m_pendingWrites[id];
+    } else if (!m_pendingDeletes.contains(id)) {
+        CredentialStore::Result res = AppCredentialManager::getCredential(id, authKey);
+        if (hasCred && res != CredentialStore::Result::Success) {
+            QMessageBox::warning(this, tr("Test Connection Failed"),
+                                 tr("Failed to read the credential from the secure wallet."));
+            m_testButton->setEnabled(true);
+            manager->deleteLater();
+            return;
+        }
+    }
+
     if (!urlStr.endsWith("/")) urlStr += "/";
     urlStr += "api/tags";
 
@@ -368,6 +550,161 @@ void SettingsDialog::onTestConnection() {
 }
 
 void SettingsDialog::onApply() {
+    bool rollbackFailed = false;
+
+    QStringList failedWrites;
+    QStringList failedDeletes;
+    QStringList newOrphanDeletes;
+    bool transactionSucceeded = commitChanges(failedWrites, failedDeletes, newOrphanDeletes, rollbackFailed);
+
+    if (!transactionSucceeded) {
+        if (rollbackFailed) {
+            QMessageBox::critical(
+                this, tr("Critical Failure"),
+                tr("Failed to update credentials securely in KWallet, and automatic rollback also encountered errors. "
+                   "Your credentials may be in an inconsistent state. Please check your wallet manually."));
+        } else {
+            QMessageBox::warning(this, tr("Save Failed"),
+                                 tr("Failed to update credentials securely in KWallet. Your edits have not been saved. "
+                                    "Please resolve wallet issues and try again."));
+        }
+
+        // Preserve pending-delete/hidden-row state together on failure so a subsequent Apply retry behaves
+        // consistently.
+        return;
+    }
+
+    // Persist deferred orphan deletions since the transaction succeeded
+    if (!newOrphanDeletes.isEmpty()) {
+        QStringList pendingOrphans = m_settings.value("pendingOrphanDeletes").toStringList();
+        for (const QString& orphan : newOrphanDeletes) {
+            if (!pendingOrphans.contains(orphan)) {
+                pendingOrphans.append(orphan);
+            }
+        }
+        m_settings.setValue("pendingOrphanDeletes", pendingOrphans);
+    }
+
+    emit settingsApplied();
+    accept();
+}
+
+bool SettingsDialog::commitChanges(QStringList& failedWrites, QStringList& failedDeletes, QStringList& newOrphanDeletes,
+                                   bool& rollbackFailed) {
+    QScopedPointer<CredentialStore> defaultStore;
+    CredentialStore* credentialStore = AppCredentialManager::getStoreFactory()();
+    if (!credentialStore) {
+        defaultStore.reset(new KWalletCredentialStore());
+        credentialStore = defaultStore.data();
+    }
+
+    // Sequence of operations to reverse successful steps if a later one fails
+    QList<std::function<CredentialStore::Result()>> rollbackOperations;
+
+    bool transactionFailed = false;
+
+    // Apply pending deletes. Any failure (including WalletUnavailable) is a failed delete.
+    for (const QString& id : m_pendingDeletes) {
+        QString existingSecret;
+
+        bool isLegacyOnly = false;
+        // Look up original state in QSettings to safely determine if this was a purely legacy credential
+        QVariantList originalConnections = m_settings.value("llmConnections").toList();
+        for (const QVariant& v : originalConnections) {
+            QVariantMap map = v.toMap();
+            if (map["id"].toString() == id) {
+                if (!map.value("hasCredential", false).toBool() && m_legacyCredentials.contains(id)) {
+                    isLegacyOnly = true;
+                }
+                break;
+            }
+        }
+
+        CredentialStore::Result readRes = credentialStore->readCredential(id, existingSecret);
+        if (readRes != CredentialStore::Result::Success && readRes != CredentialStore::Result::NotFound) {
+            // Cannot reliably rollback if we can't read the previous state
+            if (!isLegacyOnly) {
+                failedDeletes.append(id);
+                transactionFailed = true;
+                break;
+            }
+        }
+
+        CredentialStore::Result res = credentialStore->deleteCredential(id);
+        if (res != CredentialStore::Result::Success && res != CredentialStore::Result::NotFound) {
+            if (!isLegacyOnly) {
+                failedDeletes.append(id);
+                transactionFailed = true;
+                break;  // Stop immediately
+            } else {
+                // Keep a durable cleanup record for deferred deletion when wallet is available
+                if (!newOrphanDeletes.contains(id)) {
+                    newOrphanDeletes.append(id);
+                }
+            }
+        }
+
+        if (readRes == CredentialStore::Result::Success) {
+            rollbackOperations.prepend([=]() { return credentialStore->writeCredential(id, existingSecret); });
+        }
+    }
+
+    if (!transactionFailed) {
+        // Apply pending writes. Any failure is a failed write.
+        for (auto it = m_pendingWrites.begin(); it != m_pendingWrites.end(); ++it) {
+            QString existingSecret;
+            CredentialStore::Result readRes = credentialStore->readCredential(it.key(), existingSecret);
+            if (readRes != CredentialStore::Result::Success && readRes != CredentialStore::Result::NotFound) {
+                failedWrites.append(it.key());
+                transactionFailed = true;
+                break;
+            }
+
+            CredentialStore::Result res = credentialStore->writeCredential(it.key(), it.value());
+            if (res != CredentialStore::Result::Success) {
+                failedWrites.append(it.key());
+                transactionFailed = true;
+                break;  // Stop immediately
+            }
+
+            if (readRes == CredentialStore::Result::Success) {
+                rollbackOperations.prepend(
+                    [=]() { return credentialStore->writeCredential(it.key(), existingSecret); });
+            } else {
+                rollbackOperations.prepend([=]() { return credentialStore->deleteCredential(it.key()); });
+            }
+        }
+    }
+
+    if (transactionFailed) {
+        // Rollback whatever we did successfully in reverse order
+        rollbackFailed = false;
+        for (const auto& rollbackOp : rollbackOperations) {
+            if (rollbackOp() != CredentialStore::Result::Success) {
+                rollbackFailed = true;
+            }
+        }
+        return false;
+    }
+
+    // Success, we can now remove successfully written items from legacy credentials
+    for (auto it = m_pendingWrites.begin(); it != m_pendingWrites.end(); ++it) {
+        m_legacyCredentials.remove(it.key());
+    }
+    for (const QString& id : m_pendingDeletes) {
+        m_legacyCredentials.remove(id);
+    }
+
+    m_pendingWrites.clear();
+    m_pendingDeletes.clear();
+
+    // Now safe to drop hidden rows entirely
+    for (int i = m_connectionsTable->rowCount() - 1; i >= 0; --i) {
+        if (m_connectionsTable->isRowHidden(i)) {
+            m_connectionsTable->removeRow(i);
+        }
+    }
+
     saveConnections();
 
     QString selectedBehavior = m_sendBehaviorCombo->currentData().toString();
@@ -383,6 +720,5 @@ void SettingsDialog::onApply() {
     AIOperationsManager::setGlobalOperations(m_aiOperationsEditor->getOperations());
     DocumentTemplatesManager::setGlobalTemplates(m_documentTemplatesEditor->getTemplates());
 
-    emit settingsApplied();
-    accept();
+    return true;
 }

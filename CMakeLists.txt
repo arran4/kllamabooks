@@ -35,6 +35,12 @@ add_executable(kllamabooks
     src/db/MigrationFactory.h
     src/WalletManager.cpp
     src/WalletManager.h
+    src/CredentialStore.cpp
+    src/CredentialStore.h
+    src/ConnectionMigration.cpp
+    src/ConnectionMigration.h
+    src/AppCredentialManager.cpp
+    src/AppCredentialManager.h
     src/SettingsDialog.cpp
     src/SettingsDialog.h
     src/DatabaseSettingsDialog.cpp
@@ -168,3 +174,19 @@ add_executable(test_Migrations tests/test_Migrations.cpp src/BookDatabase.cpp sr
 target_link_libraries(test_Migrations Qt6::Test Qt6::Core ${SQLCIPHER_LIBRARIES})
 target_include_directories(test_Migrations PRIVATE ${SQLCIPHER_INCLUDE_DIRS})
 add_test(NAME test_Migrations COMMAND test_Migrations)
+
+add_executable(test_CredentialStore tests/test_CredentialStore.cpp src/CredentialStore.cpp src/ConnectionMigration.cpp)
+target_link_libraries(test_CredentialStore Qt6::Test Qt6::Core KF6::Wallet)
+add_test(NAME test_CredentialStore COMMAND test_CredentialStore)
+
+add_executable(test_ConnectionMigration tests/test_ConnectionMigration.cpp src/ConnectionMigration.cpp src/CredentialStore.cpp)
+target_link_libraries(test_ConnectionMigration Qt6::Test Qt6::Core KF6::Wallet)
+add_test(NAME test_ConnectionMigration COMMAND test_ConnectionMigration)
+
+add_executable(test_AppCredentialManager tests/test_AppCredentialManager.cpp src/AppCredentialManager.cpp src/CredentialStore.cpp)
+target_link_libraries(test_AppCredentialManager Qt6::Test Qt6::Core KF6::Wallet)
+add_test(NAME test_AppCredentialManager COMMAND test_AppCredentialManager)
+
+add_executable(test_SettingsApply tests/test_SettingsApply.cpp src/SettingsDialog.cpp src/SettingsDialog.h src/AppCredentialManager.cpp src/AppCredentialManager.h src/CredentialStore.cpp src/ConnectionMigration.cpp src/AIOperationsManager.cpp src/DocumentTemplatesManager.cpp src/AIOperationsEditorWidget.cpp src/DocumentTemplatesEditorWidget.cpp src/AiActionDialog.cpp src/TemplateParser.cpp src/BookDatabase.cpp src/db/Database.cpp src/db/Migrations.cpp src/db/MigrationFactory.cpp)
+target_link_libraries(test_SettingsApply Qt6::Test Qt6::Core Qt6::Sql Qt6::Widgets Qt6::Network KF6::Wallet KF6::ConfigWidgets KF6::CoreAddons KF6::I18n KF6::XmlGui ${SQLCIPHER_LIBRARIES})
+add_test(NAME test_SettingsApply COMMAND test_SettingsApply)

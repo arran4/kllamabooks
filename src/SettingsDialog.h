@@ -10,6 +10,7 @@
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QSet>
 #include <QSettings>
 #include <QSpinBox>
 #include <QTableWidget>
@@ -26,13 +27,15 @@ class ConnectionDialog : public QDialog {
    public:
     explicit ConnectionDialog(QWidget* parent = nullptr, const QString& name = "New Connection",
                               const QString& backend = "Ollama", const QString& url = "http://localhost:11434",
-                              const QString& authKey = "", int maxConcurrent = 1);
+                              const QString& authKey = "", int maxConcurrent = 1, bool hasCredential = false,
+                              const QString& id = "");
     ~ConnectionDialog();
 
     QString name() const;
     QString backend() const;
     QString url() const;
     QString authKey() const;
+    bool isAuthKeyEdited() const;
     int maxConcurrent() const;
 
    private slots:
@@ -45,6 +48,9 @@ class ConnectionDialog : public QDialog {
     QLineEdit* m_authKeyEdit;
     QSpinBox* m_maxConcurrentSpinBox;
     QPushButton* m_testButton;
+    bool m_hasCredential;
+    QString m_id;
+    bool m_authKeyEdited;
 };
 
 class SettingsDialog : public QDialog {
@@ -83,6 +89,14 @@ class SettingsDialog : public QDialog {
 
     AIOperationsEditorWidget* m_aiOperationsEditor;
     DocumentTemplatesEditorWidget* m_documentTemplatesEditor;
+
+    QMap<QString, QString> m_pendingWrites;
+    QSet<QString> m_pendingDeletes;
+    QMap<QString, QString> m_legacyCredentials;
+
+   public:
+    bool commitChanges(QStringList& failedWrites, QStringList& failedDeletes, QStringList& newOrphanDeletes,
+                       bool& rollbackFailed);
 };
 
 #endif  // SETTINGSDIALOG_H
