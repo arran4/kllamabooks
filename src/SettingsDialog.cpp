@@ -437,8 +437,7 @@ void SettingsDialog::onRemoveConnection() {
         QTableWidgetItem* credItem = m_connectionsTable->item(row, 3);
         QString id = credItem->data(Qt::UserRole).toString();
 
-        // If it was just added in this dialog session, we don't need to try and delete it from the wallet
-        // Wait, how do we know it was *just* added? It's in m_pendingWrites but NOT in original llmConnections?
+        // If it was just added in this dialog session, we don't need to try and delete it from the wallet.
         bool isBrandNew = false;
         QVariantList originalConnections = m_settings.value("llmConnections").toList();
         bool found = false;
@@ -592,6 +591,13 @@ bool SettingsDialog::commitChanges(QStringList& failedWrites, QStringList& faile
                 failedDeletes.append(id);
                 transactionFailed = true;
                 break;  // Stop immediately
+            } else {
+                // Keep a durable cleanup record for deferred deletion when wallet is available
+                QStringList pendingOrphans = m_settings.value("pendingOrphanDeletes").toStringList();
+                if (!pendingOrphans.contains(id)) {
+                    pendingOrphans.append(id);
+                    m_settings.setValue("pendingOrphanDeletes", pendingOrphans);
+                }
             }
         }
 

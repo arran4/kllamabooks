@@ -4,6 +4,7 @@
 #include <QTableWidget>
 #include <QTimer>
 #include <QUuid>
+#include <QTemporaryDir>
 #include <QtTest>
 
 #define private public
@@ -33,18 +34,21 @@ class TestSettingsApply : public QObject {
 
    private:
     FakeCredentialStore* m_fakeStore;
+    QTemporaryDir* m_tempDir;
 };
 
 void TestSettingsApply::initTestCase() {
+    m_tempDir = new QTemporaryDir();
     QCoreApplication::setOrganizationName("arran4_test");
     QCoreApplication::setApplicationName("kllamabooks_test");
     QSettings::setDefaultFormat(QSettings::IniFormat);
-    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, QDir::tempPath());
-    QSettings::setDefaultFormat(QSettings::IniFormat);
-    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, QDir::tempPath());
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, m_tempDir->path());
+    QSettings::setPath(QSettings::IniFormat, QSettings::SystemScope, m_tempDir->path());
 }
 
-void TestSettingsApply::cleanupTestCase() {}
+void TestSettingsApply::cleanupTestCase() {
+    delete m_tempDir;
+}
 
 void TestSettingsApply::init() {
     m_fakeStore = new FakeCredentialStore();
@@ -201,6 +205,9 @@ void TestSettingsApply::testLegacyOnlyRemovalWalletUnavailable() {
     initialConnections.append(existingConn);
     settings.setValue("llmConnections", initialConnections);
 
+    // Seed an orphan wallet entry to ensure it's not silently treated as successful deletion
+    m_fakeStore->writeCredential("legacy_conn", "migrated_secret_orphan");
+
     m_fakeStore->simulateUnavailable = true;
 
     // Auto-close the migration error dialog so it doesn't block the test
@@ -227,8 +234,11 @@ void TestSettingsApply::testLegacyOnlyRemovalWalletUnavailable() {
     QVERIFY(newConnections.isEmpty());
     // Also test it is totally gone from legacy credentials map
     QVERIFY(!dlg.m_legacyCredentials.contains("legacy_conn"));
-}
 
+    // Verify that the durable cleanup record is created
+    QStringList pendingOrphans = settings.value("pendingOrphanDeletes").toStringList();
+    QVERIFY(pendingOrphans.contains("legacy_conn"));
+}
 
 void TestSettingsApply::testLegacyPlaintextRetainedOnCancel() {
     QSettings settings;
@@ -251,15 +261,29 @@ void TestSettingsApply::testLegacyPlaintextRetainedOnCancel() {
 
     SettingsDialog dlg(nullptr);
 
-    // Mark for deletion but then cancel
-    dlg.m_pendingDeletes.insert("legacy_conn_2");
+    // Emulate clicking remove on the row via the actual dialog handler
+    for (int i = 0; i < dlg.m_connectionsTable->rowCount(); ++i) {
+        if (dlg.m_connectionsTable->item(i, 3)->data(Qt::UserRole).toString() == "legacy_conn_2") {
+            dlg.m_connectionsTable->setCurrentCell(i, 3);
+            dlg.onRemoveConnection();
+        }
+    }
 
-    // Cancel effectively discards pending state
-    // Just verify the original setting is unmodified
+    // Emulate edit replacement as well
+    dlg.m_pendingWrites["legacy_conn_2"] = "new_secret_not_saved";
+
+    // Click Cancel
+    dlg.reject();
+
+    // Fresh read
     QVariantList newConnections = settings.value("llmConnections").toList();
     QCOMPARE(newConnections.size(), 1);
     QVERIFY(newConnections.first().toMap().contains("authKey"));
     QCOMPARE(newConnections.first().toMap()["authKey"].toString(), QString("plaintext_secret_2"));
+
+    // Fake wallet untouched
+    QString secret;
+    QCOMPARE(m_fakeStore->readCredential("legacy_conn_2", secret), CredentialStore::Result::WalletUnavailable);
 }
 
 void TestSettingsApply::testBrandNewConnectionAddAndRemove() {
@@ -300,6 +324,7 @@ void TestSettingsApply::testNoPlaintextSecretsInSettings() {
     dlg.m_connectionsTable->insertRow(row);
     QTableWidgetItem* credItem = new QTableWidgetItem("Configured");
     credItem->setData(Qt::UserRole, "new_conn");
+    credItem->setData(Qt::UserRole + 1, true); // Set hasCredential explicitly
     dlg.m_connectionsTable->setItem(row, 0, new QTableWidgetItem("Name"));
     dlg.m_connectionsTable->setItem(row, 1, new QTableWidgetItem("Backend"));
     dlg.m_connectionsTable->setItem(row, 2, new QTableWidgetItem("URL"));
@@ -311,7 +336,15 @@ void TestSettingsApply::testNoPlaintextSecretsInSettings() {
     QVariantList newConnections = settings.value("llmConnections").toList();
     QCOMPARE(newConnections.size(), 1);
     QVERIFY(!newConnections.first().toMap().contains("authKey"));
+    QVERIFY(newConnections.first().toMap().contains("hasCredential"));
+    QVERIFY(newConnections.first().toMap()["hasCredential"].toBool());
+
+    // Verify wallet has it
+    QString secret;
+    QCOMPARE(m_fakeStore->readCredential("new_conn", secret), CredentialStore::Result::Success);
+    QCOMPARE(secret, QString("super_secret"));
 }
+
 
 QTEST_MAIN(TestSettingsApply)
 #include "test_SettingsApply.moc"
