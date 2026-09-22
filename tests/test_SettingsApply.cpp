@@ -2,9 +2,9 @@
 #include <QPushButton>
 #include <QSettings>
 #include <QTableWidget>
+#include <QTemporaryDir>
 #include <QTimer>
 #include <QUuid>
-#include <QTemporaryDir>
 #include <QtTest>
 
 #define private public
@@ -32,7 +32,6 @@ class TestSettingsApply : public QObject {
     void testNoPlaintextSecretsInSettings();
     void testNoOrphanRecordOnFailedApply();
 
-
    private:
     FakeCredentialStore* m_fakeStore;
     QTemporaryDir* m_tempDir;
@@ -47,9 +46,7 @@ void TestSettingsApply::initTestCase() {
     QSettings::setPath(QSettings::IniFormat, QSettings::SystemScope, m_tempDir->path());
 }
 
-void TestSettingsApply::cleanupTestCase() {
-    delete m_tempDir;
-}
+void TestSettingsApply::cleanupTestCase() { delete m_tempDir; }
 
 void TestSettingsApply::init() {
     m_fakeStore = new FakeCredentialStore();
@@ -203,7 +200,7 @@ void TestSettingsApply::testLegacyOnlyRemovalWalletUnavailable() {
     QVariantList initialConnections;
     QVariantMap existingConn;
     existingConn["id"] = "legacy_conn";
-    existingConn["authKey"] = "plaintext_secret"; // Actual legacy secret
+    existingConn["authKey"] = "plaintext_secret";  // Actual legacy secret
     existingConn["name"] = "Legacy Connection";
     initialConnections.append(existingConn);
     settings.setValue("llmConnections", initialConnections);
@@ -245,7 +242,7 @@ void TestSettingsApply::testLegacyOnlyRemovalWalletUnavailable() {
 
     // Now simulate wallet recovery and verify deferred cleanup
     m_fakeStore->simulateUnavailable = false;
-    SettingsDialog recoveryDlg(nullptr); // Constructor calls loadConnections which triggers cleanup
+    SettingsDialog recoveryDlg(nullptr);  // Constructor calls loadConnections which triggers cleanup
 
     QString recoveredSecret;
     QCOMPARE(m_fakeStore->readCredential("legacy_conn", recoveredSecret), CredentialStore::Result::NotFound);
@@ -336,7 +333,7 @@ void TestSettingsApply::testNoPlaintextSecretsInSettings() {
     dlg.m_connectionsTable->insertRow(row);
     QTableWidgetItem* credItem = new QTableWidgetItem("Configured");
     credItem->setData(Qt::UserRole, "new_conn");
-    credItem->setData(Qt::UserRole + 1, true); // Set hasCredential explicitly
+    credItem->setData(Qt::UserRole + 1, true);  // Set hasCredential explicitly
     dlg.m_connectionsTable->setItem(row, 0, new QTableWidgetItem("Name"));
     dlg.m_connectionsTable->setItem(row, 1, new QTableWidgetItem("Backend"));
     dlg.m_connectionsTable->setItem(row, 2, new QTableWidgetItem("URL"));
@@ -356,7 +353,6 @@ void TestSettingsApply::testNoPlaintextSecretsInSettings() {
     QCOMPARE(m_fakeStore->readCredential("new_conn", secret), CredentialStore::Result::Success);
     QCOMPARE(secret, QString("super_secret"));
 }
-
 
 void TestSettingsApply::testNoOrphanRecordOnFailedApply() {
     QSettings settings;
@@ -416,7 +412,8 @@ void TestSettingsApply::testNoOrphanRecordOnFailedApply() {
     QCOMPARE(savedConnections.size(), 2);
     QCOMPARE(savedConnections[0].toMap()["authKey"].toString(), QString("secret1"));
 
-    // For fake store, since simulateUnavailable is true, we must temporarily disable it to verify the secret wasn't modified in the backend
+    // For fake store, since simulateUnavailable is true, we must temporarily disable it to verify the secret wasn't
+    // modified in the backend
     m_fakeStore->simulateUnavailable = false;
     QString secret;
     QCOMPARE(m_fakeStore->readCredential("conn2", secret), CredentialStore::Result::Success);

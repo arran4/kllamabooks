@@ -589,7 +589,8 @@ void SettingsDialog::onApply() {
     accept();
 }
 
-bool SettingsDialog::commitChanges(QStringList& failedWrites, QStringList& failedDeletes, QStringList& newOrphanDeletes, bool& rollbackFailed) {
+bool SettingsDialog::commitChanges(QStringList& failedWrites, QStringList& failedDeletes, QStringList& newOrphanDeletes,
+                                   bool& rollbackFailed) {
     QScopedPointer<CredentialStore> defaultStore;
     CredentialStore* credentialStore = AppCredentialManager::getStoreFactory()();
     if (!credentialStore) {
