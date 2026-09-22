@@ -437,10 +437,30 @@ void SettingsDialog::onRemoveConnection() {
         QTableWidgetItem* credItem = m_connectionsTable->item(row, 3);
         QString id = credItem->data(Qt::UserRole).toString();
 
-        m_pendingDeletes.insert(id);
-        m_pendingWrites.remove(id);
+        // If it was just added in this dialog session, we don't need to try and delete it from the wallet
+        // Wait, how do we know it was *just* added? It's in m_pendingWrites but NOT in original llmConnections?
+        bool isBrandNew = false;
+        QVariantList originalConnections = m_settings.value("llmConnections").toList();
+        bool found = false;
+        for (const QVariant& v : originalConnections) {
+            if (v.toMap()["id"].toString() == id) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            isBrandNew = true;
+        }
 
-        // Hide it so we can unhide it on rollback failure
+        if (isBrandNew) {
+            // It hasn't been saved yet, so we can just completely forget about it instead of pending a delete.
+            m_pendingWrites.remove(id);
+        } else {
+            m_pendingDeletes.insert(id);
+            m_pendingWrites.remove(id);
+        }
+
+        // Hide it
         m_connectionsTable->setRowHidden(row, true);
     }
 }

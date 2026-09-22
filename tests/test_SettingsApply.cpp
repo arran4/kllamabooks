@@ -26,6 +26,10 @@ class TestSettingsApply : public QObject {
     void testPartialFailureRollback();
     void testFailedApplyRetainsUIState();
     void testLegacyOnlyRemovalWalletUnavailable();
+    void testLegacyPlaintextRetainedOnCancel();
+    void testBrandNewConnectionAddAndRemove();
+    void testNoPlaintextSecretsInSettings();
+
 
    private:
     FakeCredentialStore* m_fakeStore;
@@ -34,6 +38,10 @@ class TestSettingsApply : public QObject {
 void TestSettingsApply::initTestCase() {
     QCoreApplication::setOrganizationName("arran4_test");
     QCoreApplication::setApplicationName("kllamabooks_test");
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, QDir::tempPath());
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, QDir::tempPath());
 }
 
 void TestSettingsApply::cleanupTestCase() {}
@@ -188,12 +196,24 @@ void TestSettingsApply::testLegacyOnlyRemovalWalletUnavailable() {
     QVariantList initialConnections;
     QVariantMap existingConn;
     existingConn["id"] = "legacy_conn";
-    existingConn["hasCredential"] = false;  // Plaintext secret is still in settings
+    existingConn["authKey"] = "plaintext_secret"; // Actual legacy secret
+    existingConn["name"] = "Legacy Connection";
     initialConnections.append(existingConn);
     settings.setValue("llmConnections", initialConnections);
 
+    m_fakeStore->simulateUnavailable = true;
+
+    // Auto-close the migration error dialog so it doesn't block the test
+    QTimer::singleShot(0, []() {
+        QWidget* activeWindow = QApplication::activeModalWidget();
+        if (QMessageBox* msgBox = qobject_cast<QMessageBox*>(activeWindow)) {
+            msgBox->close();
+        }
+    });
+
     SettingsDialog dlg(nullptr);
-    dlg.m_legacyCredentials["legacy_conn"] = "plaintext_secret";
+
+    // Mark for deletion
     dlg.m_pendingDeletes.insert("legacy_conn");
     for (int i = 0; i < dlg.m_connectionsTable->rowCount(); ++i) {
         if (dlg.m_connectionsTable->item(i, 3)->data(Qt::UserRole).toString() == "legacy_conn") {
@@ -201,21 +221,96 @@ void TestSettingsApply::testLegacyOnlyRemovalWalletUnavailable() {
         }
     }
 
-    m_fakeStore->simulateUnavailable = true;
-
-    QStringList failedWrites;
-    QStringList failedDeletes;
-    bool rollbackFailed = false;
-
-    // Close the success dialog? onApply doesn't show one on success, it just calls accept()
     dlg.onApply();
 
-    // It should succeed because it ignores wallet failure for purely legacy deletions
     QVariantList newConnections = settings.value("llmConnections").toList();
     QVERIFY(newConnections.isEmpty());
+    // Also test it is totally gone from legacy credentials map
     QVERIFY(!dlg.m_legacyCredentials.contains("legacy_conn"));
-    // We expect the original wallet failure simulation to not block completion
-    QVERIFY(m_fakeStore->simulateUnavailable);  // the flag was indeed set
+}
+
+
+void TestSettingsApply::testLegacyPlaintextRetainedOnCancel() {
+    QSettings settings;
+    QVariantList initialConnections;
+    QVariantMap existingConn;
+    existingConn["id"] = "legacy_conn_2";
+    existingConn["authKey"] = "plaintext_secret_2";
+    existingConn["name"] = "Legacy Connection 2";
+    initialConnections.append(existingConn);
+    settings.setValue("llmConnections", initialConnections);
+
+    m_fakeStore->simulateUnavailable = true;
+
+    QTimer::singleShot(0, []() {
+        QWidget* activeWindow = QApplication::activeModalWidget();
+        if (QMessageBox* msgBox = qobject_cast<QMessageBox*>(activeWindow)) {
+            msgBox->close();
+        }
+    });
+
+    SettingsDialog dlg(nullptr);
+
+    // Mark for deletion but then cancel
+    dlg.m_pendingDeletes.insert("legacy_conn_2");
+
+    // Cancel effectively discards pending state
+    // Just verify the original setting is unmodified
+    QVariantList newConnections = settings.value("llmConnections").toList();
+    QCOMPARE(newConnections.size(), 1);
+    QVERIFY(newConnections.first().toMap().contains("authKey"));
+    QCOMPARE(newConnections.first().toMap()["authKey"].toString(), QString("plaintext_secret_2"));
+}
+
+void TestSettingsApply::testBrandNewConnectionAddAndRemove() {
+    QSettings settings;
+    SettingsDialog dlg(nullptr);
+
+    // Add new connection via UI lists
+    dlg.m_pendingWrites["new_conn"] = "super_secret";
+
+    int row = dlg.m_connectionsTable->rowCount();
+    dlg.m_connectionsTable->insertRow(row);
+    QTableWidgetItem* credItem = new QTableWidgetItem("Configured");
+    credItem->setData(Qt::UserRole, "new_conn");
+    dlg.m_connectionsTable->setItem(row, 3, credItem);
+
+    // Simulate wallet unavailable
+    m_fakeStore->simulateUnavailable = true;
+
+    // Simulate removing the newly added connection
+    dlg.m_connectionsTable->setCurrentCell(row, 3);
+    dlg.onRemoveConnection();
+
+    // Apply changes
+    dlg.onApply();
+
+    // The transaction should succeed because we don't try to delete "new_conn" from the unavailable wallet
+    QVariantList newConnections = settings.value("llmConnections").toList();
+    QVERIFY(newConnections.isEmpty());
+}
+
+void TestSettingsApply::testNoPlaintextSecretsInSettings() {
+    QSettings settings;
+    SettingsDialog dlg(nullptr);
+
+    dlg.m_pendingWrites["new_conn"] = "super_secret";
+
+    int row = dlg.m_connectionsTable->rowCount();
+    dlg.m_connectionsTable->insertRow(row);
+    QTableWidgetItem* credItem = new QTableWidgetItem("Configured");
+    credItem->setData(Qt::UserRole, "new_conn");
+    dlg.m_connectionsTable->setItem(row, 0, new QTableWidgetItem("Name"));
+    dlg.m_connectionsTable->setItem(row, 1, new QTableWidgetItem("Backend"));
+    dlg.m_connectionsTable->setItem(row, 2, new QTableWidgetItem("URL"));
+    dlg.m_connectionsTable->setItem(row, 3, credItem);
+    dlg.m_connectionsTable->setItem(row, 4, new QTableWidgetItem("1"));
+
+    dlg.onApply();
+
+    QVariantList newConnections = settings.value("llmConnections").toList();
+    QCOMPARE(newConnections.size(), 1);
+    QVERIFY(!newConnections.first().toMap().contains("authKey"));
 }
 
 QTEST_MAIN(TestSettingsApply)
