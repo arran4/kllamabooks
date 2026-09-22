@@ -30,6 +30,7 @@ class TestSettingsApply : public QObject {
     void testLegacyPlaintextRetainedOnCancel();
     void testBrandNewConnectionAddAndRemove();
     void testNoPlaintextSecretsInSettings();
+    void testNoOrphanRecordOnFailedApply();
 
 
    private:
@@ -92,7 +93,8 @@ void TestSettingsApply::testSuccessfulAddEditRemove() {
     QStringList failedDeletes;
     bool rollbackFailed = false;
 
-    bool result = dlg.commitChanges(failedWrites, failedDeletes, rollbackFailed);
+    QStringList newOrphanDeletes;
+    bool result = dlg.commitChanges(failedWrites, failedDeletes, newOrphanDeletes, rollbackFailed);
 
     QVERIFY(result);
     QVERIFY(!rollbackFailed);
@@ -126,7 +128,8 @@ void TestSettingsApply::testPartialFailureRollback() {
     QStringList failedDeletes;
     bool rollbackFailed = false;
 
-    bool result = dlg.commitChanges(failedWrites, failedDeletes, rollbackFailed);
+    QStringList newOrphanDeletes;
+    bool result = dlg.commitChanges(failedWrites, failedDeletes, newOrphanDeletes, rollbackFailed);
 
     QVERIFY(!result);
     QVERIFY(!rollbackFailed);
@@ -238,6 +241,14 @@ void TestSettingsApply::testLegacyOnlyRemovalWalletUnavailable() {
     // Verify that the durable cleanup record is created
     QStringList pendingOrphans = settings.value("pendingOrphanDeletes").toStringList();
     QVERIFY(pendingOrphans.contains("legacy_conn"));
+
+    // Now simulate wallet recovery and verify deferred cleanup
+    m_fakeStore->simulateUnavailable = false;
+    SettingsDialog recoveryDlg(nullptr); // Constructor calls loadConnections which triggers cleanup
+
+    QString recoveredSecret;
+    QCOMPARE(m_fakeStore->readCredential("legacy_conn", recoveredSecret), CredentialStore::Result::NotFound);
+    QVERIFY(!settings.contains("pendingOrphanDeletes"));
 }
 
 void TestSettingsApply::testLegacyPlaintextRetainedOnCancel() {
@@ -345,6 +356,46 @@ void TestSettingsApply::testNoPlaintextSecretsInSettings() {
     QCOMPARE(secret, QString("super_secret"));
 }
 
+
+void TestSettingsApply::testNoOrphanRecordOnFailedApply() {
+    QSettings settings;
+    QVariantList initialConnections;
+
+    QVariantMap conn1;
+    conn1["id"] = "conn1";
+    conn1["authKey"] = "secret1";
+    initialConnections.append(conn1);
+
+    QVariantMap conn2;
+    conn2["id"] = "conn2";
+    conn2["hasCredential"] = true;
+    initialConnections.append(conn2);
+
+    settings.setValue("llmConnections", initialConnections);
+    m_fakeStore->writeCredential("conn2", "secret2");
+
+    SettingsDialog dlg(nullptr);
+
+    // Mark legacy conn1 for deletion
+    dlg.m_pendingDeletes.insert("conn1");
+    // Mark conn2 for a write
+    dlg.m_pendingWrites["conn2"] = "new_secret2";
+
+    m_fakeStore->simulateUnavailable = true; // Makes conn1 deletion deferred, but also makes conn2 write fail
+
+    QTimer::singleShot(0, []() {
+        QWidget* activeWindow = QApplication::activeModalWidget();
+        if (QMessageBox* msgBox = qobject_cast<QMessageBox*>(activeWindow)) {
+            msgBox->close();
+        }
+    });
+
+    dlg.onApply();
+
+    // Apply failed due to wallet unavailability on write.
+    // The orphan record must NOT be persisted.
+    QVERIFY(!settings.contains("pendingOrphanDeletes"));
+}
 
 QTEST_MAIN(TestSettingsApply)
 #include "test_SettingsApply.moc"

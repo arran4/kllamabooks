@@ -288,6 +288,38 @@ void SettingsDialog::loadConnections() {
         credentialStore = defaultStore.data();
     }
 
+    // Process deferred orphan deletions
+    QStringList pendingOrphans = m_settings.value("pendingOrphanDeletes").toStringList();
+    if (!pendingOrphans.isEmpty()) {
+        QStringList remainingOrphans;
+        // Collect currently active IDs
+        QSet<QString> activeIds;
+        for (const QVariant& v : connections) {
+            activeIds.insert(v.toMap()["id"].toString());
+        }
+
+        for (const QString& orphanId : pendingOrphans) {
+            if (activeIds.contains(orphanId)) {
+                // ID is in use again, abort deletion of this orphan
+                continue;
+            }
+
+            CredentialStore::Result res = credentialStore->deleteCredential(orphanId);
+            if (res == CredentialStore::Result::Success || res == CredentialStore::Result::NotFound) {
+                // Successfully cleaned up
+            } else {
+                // Failed (e.g. wallet unavailable), keep it for next time
+                remainingOrphans.append(orphanId);
+            }
+        }
+
+        if (remainingOrphans.isEmpty()) {
+            m_settings.remove("pendingOrphanDeletes");
+        } else if (remainingOrphans != pendingOrphans) {
+            m_settings.setValue("pendingOrphanDeletes", remainingOrphans);
+        }
+    }
+
     QStringList migrationErrors;
 
     if (connections.isEmpty() && m_settings.contains("ollamaUrl")) {
@@ -522,7 +554,8 @@ void SettingsDialog::onApply() {
 
     QStringList failedWrites;
     QStringList failedDeletes;
-    bool transactionSucceeded = commitChanges(failedWrites, failedDeletes, rollbackFailed);
+    QStringList newOrphanDeletes;
+    bool transactionSucceeded = commitChanges(failedWrites, failedDeletes, newOrphanDeletes, rollbackFailed);
 
     if (!transactionSucceeded) {
         if (rollbackFailed) {
@@ -541,11 +574,22 @@ void SettingsDialog::onApply() {
         return;
     }
 
+    // Persist deferred orphan deletions since the transaction succeeded
+    if (!newOrphanDeletes.isEmpty()) {
+        QStringList pendingOrphans = m_settings.value("pendingOrphanDeletes").toStringList();
+        for (const QString& orphan : newOrphanDeletes) {
+            if (!pendingOrphans.contains(orphan)) {
+                pendingOrphans.append(orphan);
+            }
+        }
+        m_settings.setValue("pendingOrphanDeletes", pendingOrphans);
+    }
+
     emit settingsApplied();
     accept();
 }
 
-bool SettingsDialog::commitChanges(QStringList& failedWrites, QStringList& failedDeletes, bool& rollbackFailed) {
+bool SettingsDialog::commitChanges(QStringList& failedWrites, QStringList& failedDeletes, QStringList& newOrphanDeletes, bool& rollbackFailed) {
     QScopedPointer<CredentialStore> defaultStore;
     CredentialStore* credentialStore = AppCredentialManager::getStoreFactory()();
     if (!credentialStore) {
@@ -593,10 +637,8 @@ bool SettingsDialog::commitChanges(QStringList& failedWrites, QStringList& faile
                 break;  // Stop immediately
             } else {
                 // Keep a durable cleanup record for deferred deletion when wallet is available
-                QStringList pendingOrphans = m_settings.value("pendingOrphanDeletes").toStringList();
-                if (!pendingOrphans.contains(id)) {
-                    pendingOrphans.append(id);
-                    m_settings.setValue("pendingOrphanDeletes", pendingOrphans);
+                if (!newOrphanDeletes.contains(id)) {
+                    newOrphanDeletes.append(id);
                 }
             }
         }
