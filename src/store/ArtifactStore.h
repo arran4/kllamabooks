@@ -15,8 +15,7 @@ enum class ArtifactKind { Document, Note, Template };
 
 struct Artifact {
     int id = 0;
-    // cppcheck-suppress unusedStructMember
-    ArtifactKind kind;
+    ArtifactKind kind = ArtifactKind::Document;
     int folderId = 0;
     int currentVersionId = 0;
     QString createdAt;

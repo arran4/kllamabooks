@@ -41,14 +41,20 @@ std::optional<Artifact> ArtifactStore::getArtifact(int id) const {
         Artifact artifact;
         artifact.id = sqlite3_column_int(stmt, 0);
 
-        QString kindStr = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)));
-        auto kind = stringToKind(kindStr);
-        if (kind) {
-            artifact.kind = *kind;
-            artifact.folderId = sqlite3_column_int(stmt, 2);
-            artifact.currentVersionId = sqlite3_column_int(stmt, 3);
-            artifact.createdAt = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4)));
-            result = artifact;
+        const char* kindText = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+        if (kindText) {
+            auto kindOpt = stringToKind(QString::fromUtf8(kindText));
+            if (kindOpt) {
+                artifact.kind = *kindOpt;
+                artifact.folderId = sqlite3_column_int(stmt, 2);
+                artifact.currentVersionId = sqlite3_column_int(stmt, 3);
+
+                const char* createdAtText = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4));
+                if (createdAtText) {
+                    artifact.createdAt = QString::fromUtf8(createdAtText);
+                }
+                result = artifact;
+            }
         }
     }
     sqlite3_finalize(stmt);
