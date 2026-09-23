@@ -15,6 +15,7 @@ enum class ArtifactKind { Document, Note, Template };
 
 struct Artifact {
     int id = 0;
+    // cppcheck-suppress unusedStructMember
     ArtifactKind kind;
     int folderId = 0;
     int currentVersionId = 0;
