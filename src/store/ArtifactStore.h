@@ -11,11 +11,7 @@ class Database;
 
 namespace store {
 
-enum class ArtifactKind {
-    Document,
-    Note,
-    Template
-};
+enum class ArtifactKind { Document, Note, Template };
 
 struct Artifact {
     int id = 0;
@@ -28,7 +24,8 @@ struct Artifact {
 struct ArtifactVersion {
     int id = 0;
     int artifactId = 0;
-    int parentId = 0;
+    std::optional<int> parentId = std::nullopt;
+    std::optional<int> forkedFromVersionId = std::nullopt;
     QString title;
     QString content;
     QString metadata;
@@ -36,13 +33,7 @@ struct ArtifactVersion {
     QString createdAt;
 };
 
-enum class TransitionError {
-    Conflict,
-    Sealed,
-    InvalidCrossReference,
-    NotFound,
-    DatabaseError
-};
+enum class TransitionError { Conflict, Sealed, InvalidCrossReference, NotFound, DatabaseError };
 
 template <typename T>
 struct Result {
@@ -60,10 +51,13 @@ class ArtifactStore {
    public:
     explicit ArtifactStore(db::Database& db);
 
-    Result<ArtifactVersion> createArtifact(ArtifactKind kind, int folderId, const QString& title, const QString& content, const QString& metadata);
-    Result<ArtifactVersion> editVersion(int expectedVersionId, const QString& title, const QString& content, const QString& metadata);
+    Result<ArtifactVersion> createArtifact(ArtifactKind kind, int folderId, const QString& title,
+                                           const QString& content, const QString& metadata);
+    Result<ArtifactVersion> editVersion(int expectedVersionId, const QString& title, const QString& content,
+                                        const QString& metadata);
     Result<ArtifactVersion> sealVersion(int versionId);
-    Result<ArtifactVersion> createMutableDescendant(int expectedBaseVersionId, const QString& title, const QString& content, const QString& metadata);
+    Result<ArtifactVersion> createMutableDescendant(int expectedBaseVersionId, const QString& title,
+                                                    const QString& content, const QString& metadata);
     Result<ArtifactVersion> restoreVersion(int expectedBaseVersionId, int versionToRestoreId);
     Result<ArtifactVersion> forkArtifact(int expectedBaseVersionId, int folderId);
 

@@ -1,7 +1,9 @@
 #include "ArtifactStore.h"
+
+#include <sqlcipher/sqlite3.h>
+
 #include "../db/Database.h"
 #include "../db/Transaction.h"
-#include <sqlcipher/sqlite3.h>
 
 namespace store {
 
@@ -9,9 +11,12 @@ ArtifactStore::ArtifactStore(db::Database& db) : m_db(db) {}
 
 QString kindToString(ArtifactKind kind) {
     switch (kind) {
-        case ArtifactKind::Document: return "document";
-        case ArtifactKind::Note: return "note";
-        case ArtifactKind::Template: return "template";
+        case ArtifactKind::Document:
+            return "document";
+        case ArtifactKind::Note:
+            return "note";
+        case ArtifactKind::Template:
+            return "template";
     }
     return "unknown";
 }
@@ -51,7 +56,9 @@ std::optional<Artifact> ArtifactStore::getArtifact(int id) const {
 }
 
 std::optional<ArtifactVersion> ArtifactStore::getVersion(int id) const {
-    QString sql = "SELECT id, artifact_id, parent_id, title, content, metadata, is_sealed, created_at FROM artifact_versions WHERE id = ?";
+    QString sql =
+        "SELECT id, artifact_id, parent_id, forked_from_version_id, title, content, metadata, is_sealed, created_at "
+        "FROM artifact_versions WHERE id = ?";
     sqlite3_stmt* stmt = nullptr;
     int rc = sqlite3_prepare_v2(m_db.handle(), sql.toUtf8().constData(), -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return std::nullopt;
@@ -63,20 +70,27 @@ std::optional<ArtifactVersion> ArtifactStore::getVersion(int id) const {
         ArtifactVersion version;
         version.id = sqlite3_column_int(stmt, 0);
         version.artifactId = sqlite3_column_int(stmt, 1);
-        version.parentId = sqlite3_column_int(stmt, 2);
 
-        const char* title = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
+        if (sqlite3_column_type(stmt, 2) != SQLITE_NULL) {
+            version.parentId = sqlite3_column_int(stmt, 2);
+        }
+
+        if (sqlite3_column_type(stmt, 3) != SQLITE_NULL) {
+            version.forkedFromVersionId = sqlite3_column_int(stmt, 3);
+        }
+
+        const char* title = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4));
         if (title) version.title = QString::fromUtf8(title);
 
-        const char* content = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4));
+        const char* content = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 5));
         if (content) version.content = QString::fromUtf8(content);
 
-        const char* metadata = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 5));
+        const char* metadata = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 6));
         if (metadata) version.metadata = QString::fromUtf8(metadata);
 
-        version.isSealed = sqlite3_column_int(stmt, 6) != 0;
+        version.isSealed = sqlite3_column_int(stmt, 7) != 0;
 
-        const char* createdAt = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 7));
+        const char* createdAt = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 8));
         if (createdAt) version.createdAt = QString::fromUtf8(createdAt);
 
         result = version;
@@ -91,7 +105,8 @@ std::optional<ArtifactVersion> ArtifactStore::getCurrentVersion(int artifactId) 
     return getVersion(artifact->currentVersionId);
 }
 
-Result<ArtifactVersion> ArtifactStore::createArtifact(ArtifactKind kind, int folderId, const QString& title, const QString& content, const QString& metadata) {
+Result<ArtifactVersion> ArtifactStore::createArtifact(ArtifactKind kind, int folderId, const QString& title,
+                                                      const QString& content, const QString& metadata) {
     db::Transaction tx(m_db);
 
     QString insertArtifactSql = "INSERT INTO artifacts (kind, folder_id) VALUES (?, ?)";
@@ -111,7 +126,9 @@ Result<ArtifactVersion> ArtifactStore::createArtifact(ArtifactKind kind, int fol
     int artifactId = sqlite3_last_insert_rowid(m_db.handle());
     sqlite3_finalize(stmt);
 
-    QString insertVersionSql = "INSERT INTO artifact_versions (artifact_id, title, content, metadata, is_sealed) VALUES (?, ?, ?, ?, 0)";
+    QString insertVersionSql =
+        "INSERT INTO artifact_versions (artifact_id, parent_id, forked_from_version_id, title, content, metadata, "
+        "is_sealed) VALUES (?, NULL, NULL, ?, ?, ?, 0)";
     if (sqlite3_prepare_v2(m_db.handle(), insertVersionSql.toUtf8().constData(), -1, &stmt, nullptr) != SQLITE_OK) {
         return Result<ArtifactVersion>::fail(TransitionError::DatabaseError, "Failed to prepare version insert");
     }
@@ -139,7 +156,8 @@ Result<ArtifactVersion> ArtifactStore::createArtifact(ArtifactKind kind, int fol
 
     if (sqlite3_step(stmt) != SQLITE_DONE) {
         sqlite3_finalize(stmt);
-        return Result<ArtifactVersion>::fail(TransitionError::DatabaseError, "Failed to update artifact current version");
+        return Result<ArtifactVersion>::fail(TransitionError::DatabaseError,
+                                             "Failed to update artifact current version");
     }
     sqlite3_finalize(stmt);
 
@@ -154,7 +172,8 @@ Result<ArtifactVersion> ArtifactStore::createArtifact(ArtifactKind kind, int fol
     return Result<ArtifactVersion>::fail(TransitionError::NotFound, "Failed to retrieve created version");
 }
 
-Result<ArtifactVersion> ArtifactStore::editVersion(int expectedVersionId, const QString& title, const QString& content, const QString& metadata) {
+Result<ArtifactVersion> ArtifactStore::editVersion(int expectedVersionId, const QString& title, const QString& content,
+                                                   const QString& metadata) {
     db::Transaction tx(m_db);
 
     auto existingVersion = getVersion(expectedVersionId);
@@ -168,11 +187,12 @@ Result<ArtifactVersion> ArtifactStore::editVersion(int expectedVersionId, const 
 
     auto artifact = getArtifact(existingVersion->artifactId);
     if (!artifact) {
-         return Result<ArtifactVersion>::fail(TransitionError::NotFound, "Artifact not found");
+        return Result<ArtifactVersion>::fail(TransitionError::NotFound, "Artifact not found");
     }
 
     if (artifact->currentVersionId != expectedVersionId) {
-         return Result<ArtifactVersion>::fail(TransitionError::Conflict, "Version is not the current version of the artifact");
+        return Result<ArtifactVersion>::fail(TransitionError::Conflict,
+                                             "Version is not the current version of the artifact");
     }
 
     QString updateSql = "UPDATE artifact_versions SET title = ?, content = ?, metadata = ? WHERE id = ?";
@@ -240,7 +260,8 @@ Result<ArtifactVersion> ArtifactStore::sealVersion(int versionId) {
     return Result<ArtifactVersion>::fail(TransitionError::NotFound, "Failed to retrieve sealed version");
 }
 
-Result<ArtifactVersion> ArtifactStore::createMutableDescendant(int expectedBaseVersionId, const QString& title, const QString& content, const QString& metadata) {
+Result<ArtifactVersion> ArtifactStore::createMutableDescendant(int expectedBaseVersionId, const QString& title,
+                                                               const QString& content, const QString& metadata) {
     db::Transaction tx(m_db);
 
     auto baseVersion = getVersion(expectedBaseVersionId);
@@ -249,7 +270,8 @@ Result<ArtifactVersion> ArtifactStore::createMutableDescendant(int expectedBaseV
     }
 
     if (!baseVersion->isSealed) {
-        return Result<ArtifactVersion>::fail(TransitionError::Conflict, "Base version must be sealed to create a descendant");
+        return Result<ArtifactVersion>::fail(TransitionError::Conflict,
+                                             "Base version must be sealed to create a descendant");
     }
 
     auto artifact = getArtifact(baseVersion->artifactId);
@@ -258,13 +280,17 @@ Result<ArtifactVersion> ArtifactStore::createMutableDescendant(int expectedBaseV
     }
 
     if (artifact->currentVersionId != expectedBaseVersionId) {
-         return Result<ArtifactVersion>::fail(TransitionError::Conflict, "Base version is not the current version of the artifact");
+        return Result<ArtifactVersion>::fail(TransitionError::Conflict,
+                                             "Base version is not the current version of the artifact");
     }
 
-    QString insertVersionSql = "INSERT INTO artifact_versions (artifact_id, parent_id, title, content, metadata, is_sealed) VALUES (?, ?, ?, ?, ?, 0)";
+    QString insertVersionSql =
+        "INSERT INTO artifact_versions (artifact_id, parent_id, forked_from_version_id, title, content, metadata, "
+        "is_sealed) VALUES (?, ?, NULL, ?, ?, ?, 0)";
     sqlite3_stmt* stmt = nullptr;
     if (sqlite3_prepare_v2(m_db.handle(), insertVersionSql.toUtf8().constData(), -1, &stmt, nullptr) != SQLITE_OK) {
-        return Result<ArtifactVersion>::fail(TransitionError::DatabaseError, "Failed to prepare descendant version insert");
+        return Result<ArtifactVersion>::fail(TransitionError::DatabaseError,
+                                             "Failed to prepare descendant version insert");
     }
 
     sqlite3_bind_int(stmt, 1, baseVersion->artifactId);
@@ -291,7 +317,8 @@ Result<ArtifactVersion> ArtifactStore::createMutableDescendant(int expectedBaseV
 
     if (sqlite3_step(stmt) != SQLITE_DONE) {
         sqlite3_finalize(stmt);
-        return Result<ArtifactVersion>::fail(TransitionError::DatabaseError, "Failed to update artifact current version");
+        return Result<ArtifactVersion>::fail(TransitionError::DatabaseError,
+                                             "Failed to update artifact current version");
     }
     sqlite3_finalize(stmt);
 
@@ -318,10 +345,12 @@ Result<ArtifactVersion> ArtifactStore::restoreVersion(int expectedBaseVersionId,
     }
 
     if (versionToRestore->artifactId != baseVersion->artifactId) {
-        return Result<ArtifactVersion>::fail(TransitionError::InvalidCrossReference, "Cannot restore version from a different artifact");
+        return Result<ArtifactVersion>::fail(TransitionError::InvalidCrossReference,
+                                             "Cannot restore version from a different artifact");
     }
 
-    return createMutableDescendant(expectedBaseVersionId, versionToRestore->title, versionToRestore->content, versionToRestore->metadata);
+    return createMutableDescendant(expectedBaseVersionId, versionToRestore->title, versionToRestore->content,
+                                   versionToRestore->metadata);
 }
 
 Result<ArtifactVersion> ArtifactStore::forkArtifact(int expectedBaseVersionId, int folderId) {
@@ -338,13 +367,14 @@ Result<ArtifactVersion> ArtifactStore::forkArtifact(int expectedBaseVersionId, i
 
     auto baseArtifact = getArtifact(baseVersion->artifactId);
     if (!baseArtifact) {
-         return Result<ArtifactVersion>::fail(TransitionError::NotFound, "Base artifact not found");
+        return Result<ArtifactVersion>::fail(TransitionError::NotFound, "Base artifact not found");
     }
 
     QString insertArtifactSql = "INSERT INTO artifacts (kind, folder_id) VALUES (?, ?)";
     sqlite3_stmt* stmt = nullptr;
     if (sqlite3_prepare_v2(m_db.handle(), insertArtifactSql.toUtf8().constData(), -1, &stmt, nullptr) != SQLITE_OK) {
-        return Result<ArtifactVersion>::fail(TransitionError::DatabaseError, "Failed to prepare forked artifact insert");
+        return Result<ArtifactVersion>::fail(TransitionError::DatabaseError,
+                                             "Failed to prepare forked artifact insert");
     }
 
     sqlite3_bind_text(stmt, 1, kindToString(baseArtifact->kind).toUtf8().constData(), -1, SQLITE_TRANSIENT);
@@ -358,7 +388,9 @@ Result<ArtifactVersion> ArtifactStore::forkArtifact(int expectedBaseVersionId, i
     int newArtifactId = sqlite3_last_insert_rowid(m_db.handle());
     sqlite3_finalize(stmt);
 
-    QString insertVersionSql = "INSERT INTO artifact_versions (artifact_id, parent_id, title, content, metadata, is_sealed) VALUES (?, ?, ?, ?, ?, 0)";
+    QString insertVersionSql =
+        "INSERT INTO artifact_versions (artifact_id, parent_id, forked_from_version_id, title, content, metadata, "
+        "is_sealed) VALUES (?, NULL, ?, ?, ?, ?, 0)";
     if (sqlite3_prepare_v2(m_db.handle(), insertVersionSql.toUtf8().constData(), -1, &stmt, nullptr) != SQLITE_OK) {
         return Result<ArtifactVersion>::fail(TransitionError::DatabaseError, "Failed to prepare version insert");
     }
@@ -387,7 +419,8 @@ Result<ArtifactVersion> ArtifactStore::forkArtifact(int expectedBaseVersionId, i
 
     if (sqlite3_step(stmt) != SQLITE_DONE) {
         sqlite3_finalize(stmt);
-        return Result<ArtifactVersion>::fail(TransitionError::DatabaseError, "Failed to update artifact current version");
+        return Result<ArtifactVersion>::fail(TransitionError::DatabaseError,
+                                             "Failed to update artifact current version");
     }
     sqlite3_finalize(stmt);
 

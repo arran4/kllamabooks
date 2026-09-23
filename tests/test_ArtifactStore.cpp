@@ -1,3 +1,5 @@
+#include <sqlcipher/sqlite3.h>
+
 #include <QCoreApplication>
 #include <QtTest>
 
@@ -5,7 +7,6 @@
 #include "../src/db/MigrationFactory.h"
 #include "../src/db/Migrations.h"
 #include "../src/store/ArtifactStore.h"
-#include <sqlcipher/sqlite3.h>
 
 class TestArtifactStore : public QObject {
     Q_OBJECT
@@ -25,10 +26,21 @@ class TestArtifactStore : public QObject {
         sqlite3_open(":memory:", &m_dbHandle);
         m_db = new db::Database(m_dbHandle);
 
+        m_db->execute("PRAGMA foreign_keys = ON;");
+
         db::MigrationRunner runner = db::MigrationFactory::createRunner();
         runner.run(*m_db);
 
         m_store = new store::ArtifactStore(*m_db);
+    }
+
+    void testForeignKeysEnabled() {
+        auto artResult = m_store->createArtifact(store::ArtifactKind::Document, 1, "T", "C", "");
+        QVERIFY(artResult.isSuccess());
+
+        // Ensure you can't create a descendant referencing a non-existent base version
+        auto failResult = m_store->createMutableDescendant(9999, "T", "C", "");
+        QVERIFY(!failResult.isSuccess());
     }
 
     void cleanup() {
@@ -107,7 +119,8 @@ class TestArtifactStore : public QObject {
         QVERIFY(descResult.isSuccess());
 
         auto newVersion = descResult.value.value();
-        QCOMPARE(newVersion.parentId, baseVersionId);
+        QCOMPARE(newVersion.parentId, std::optional<int>(baseVersionId));
+        QVERIFY(!newVersion.forkedFromVersionId.has_value());
         QCOMPARE(newVersion.artifactId, artifactId);
         QCOMPARE(newVersion.isSealed, false);
 
@@ -160,7 +173,7 @@ class TestArtifactStore : public QObject {
         auto restoredVersion = restoreResult.value.value();
         QCOMPARE(restoredVersion.title, QString("V1"));
         QCOMPARE(restoredVersion.content, QString("V1 Content"));
-        QCOMPARE(restoredVersion.parentId, v2Id); // descends from current head (v2)
+        QCOMPARE(restoredVersion.parentId, std::optional<int>(v2Id));  // descends from current head (v2)
         QCOMPARE(restoredVersion.artifactId, artifactId);
         QCOMPARE(restoredVersion.isSealed, false);
 
@@ -179,8 +192,10 @@ class TestArtifactStore : public QObject {
         QVERIFY(forkResult.isSuccess());
 
         auto forkedVersion = forkResult.value.value();
-        QVERIFY(forkedVersion.artifactId != baseArtifactId); // Must be a new artifact
-        QCOMPARE(forkedVersion.parentId, baseVersionId); // Lineage preserved across artifacts
+        QVERIFY(forkedVersion.artifactId != baseArtifactId);  // Must be a new artifact
+        QVERIFY(!forkedVersion.parentId.has_value());         // Must not be a same-artifact parent
+        QCOMPARE(forkedVersion.forkedFromVersionId,
+                 std::optional<int>(baseVersionId));  // Lineage preserved explicitly across artifacts
         QCOMPARE(forkedVersion.title, QString("Base"));
         QCOMPARE(forkedVersion.content, QString("Base Content"));
         QCOMPARE(forkedVersion.metadata, QString("meta"));
