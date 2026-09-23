@@ -140,6 +140,11 @@ target_link_libraries(test_BookDatabase Qt6::Test Qt6::Core ${SQLCIPHER_LIBRARIE
 target_include_directories(test_BookDatabase PRIVATE ${SQLCIPHER_INCLUDE_DIRS})
 add_test(NAME test_BookDatabase COMMAND test_BookDatabase)
 
+add_executable(test_ArtifactStore tests/test_ArtifactStore.cpp src/store/ArtifactStore.cpp src/db/Database.cpp src/db/Migrations.cpp src/db/MigrationFactory.cpp)
+target_link_libraries(test_ArtifactStore Qt6::Test Qt6::Core Qt6::Sql ${SQLCIPHER_LIBRARIES})
+target_include_directories(test_ArtifactStore PRIVATE ${SQLCIPHER_INCLUDE_DIRS})
+add_test(NAME test_ArtifactStore COMMAND test_ArtifactStore)
+
 install(FILES src/assets/icon.png
     DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/512x512/apps
     RENAME kllamabooks.png

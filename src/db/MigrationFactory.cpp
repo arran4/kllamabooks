@@ -285,6 +285,42 @@ MigrationRunner MigrationFactory::createRunner() {
                              return ok;
                          }});
 
+    runner.addMigration({21, 22, "Artifact Store Storage vNext", [](Database& db) {
+                             bool ok = db.execute(
+                                 "CREATE TABLE IF NOT EXISTS artifacts ("
+                                 "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                                 "kind TEXT NOT NULL, "
+                                 "folder_id INTEGER DEFAULT 0, "
+                                 "current_version_id INTEGER DEFAULT 0, "
+                                 "created_at DATETIME DEFAULT CURRENT_TIMESTAMP"
+                                 ");");
+                             ok = ok && db.execute(
+                                 "CREATE TABLE IF NOT EXISTS artifact_versions ("
+                                 "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                                 "artifact_id INTEGER NOT NULL, "
+                                 "parent_id INTEGER DEFAULT 0, "
+                                 "title TEXT, "
+                                 "content TEXT, "
+                                 "metadata TEXT DEFAULT '', "
+                                 "is_sealed BOOLEAN DEFAULT 0, "
+                                 "created_at DATETIME DEFAULT CURRENT_TIMESTAMP, "
+                                 "FOREIGN KEY(artifact_id) REFERENCES artifacts(id), "
+                                 "FOREIGN KEY(parent_id, artifact_id) REFERENCES artifact_versions(id, artifact_id) DEFERRABLE INITIALLY DEFERRED"
+                                 ");");
+                             ok = ok && db.execute(
+                                 "CREATE UNIQUE INDEX IF NOT EXISTS idx_artifact_versions_unique_id_artifact "
+                                 "ON artifact_versions(id, artifact_id);");
+                             ok = ok && db.execute(
+                                 "CREATE TRIGGER IF NOT EXISTS trg_artifacts_current_version_match "
+                                 "BEFORE UPDATE ON artifacts "
+                                 "FOR EACH ROW "
+                                 "WHEN NEW.current_version_id != 0 AND NOT EXISTS (SELECT 1 FROM artifact_versions WHERE id = NEW.current_version_id AND artifact_id = NEW.id) "
+                                 "BEGIN "
+                                 "  SELECT RAISE(ABORT, 'current_version_id must belong to the same artifact'); "
+                                 "END;");
+                             return ok;
+                         }});
+
     return runner;
 }
 
