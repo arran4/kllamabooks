@@ -316,13 +316,21 @@ MigrationRunner MigrationFactory::createRunner() {
                             "CREATE UNIQUE INDEX IF NOT EXISTS idx_artifact_versions_unique_id_artifact "
                             "ON artifact_versions(id, artifact_id);");
              ok = ok && db.execute(
-                            "CREATE TRIGGER IF NOT EXISTS trg_artifacts_current_version_match "
+                            "CREATE TRIGGER IF NOT EXISTS trg_artifacts_current_version_match_update "
                             "BEFORE UPDATE ON artifacts "
                             "FOR EACH ROW "
                             "WHEN NEW.current_version_id != 0 AND NOT EXISTS (SELECT 1 FROM artifact_versions WHERE id "
                             "= NEW.current_version_id AND artifact_id = NEW.id) "
                             "BEGIN "
                             "  SELECT RAISE(ABORT, 'current_version_id must belong to the same artifact'); "
+                            "END;");
+             ok = ok && db.execute(
+                            "CREATE TRIGGER IF NOT EXISTS trg_artifacts_current_version_match_insert "
+                            "BEFORE INSERT ON artifacts "
+                            "FOR EACH ROW "
+                            "WHEN NEW.current_version_id != 0 "
+                            "BEGIN "
+                            "  SELECT RAISE(ABORT, 'current_version_id must be 0 on creation'); "
                             "END;");
              return ok;
          }});

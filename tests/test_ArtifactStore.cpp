@@ -23,24 +23,56 @@ class TestArtifactStore : public QObject {
     }
 
     void init() {
-        sqlite3_open(":memory:", &m_dbHandle);
+        QVERIFY(sqlite3_open(":memory:", &m_dbHandle) == SQLITE_OK);
         m_db = new db::Database(m_dbHandle);
 
-        m_db->execute("PRAGMA foreign_keys = ON;");
+        QVERIFY(m_db->execute("PRAGMA foreign_keys = ON;"));
+
+        int fkEnabled = 0;
+        QVERIFY(m_db->queryInt("PRAGMA foreign_keys;", fkEnabled));
+        QCOMPARE(fkEnabled, 1);
 
         db::MigrationRunner runner = db::MigrationFactory::createRunner();
-        runner.run(*m_db);
+        QString error;
+        QVERIFY2(runner.run(*m_db, &error), qPrintable(error));
 
         m_store = new store::ArtifactStore(*m_db);
     }
 
-    void testForeignKeysEnabled() {
+    void testDirectSqlFkEnforcement() {
         auto artResult = m_store->createArtifact(store::ArtifactKind::Document, 1, "T", "C", "");
         QVERIFY(artResult.isSuccess());
+
+        // Test cross-artifact parent_id
+        auto art2Result = m_store->createArtifact(store::ArtifactKind::Document, 1, "T2", "C2", "");
+        QVERIFY(art2Result.isSuccess());
 
         // Ensure you can't create a descendant referencing a non-existent base version
         auto failResult = m_store->createMutableDescendant(9999, "T", "C", "");
         QVERIFY(!failResult.isSuccess());
+
+        // parent_id FK relies on composite (parent_id, artifact_id)
+        QString invalidParentSql =
+            QString("INSERT INTO artifact_versions (artifact_id, parent_id, title) VALUES (%1, %2, 'title')")
+                .arg(art2Result.value->artifactId)
+                .arg(artResult.value->id);
+        QVERIFY(!m_db->execute(invalidParentSql));
+
+        // Test non-existent forked_from_version_id
+        QString invalidForkSql =
+            QString(
+                "INSERT INTO artifact_versions (artifact_id, forked_from_version_id, title) VALUES (%1, 9999, 'title')")
+                .arg(art2Result.value->artifactId);
+        QVERIFY(!m_db->execute(invalidForkSql));
+
+        // Test invalid INSERT on artifacts where current_version_id != 0
+        QVERIFY(!m_db->execute("INSERT INTO artifacts (kind, current_version_id) VALUES ('document', 9999)"));
+
+        // Test invalid UPDATE on artifacts where current_version_id belongs to another artifact
+        QString invalidUpdateSql = QString("UPDATE artifacts SET current_version_id = %1 WHERE id = %2")
+                                       .arg(artResult.value->id)
+                                       .arg(art2Result.value->artifactId);
+        QVERIFY(!m_db->execute(invalidUpdateSql));
     }
 
     void cleanup() {
