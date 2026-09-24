@@ -37,6 +37,10 @@ class KWalletCredentialStore : public CredentialStore {
     explicit KWalletCredentialStore(IWalletProvider* provider = nullptr);
     ~KWalletCredentialStore() override;
 
+    // Delete copy constructor and assignment operator
+    KWalletCredentialStore(const KWalletCredentialStore&) = delete;
+    KWalletCredentialStore& operator=(const KWalletCredentialStore&) = delete;
+
     Result writeCredential(const QString& id, const QString& secret) override;
     Result readCredential(const QString& id, QString& secret) override;
     Result deleteCredential(const QString& id) override;
