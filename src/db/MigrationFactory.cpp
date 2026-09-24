@@ -292,7 +292,7 @@ MigrationRunner MigrationFactory::createRunner() {
                  "id INTEGER PRIMARY KEY AUTOINCREMENT, "
                  "kind TEXT NOT NULL, "
                  "folder_id INTEGER DEFAULT 0, "
-                 "current_version_id INTEGER DEFAULT 0, "
+                 "current_version_id INTEGER NOT NULL DEFAULT 0, "
                  "created_at DATETIME DEFAULT CURRENT_TIMESTAMP"
                  ");");
              ok = ok && db.execute(
@@ -332,6 +332,27 @@ MigrationRunner MigrationFactory::createRunner() {
                             "BEGIN "
                             "  SELECT RAISE(ABORT, 'current_version_id must be 0 on creation'); "
                             "END;");
+             ok =
+                 ok &&
+                 db.execute(
+                     "CREATE TRIGGER IF NOT EXISTS trg_artifact_versions_protect_current_update "
+                     "BEFORE UPDATE OF artifact_id ON artifact_versions "
+                     "FOR EACH ROW "
+                     "WHEN EXISTS (SELECT 1 FROM artifacts WHERE id = OLD.artifact_id AND current_version_id = OLD.id) "
+                     "BEGIN "
+                     "  SELECT RAISE(ABORT, 'Cannot change artifact_id of a version currently referenced as "
+                     "current_version_id'); "
+                     "END;");
+             ok =
+                 ok &&
+                 db.execute(
+                     "CREATE TRIGGER IF NOT EXISTS trg_artifact_versions_protect_current_delete "
+                     "BEFORE DELETE ON artifact_versions "
+                     "FOR EACH ROW "
+                     "WHEN EXISTS (SELECT 1 FROM artifacts WHERE id = OLD.artifact_id AND current_version_id = OLD.id) "
+                     "BEGIN "
+                     "  SELECT RAISE(ABORT, 'Cannot delete a version currently referenced as current_version_id'); "
+                     "END;");
              return ok;
          }});
 

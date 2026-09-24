@@ -73,6 +73,19 @@ class TestArtifactStore : public QObject {
                                        .arg(artResult.value->id)
                                        .arg(art2Result.value->artifactId);
         QVERIFY(!m_db->execute(invalidUpdateSql));
+
+        // Test invalid UPDATE on artifact_versions to change artifact_id of a current version
+        QString invalidArtifactIdSql = QString("UPDATE artifact_versions SET artifact_id = %1 WHERE id = %2")
+                                           .arg(art2Result.value->artifactId)
+                                           .arg(artResult.value->id);
+        QVERIFY(!m_db->execute(invalidArtifactIdSql));
+
+        // Test invalid DELETE on artifact_versions of a current version
+        QString invalidDeleteSql = QString("DELETE FROM artifact_versions WHERE id = %1").arg(artResult.value->id);
+        QVERIFY(!m_db->execute(invalidDeleteSql));
+
+        // Test reject NULL for artifacts.current_version_id
+        QVERIFY(!m_db->execute("INSERT INTO artifacts (kind, current_version_id) VALUES ('document', NULL)"));
     }
 
     void cleanup() {
