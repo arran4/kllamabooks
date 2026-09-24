@@ -10,6 +10,9 @@ class DefaultWallet : public IWallet {
     explicit DefaultWallet(KWallet::Wallet* w) : m_wallet(w) {}
     ~DefaultWallet() override { delete m_wallet; }
 
+    DefaultWallet(const DefaultWallet&) = delete;
+    DefaultWallet& operator=(const DefaultWallet&) = delete;
+
     bool hasFolder(const QString& f) override { return m_wallet->hasFolder(f); }
     bool createFolder(const QString& f) override { return m_wallet->createFolder(f); }
     bool setFolder(const QString& f) override { return m_wallet->setFolder(f); }
