@@ -438,14 +438,32 @@ void TestMigrations::testFreshSchemaEquivalence() {
           {"model", "TEXT", "", 0},
           {"timestamp", "DATETIME", "CURRENT_TIMESTAMP", 0},
           {"queue_id", "INTEGER", "0", 0}},
-         {}}};
+         {}},
+        {"artifacts",
+         {{"id", "INTEGER", "", 1},
+          {"kind", "TEXT", "", 0},
+          {"folder_id", "INTEGER", "0", 0},
+          {"current_version_id", "INTEGER", "0", 0},
+          {"created_at", "DATETIME", "CURRENT_TIMESTAMP", 0}},
+         {}},
+        {"artifact_versions",
+         {{"id", "INTEGER", "", 1},
+          {"artifact_id", "INTEGER", "", 0},
+          {"parent_id", "INTEGER", "", 0},
+          {"forked_from_version_id", "INTEGER", "", 0},
+          {"title", "TEXT", "", 0},
+          {"content", "TEXT", "", 0},
+          {"metadata", "TEXT", "''", 0},
+          {"is_sealed", "BOOLEAN", "0", 0},
+          {"created_at", "DATETIME", "CURRENT_TIMESTAMP", 0}},
+         {{true, {"id", "artifact_id"}}}}};
     QVERIFY2(matchesExpectedSchema(db, expectedTables, error), qPrintable(error));
 
     int version = 0;
     QVERIFY(db.queryInt("PRAGMA user_version;", version));
-    QCOMPARE(version, 21);
+    QCOMPARE(version, 22);
     QVERIFY(db.queryInt("SELECT MAX(version) FROM schema_version;", version));
-    QCOMPARE(version, 21);
+    QCOMPARE(version, 22);
 
     sqlite3_close(dbHandle);
 }
