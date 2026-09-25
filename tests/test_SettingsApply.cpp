@@ -31,6 +31,7 @@ class TestSettingsApply : public QObject {
     void testBrandNewConnectionAddAndRemove();
     void testNoPlaintextSecretsInSettings();
     void testNoOrphanRecordOnFailedApply();
+    void testFolderFailureRollback();
 
    private:
     FakeCredentialStore* m_fakeStore;
@@ -419,5 +420,70 @@ void TestSettingsApply::testNoOrphanRecordOnFailedApply() {
     QCOMPARE(m_fakeStore->readCredential("conn2", secret), CredentialStore::Result::Success);
     QCOMPARE(secret, QString("secret2"));
 }
+void TestSettingsApply::testFolderFailureRollback() {
+    QSettings settings;
+    QVariantList initialConnections;
+
+    QVariantMap conn1;
+    conn1["id"] = "conn1";
+    conn1["authKey"] = "secret1";
+    initialConnections.append(conn1);
+
+    QVariantMap conn2;
+    conn2["id"] = "conn2";
+    conn2["hasCredential"] = true;
+    initialConnections.append(conn2);
+
+    settings.setValue("llmConnections", initialConnections);
+    m_fakeStore->writeCredential("conn2", "secret2");
+
+    // Simulate folder failure *before* constructing the dialog
+    m_fakeStore->simulateUnavailable = true;
+
+    // Auto-close the migration error dialog so it doesn't block the test
+    QTimer::singleShot(0, []() {
+        QWidget* activeWindow = QApplication::activeModalWidget();
+        if (QMessageBox* msgBox = qobject_cast<QMessageBox*>(activeWindow)) {
+            msgBox->close();
+        }
+    });
+
+    SettingsDialog dlg(nullptr);
+
+    // Mark legacy conn1 for deletion
+    dlg.m_pendingDeletes.insert("conn1");
+    // Mark conn2 for a write
+    dlg.m_pendingWrites["conn2"] = "new_secret2";
+
+    // QTimer to close the save failure warning
+    QTimer::singleShot(0, []() {
+        QWidget* activeWindow = QApplication::activeModalWidget();
+        if (QMessageBox* msgBox = qobject_cast<QMessageBox*>(activeWindow)) {
+            msgBox->close();
+        }
+    });
+
+    dlg.onApply();
+
+    // Apply failed due to folder failure.
+    // The orphan record must NOT be persisted.
+    QVERIFY(!settings.contains("pendingOrphanDeletes"));
+
+    // Also verify that the UI state was retained, and conn1 is still in m_pendingDeletes
+    QVERIFY(dlg.m_pendingDeletes.contains("conn1"));
+    QVERIFY(dlg.m_pendingWrites.contains("conn2"));
+
+    // And verify the original settings and fake store remain untouched
+    QVariantList savedConnections = settings.value("llmConnections").toList();
+    QCOMPARE(savedConnections.size(), 2);
+    QCOMPARE(savedConnections[0].toMap()["authKey"].toString(), QString("secret1"));
+
+    // For fake store, verify the secret wasn't modified in the backend
+    m_fakeStore->simulateUnavailable = false;
+    QString secret;
+    QCOMPARE(m_fakeStore->readCredential("conn2", secret), CredentialStore::Result::Success);
+    QCOMPARE(secret, QString("secret2"));
+}
+
 QTEST_MAIN(TestSettingsApply)
 #include "test_SettingsApply.moc"
