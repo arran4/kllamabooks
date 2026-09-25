@@ -16,16 +16,43 @@ struct SharedWalletState {
     int readPasswordCount = 0;
     int removeEntryCount = 0;
 
+    int walletOpenCount = 0;
+    int walletClosedCount = 0;
+
+    int createFolderCount = 0;
+    int setFolderCount = 0;
+
     QHash<QString, QString> store;
+
+    void resetCounters() {
+        hasEntryCount = 0;
+        writePasswordCount = 0;
+        readPasswordCount = 0;
+        removeEntryCount = 0;
+        createFolderCount = 0;
+        setFolderCount = 0;
+    }
 };
 
 class MockWallet : public IWallet {
    public:
-    explicit MockWallet(SharedWalletState* state) : m_state(state) {}
+    explicit MockWallet(SharedWalletState* state) : m_state(state) { m_state->walletOpenCount++; }
+
+    ~MockWallet() override { m_state->walletClosedCount++; }
 
     bool hasFolder(const QString& /*f*/) override { return !m_state->simulateMissingFolder; }
-    bool createFolder(const QString& /*f*/) override { return !m_state->simulateCreateFolderFailure; }
-    bool setFolder(const QString& /*f*/) override { return !m_state->simulateSetFolderFailure; }
+    bool createFolder(const QString& /*f*/) override {
+        m_state->createFolderCount++;
+        if (!m_state->simulateCreateFolderFailure) {
+            m_state->simulateMissingFolder = false;  // Cohorent state update
+            return true;
+        }
+        return false;
+    }
+    bool setFolder(const QString& /*f*/) override {
+        m_state->setFolderCount++;
+        return !m_state->simulateSetFolderFailure;
+    }
     bool hasEntry(const QString& key) override {
         m_state->hasEntryCount++;
         return m_state->store.contains(key);
@@ -149,7 +176,7 @@ void TestCredentialStore::testWalletUnavailable() {
 void TestCredentialStore::testKWalletSuccess() {
     SharedWalletState state;
     MockWalletProvider* provider = new MockWalletProvider(&state);
-    KWalletCredentialStore store(provider); // takes ownership
+    KWalletCredentialStore store(provider);  // takes ownership
 
     QCOMPARE(store.writeCredential("conn-1", "secret123"), CredentialStore::Result::Success);
 
@@ -160,7 +187,7 @@ void TestCredentialStore::testKWalletSuccess() {
     QCOMPARE(store.deleteCredential("conn-1"), CredentialStore::Result::Success);
 
     QCOMPARE(store.readCredential("conn-1", secretOut), CredentialStore::Result::NotFound);
-    QCOMPARE(store.deleteCredential("conn-1"), CredentialStore::Result::Success); // Idempotent
+    QCOMPARE(store.deleteCredential("conn-1"), CredentialStore::Result::Success);  // Idempotent
 }
 
 void TestCredentialStore::testKWalletCreateFolderFailure() {
@@ -172,7 +199,16 @@ void TestCredentialStore::testKWalletCreateFolderFailure() {
     KWalletCredentialStore store(provider);
 
     QCOMPARE(store.writeCredential("conn-1", "secret123"), CredentialStore::Result::WalletUnavailable);
+
+    // Assert 0 counts for all inner logic
+    QCOMPARE(state.hasEntryCount, 0);
     QCOMPARE(state.writePasswordCount, 0);
+    QCOMPARE(state.readPasswordCount, 0);
+    QCOMPARE(state.removeEntryCount, 0);
+
+    // Seed data isn't modified
+    QVERIFY(!state.store.contains("conn-1"));
+    QCOMPARE(state.walletOpenCount, state.walletClosedCount);
 }
 
 void TestCredentialStore::testKWalletSetFolderFailure() {
@@ -183,24 +219,57 @@ void TestCredentialStore::testKWalletSetFolderFailure() {
     KWalletCredentialStore store(provider);
 
     QString secretOut;
-    // Missing folder path but set folder fails on existing check paths
+    // 1. Existing folder fails on setFolder for write
     state.simulateMissingFolder = false;
     state.store["conn-1"] = "secret123";  // Seed entry
 
-    QCOMPARE(store.writeCredential("conn-1", "secret123"), CredentialStore::Result::WalletUnavailable);
+    QCOMPARE(store.writeCredential("conn-1", "secret456"), CredentialStore::Result::WalletUnavailable);
+    QCOMPARE(state.hasEntryCount, 0);
     QCOMPARE(state.writePasswordCount, 0);
-
-    QCOMPARE(store.readCredential("conn-1", secretOut), CredentialStore::Result::WalletUnavailable);
     QCOMPARE(state.readPasswordCount, 0);
-
-    QCOMPARE(store.deleteCredential("conn-1"), CredentialStore::Result::WalletUnavailable);
     QCOMPARE(state.removeEntryCount, 0);
+    QCOMPARE(state.store["conn-1"], QString("secret123"));  // Value unchanged
+    QCOMPARE(state.walletOpenCount, state.walletClosedCount);
 
-    // Also verify setting folder fails even if folder needs creation first
+    state.resetCounters();
+
+    // 2. Existing folder fails on setFolder for read
+    QCOMPARE(store.readCredential("conn-1", secretOut), CredentialStore::Result::WalletUnavailable);
+    QCOMPARE(state.hasEntryCount, 0);
+    QCOMPARE(state.writePasswordCount, 0);
+    QCOMPARE(state.readPasswordCount, 0);
+    QCOMPARE(state.removeEntryCount, 0);
+    QVERIFY(secretOut.isEmpty());  // Did not read it
+    QCOMPARE(state.walletOpenCount, state.walletClosedCount);
+
+    state.resetCounters();
+
+    // 3. Existing folder fails on setFolder for delete
+    QCOMPARE(store.deleteCredential("conn-1"), CredentialStore::Result::WalletUnavailable);
+    QCOMPARE(state.hasEntryCount, 0);
+    QCOMPARE(state.writePasswordCount, 0);
+    QCOMPARE(state.readPasswordCount, 0);
+    QCOMPARE(state.removeEntryCount, 0);
+    QCOMPARE(state.store["conn-1"], QString("secret123"));  // Value un-deleted
+    QCOMPARE(state.walletOpenCount, state.walletClosedCount);
+
+    state.resetCounters();
+
+    // 4. Missing folder successfully created, but then fails on setFolder for write
     state.simulateMissingFolder = true;
     state.simulateCreateFolderFailure = false;
+
     QCOMPARE(store.writeCredential("conn-2", "secret"), CredentialStore::Result::WalletUnavailable);
+
+    QCOMPARE(state.createFolderCount, 1);  // Validates the creation actually succeeded before selecting failed
+    QCOMPARE(state.setFolderCount, 1);
+
+    QCOMPARE(state.hasEntryCount, 0);
     QCOMPARE(state.writePasswordCount, 0);
+    QCOMPARE(state.readPasswordCount, 0);
+    QCOMPARE(state.removeEntryCount, 0);
+    QVERIFY(!state.store.contains("conn-2"));
+    QCOMPARE(state.walletOpenCount, state.walletClosedCount);
 }
 
 void TestCredentialStore::testKWalletMissingEntry() {
