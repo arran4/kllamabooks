@@ -69,7 +69,7 @@ void TestBookDatabase::testInitSchema() {
     QVERIFY(db.open("testpassword"));
 
     QString debugInfo = db.getDatabaseDebugInfo();
-    QVERIFY(debugInfo.contains("Schema Version: 22"));
+    QVERIFY(debugInfo.contains("Schema Version: 23"));
     QVERIFY(debugInfo.contains("- schema_version\n"));
     QVERIFY(debugInfo.contains("- messages\n"));
     QVERIFY(debugInfo.contains("- documents\n"));

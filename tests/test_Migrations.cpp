@@ -201,6 +201,10 @@ class TestMigrations : public QObject {
     void testFreshSchemaEquivalence();
     void testLegacySeeding();
     void testFailingLegacySeeding();
+    void testDocumentMigrationIdempotency();
+    void testDocumentMigrationFailure();
+    void testDocumentMigrationIntegrity();
+    void testDocumentMigrationPreservation();
 };
 
 void TestMigrations::testFreshDatabaseMigration() {
@@ -446,6 +450,9 @@ void TestMigrations::testFreshSchemaEquivalence() {
           {"current_version_id", "INTEGER", "0", 0},
           {"created_at", "DATETIME", "CURRENT_TIMESTAMP", 0}},
          {}},
+        {"legacy_document_mapping",
+         {{"document_id", "INTEGER", "", 1}, {"artifact_id", "INTEGER", "", 0}},
+         {{true, {"artifact_id"}}}},
         {"artifact_versions",
          {{"id", "INTEGER", "", 1},
           {"artifact_id", "INTEGER", "", 0},
@@ -461,9 +468,9 @@ void TestMigrations::testFreshSchemaEquivalence() {
 
     int version = 0;
     QVERIFY(db.queryInt("PRAGMA user_version;", version));
-    QCOMPARE(version, 22);
+    QCOMPARE(version, 23);
     QVERIFY(db.queryInt("SELECT MAX(version) FROM schema_version;", version));
-    QCOMPARE(version, 22);
+    QCOMPARE(version, 23);
 
     sqlite3_close(dbHandle);
 }
@@ -661,7 +668,6 @@ void TestMigrations::testFailingLegacySeeding() {
     QVERIFY(!error.isEmpty());
 
     sqlite3_set_authorizer(dbHandle, nullptr, nullptr);
-
     int count = 0;
     QVERIFY(db.queryInt("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='schema_version';", count));
     QCOMPARE(count, 0);
@@ -670,12 +676,192 @@ void TestMigrations::testFailingLegacySeeding() {
     QVERIFY(db.queryInt("PRAGMA user_version;", version));
     QCOMPARE(version, 2);
 
-    QVERIFY(runner.run(db, &error));
+    QVERIFY2(runner.run(db, &error), qPrintable(error));
     QVERIFY(db.queryInt("PRAGMA user_version;", version));
     QCOMPARE(version, 3);
     QVERIFY(db.queryInt("SELECT MAX(version) FROM schema_version;", version));
     QCOMPARE(version, 3);
 
+    sqlite3_close(dbHandle);
+}
+
+void TestMigrations::testDocumentMigrationIdempotency() {
+    sqlite3* dbHandle;
+    sqlite3_open(":memory:", &dbHandle);
+    db::Database db(dbHandle);
+
+    db::MigrationRunner runner = db::MigrationFactory::createRunner();
+    // we only run up to version 22
+    db::MigrationRunner runner22;
+    for (const auto& m : runner.m_migrations) {
+        if (m.toVersion <= 22) {
+            runner22.addMigration(m);
+        }
+    }
+
+    QString error;
+    QVERIFY2(runner22.run(db, &error), qPrintable(error));
+
+    // Insert some legacy documents
+    db.execute(
+        "INSERT INTO documents (folder_id, title, content, metadata) VALUES (1, 'Doc 1', 'Content 1', 'Meta 1');");
+    db.execute(
+        "INSERT INTO documents (folder_id, title, content, metadata) VALUES (2, 'Doc 2', 'Content 2', 'Meta 2');");
+
+    // Run migration 22->23
+    db::MigrationRunner runner23;
+    for (const auto& m : runner.m_migrations) {
+        if (m.toVersion == 23) {
+            runner23.addMigration(m);
+        }
+    }
+
+    QVERIFY2(runner23.run(db, &error), qPrintable(error));
+
+    // Verify artifacts created
+    int count = 0;
+    db.queryInt("SELECT COUNT(*) FROM artifacts", count);
+    QCOMPARE(count, 2);
+    db.queryInt("SELECT COUNT(*) FROM artifact_versions", count);
+    QCOMPARE(count, 2);
+    db.queryInt("SELECT COUNT(*) FROM legacy_document_mapping", count);
+    QCOMPARE(count, 2);
+
+    // Add another document (simulating pre-v23 activity in legacy UI)
+    db.execute(
+        "INSERT INTO documents (folder_id, title, content, metadata) VALUES (1, 'Doc 3', 'Content 3', 'Meta 3');");
+
+    // Re-run migration 23 (should be no-op for existing, but mapping handles it if we run it directly)
+    // Actually runner.run will skip 23 if user_version is 23. Let's decrement user_version to test idempotency of the
+    // migration logic itself
+    db.execute("PRAGMA user_version = 22;");
+    db.execute("DELETE FROM schema_version WHERE version > 22;");
+    QVERIFY2(runner23.run(db, &error), qPrintable(error));
+
+    db.queryInt("SELECT COUNT(*) FROM artifacts", count);
+    QCOMPARE(count, 3);
+    db.queryInt("SELECT COUNT(*) FROM legacy_document_mapping", count);
+    QCOMPARE(count, 3);
+
+    sqlite3_close(dbHandle);
+}
+
+void TestMigrations::testDocumentMigrationFailure() {
+    sqlite3* dbHandle;
+    sqlite3_open(":memory:", &dbHandle);
+    db::Database db(dbHandle);
+
+    db::MigrationRunner runner = db::MigrationFactory::createRunner();
+    db::MigrationRunner runner22;
+    for (const auto& m : runner.m_migrations) {
+        if (m.toVersion <= 22) {
+            runner22.addMigration(m);
+        }
+    }
+
+    QString error;
+    QVERIFY(runner22.run(db, &error));
+    db.execute(
+        "INSERT INTO documents (folder_id, title, content, metadata) VALUES (1, 'Doc 1', 'Content 1', 'Meta 1');");
+
+    // Deliberately cause a failure by dropping artifacts table
+    db.execute("DROP TABLE artifacts;");
+
+    db::MigrationRunner runner23;
+    for (const auto& m : runner.m_migrations) {
+        if (m.toVersion == 23) {
+            runner23.addMigration(m);
+        }
+    }
+
+    QVERIFY(!runner23.run(db, &error));
+
+    // Verify rollback
+    int count = 0;
+    db.queryInt("SELECT COUNT(*) FROM artifacts", count);
+    QCOMPARE(count, 0);  // Rollback should have removed the artifact
+    db.queryInt("SELECT COUNT(*) FROM artifact_versions", count);
+    QCOMPARE(count, 0);
+
+    int version = 0;
+    db.queryInt("PRAGMA user_version", version);
+    QCOMPARE(version, 22);
+
+    sqlite3_close(dbHandle);
+}
+
+void TestMigrations::testDocumentMigrationIntegrity() {
+    sqlite3* dbHandle;
+    sqlite3_open(":memory:", &dbHandle);
+    db::Database db(dbHandle);
+
+    db::MigrationRunner runner = db::MigrationFactory::createRunner();
+    QString error;
+    QVERIFY(runner.run(db, &error));
+
+    // test foreign key check
+    db.execute("PRAGMA foreign_keys = ON;");
+    int issues = 0;
+    db.queryInt("SELECT COUNT(*) FROM pragma_foreign_key_check()", issues);
+    QCOMPARE(issues, 0);
+
+    // test integrity check
+    int isOk = 0;
+    db.queryInt("SELECT COUNT(*) FROM pragma_integrity_check() WHERE pragma_integrity_check != 'ok'", isOk);
+    QCOMPARE(isOk, 0);
+
+    sqlite3_close(dbHandle);
+}
+
+void TestMigrations::testDocumentMigrationPreservation() {
+    sqlite3* dbHandle;
+    sqlite3_open(":memory:", &dbHandle);
+    db::Database db(dbHandle);
+
+    db::MigrationRunner runner = db::MigrationFactory::createRunner();
+    db::MigrationRunner runner22;
+    for (const auto& m : runner.m_migrations) {
+        if (m.toVersion <= 22) {
+            runner22.addMigration(m);
+        }
+    }
+
+    QString error;
+    QVERIFY(runner22.run(db, &error));
+
+    // insert a complex document
+    db.execute(
+        "INSERT INTO documents (id, folder_id, title, content, metadata, timestamp) "
+        "VALUES (100, 5, 'Special Title', 'Line 1\nLine 2', '{\"key\": \"value\"}', '2023-01-01 12:00:00');");
+
+    db::MigrationRunner runner23;
+    for (const auto& m : runner.m_migrations) {
+        if (m.toVersion == 23) {
+            runner23.addMigration(m);
+        }
+    }
+
+    QVERIFY(runner23.run(db, &error));
+
+    sqlite3_stmt* stmt = nullptr;
+    QCOMPARE(
+        sqlite3_prepare_v2(dbHandle,
+                           "SELECT a.kind, a.folder_id, v.title, v.content, v.metadata, v.created_at, m.document_id "
+                           "FROM artifacts a JOIN artifact_versions v ON a.current_version_id = v.id "
+                           "JOIN legacy_document_mapping m ON m.artifact_id = a.id WHERE m.document_id = 100;",
+                           -1, &stmt, nullptr),
+        SQLITE_OK);
+
+    QCOMPARE(sqlite3_step(stmt), SQLITE_ROW);
+    QCOMPARE(QString((const char*)sqlite3_column_text(stmt, 0)), QString("document"));
+    QCOMPARE(sqlite3_column_int(stmt, 1), 5);
+    QCOMPARE(QString((const char*)sqlite3_column_text(stmt, 2)), QString("Special Title"));
+    QCOMPARE(QString((const char*)sqlite3_column_text(stmt, 3)), QString("Line 1\nLine 2"));
+    QCOMPARE(QString((const char*)sqlite3_column_text(stmt, 4)), QString("{\"key\": \"value\"}"));
+    QCOMPARE(QString((const char*)sqlite3_column_text(stmt, 5)), QString("2023-01-01 12:00:00"));
+    QCOMPARE(sqlite3_column_int(stmt, 6), 100);
+
+    sqlite3_finalize(stmt);
     sqlite3_close(dbHandle);
 }
 
