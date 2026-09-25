@@ -420,10 +420,10 @@ MigrationRunner MigrationFactory::createRunner() {
              while (sqlite3_step(selectStmt) == SQLITE_ROW) {
                  int docId = sqlite3_column_int(selectStmt, 0);
                  int folderId = sqlite3_column_int(selectStmt, 1);
-                 const char* title = (const char*)sqlite3_column_text(selectStmt, 2);
-                 const char* content = (const char*)sqlite3_column_text(selectStmt, 3);
-                 const char* timestamp = (const char*)sqlite3_column_text(selectStmt, 4);
-                 const char* metadata = (const char*)sqlite3_column_text(selectStmt, 5);
+                 const char* title = reinterpret_cast<const char*>(sqlite3_column_text(selectStmt, 2));
+                 const char* content = reinterpret_cast<const char*>(sqlite3_column_text(selectStmt, 3));
+                 const char* timestamp = reinterpret_cast<const char*>(sqlite3_column_text(selectStmt, 4));
+                 const char* metadata = reinterpret_cast<const char*>(sqlite3_column_text(selectStmt, 5));
 
                  sqlite3_bind_int(insertArtifactStmt, 1, folderId);
                  sqlite3_bind_text(insertArtifactStmt, 2, timestamp, -1, SQLITE_STATIC);
