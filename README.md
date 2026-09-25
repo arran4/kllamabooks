@@ -59,3 +59,12 @@ Merge these files:
 ```
 
 You can also use `{input "Label"}` or `{textarea "Label"}` anywhere in the prompt to dynamically ask the user for context during generation.
+
+## Architecture work
+
+The storage/data-model restructuring currently being developed is tracked in [issue #238](https://github.com/arran4/kllamabooks/issues/238).
+
+- [Storage vNext architecture](docs/storage-vnext-architecture.md)
+- [Storage vNext migration plan](docs/storage-vnext-migration.md)
+
+The design unifies artifact/version handling, makes prompts and user content mutable while they are drafts and immutable once sealed/referenced, replaces duplicated queue/history state with durable AI runs, preserves typed folder roots while allowing future unified navigation, and defines explicit recovery for legacy data that cannot be migrated safely.
