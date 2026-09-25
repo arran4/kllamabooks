@@ -2,66 +2,66 @@
 
 #include "FakeCredentialStore.h"
 
+struct SharedWalletState {
+    bool simulateWalletUnavailable = false;
+    bool simulateMissingFolder = false;
+    bool simulateCreateFolderFailure = false;
+    bool simulateSetFolderFailure = false;
+    bool simulateWriteFailure = false;
+    bool simulateReadFailure = false;
+    bool simulateDeleteFailure = false;
+
+    int hasEntryCount = 0;
+    int writePasswordCount = 0;
+    int readPasswordCount = 0;
+    int removeEntryCount = 0;
+
+    QHash<QString, QString> store;
+};
+
 class MockWallet : public IWallet {
    public:
-    bool hasFolder(const QString& /*f*/) override { return !m_simulateMissingFolder; }
-    bool createFolder(const QString& /*f*/) override { return !m_simulateCreateFolderFailure; }
-    bool setFolder(const QString& /*f*/) override { return !m_simulateSetFolderFailure; }
-    bool hasEntry(const QString& key) override { return m_store.contains(key); }
+    explicit MockWallet(SharedWalletState* state) : m_state(state) {}
+
+    bool hasFolder(const QString& /*f*/) override { return !m_state->simulateMissingFolder; }
+    bool createFolder(const QString& /*f*/) override { return !m_state->simulateCreateFolderFailure; }
+    bool setFolder(const QString& /*f*/) override { return !m_state->simulateSetFolderFailure; }
+    bool hasEntry(const QString& key) override {
+        m_state->hasEntryCount++;
+        return m_state->store.contains(key);
+    }
     int writePassword(const QString& key, const QString& value) override {
-        if (m_simulateWriteFailure) return -1;
-        m_store[key] = value;
+        m_state->writePasswordCount++;
+        if (m_state->simulateWriteFailure) return -1;
+        m_state->store[key] = value;
         return 0;
     }
     int readPassword(const QString& key, QString& value) override {
-        if (m_simulateReadFailure || !m_store.contains(key)) return -1;
-        value = m_store[key];
+        m_state->readPasswordCount++;
+        if (m_state->simulateReadFailure || !m_state->store.contains(key)) return -1;
+        value = m_state->store[key];
         return 0;
     }
     int removeEntry(const QString& key) override {
-        if (m_simulateDeleteFailure || !m_store.contains(key)) return -1;
-        m_store.remove(key);
+        m_state->removeEntryCount++;
+        if (m_state->simulateDeleteFailure || !m_state->store.contains(key)) return -1;
+        m_state->store.remove(key);
         return 0;
     }
 
-    bool m_simulateMissingFolder = false;
-    bool m_simulateCreateFolderFailure = false;
-    bool m_simulateSetFolderFailure = false;
-    bool m_simulateWriteFailure = false;
-    bool m_simulateReadFailure = false;
-    bool m_simulateDeleteFailure = false;
-
-    QHash<QString, QString> m_store;
+    SharedWalletState* m_state;
 };
 
 class MockWalletProvider : public IWalletProvider {
    public:
+    explicit MockWalletProvider(SharedWalletState* state) : m_state(state) {}
+
     IWallet* openWallet() override {
-        if (m_simulateWalletUnavailable) return nullptr;
-        // The consumer deletes the wallet, so return a new instance, copying state.
-        MockWallet* w = new MockWallet();
-        w->m_simulateMissingFolder = m_simulateMissingFolder;
-        w->m_simulateCreateFolderFailure = m_simulateCreateFolderFailure;
-        w->m_simulateSetFolderFailure = m_simulateSetFolderFailure;
-        w->m_simulateWriteFailure = m_simulateWriteFailure;
-        w->m_simulateReadFailure = m_simulateReadFailure;
-        w->m_simulateDeleteFailure = m_simulateDeleteFailure;
-        w->m_store = m_store;
-        return w;
+        if (m_state->simulateWalletUnavailable) return nullptr;
+        return new MockWallet(m_state);
     }
 
-    // Updates global store from closed wallet instances when testing sequence operations
-    void updateStore(const QHash<QString, QString>& s) { m_store = s; }
-
-    bool m_simulateWalletUnavailable = false;
-    bool m_simulateMissingFolder = false;
-    bool m_simulateCreateFolderFailure = false;
-    bool m_simulateSetFolderFailure = false;
-    bool m_simulateWriteFailure = false;
-    bool m_simulateReadFailure = false;
-    bool m_simulateDeleteFailure = false;
-
-    QHash<QString, QString> m_store;
+    SharedWalletState* m_state;
 };
 
 class TestCredentialStore : public QObject {
@@ -147,49 +147,65 @@ void TestCredentialStore::testWalletUnavailable() {
 }
 
 void TestCredentialStore::testKWalletSuccess() {
-    MockWalletProvider* provider = new MockWalletProvider();
-    KWalletCredentialStore store(provider);
+    SharedWalletState state;
+    MockWalletProvider* provider = new MockWalletProvider(&state);
+    KWalletCredentialStore store(provider); // takes ownership
 
     QCOMPARE(store.writeCredential("conn-1", "secret123"), CredentialStore::Result::Success);
-
-    // KWallet deletes the wallet after operation, so mock state must persist in provider
-    // In actual tests, the mock state resets per call since it creates a `new MockWallet()` from the provider state.
-    // For this simple test, we will pre-seed the mock provider.
-    provider->m_store["conn-1"] = "secret123";
 
     QString secretOut;
     QCOMPARE(store.readCredential("conn-1", secretOut), CredentialStore::Result::Success);
     QCOMPARE(secretOut, QString("secret123"));
 
     QCOMPARE(store.deleteCredential("conn-1"), CredentialStore::Result::Success);
+
+    QCOMPARE(store.readCredential("conn-1", secretOut), CredentialStore::Result::NotFound);
+    QCOMPARE(store.deleteCredential("conn-1"), CredentialStore::Result::Success); // Idempotent
 }
 
 void TestCredentialStore::testKWalletCreateFolderFailure() {
-    MockWalletProvider* provider = new MockWalletProvider();
-    provider->m_simulateMissingFolder = true;
-    provider->m_simulateCreateFolderFailure = true;
+    SharedWalletState state;
+    state.simulateMissingFolder = true;
+    state.simulateCreateFolderFailure = true;
+
+    MockWalletProvider* provider = new MockWalletProvider(&state);
     KWalletCredentialStore store(provider);
 
     QCOMPARE(store.writeCredential("conn-1", "secret123"), CredentialStore::Result::WalletUnavailable);
+    QCOMPARE(state.writePasswordCount, 0);
 }
 
 void TestCredentialStore::testKWalletSetFolderFailure() {
-    MockWalletProvider* provider = new MockWalletProvider();
-    provider->m_simulateSetFolderFailure = true;
+    SharedWalletState state;
+    state.simulateSetFolderFailure = true;
+
+    MockWalletProvider* provider = new MockWalletProvider(&state);
     KWalletCredentialStore store(provider);
 
     QString secretOut;
     // Missing folder path but set folder fails on existing check paths
-    provider->m_simulateMissingFolder = false;
-    provider->m_store["conn-1"] = "secret123";  // Seed entry
+    state.simulateMissingFolder = false;
+    state.store["conn-1"] = "secret123";  // Seed entry
 
     QCOMPARE(store.writeCredential("conn-1", "secret123"), CredentialStore::Result::WalletUnavailable);
+    QCOMPARE(state.writePasswordCount, 0);
+
     QCOMPARE(store.readCredential("conn-1", secretOut), CredentialStore::Result::WalletUnavailable);
+    QCOMPARE(state.readPasswordCount, 0);
+
     QCOMPARE(store.deleteCredential("conn-1"), CredentialStore::Result::WalletUnavailable);
+    QCOMPARE(state.removeEntryCount, 0);
+
+    // Also verify setting folder fails even if folder needs creation first
+    state.simulateMissingFolder = true;
+    state.simulateCreateFolderFailure = false;
+    QCOMPARE(store.writeCredential("conn-2", "secret"), CredentialStore::Result::WalletUnavailable);
+    QCOMPARE(state.writePasswordCount, 0);
 }
 
 void TestCredentialStore::testKWalletMissingEntry() {
-    MockWalletProvider* provider = new MockWalletProvider();
+    SharedWalletState state;
+    MockWalletProvider* provider = new MockWalletProvider(&state);
     KWalletCredentialStore store(provider);
 
     QString secretOut;
