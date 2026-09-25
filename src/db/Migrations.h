@@ -26,6 +26,7 @@ class MigrationRunner {
 
    public:
     std::vector<Migration> m_migrations;
+
    private:
     static bool initSchemaVersionTable(Database& db, QString* error);
     static bool getCurrentVersion(Database& db, int& version, QString* error);
