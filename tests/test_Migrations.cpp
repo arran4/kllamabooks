@@ -766,7 +766,7 @@ void TestMigrations::testDocumentMigrationFailure() {
         "INSERT INTO documents (folder_id, title, content, metadata) VALUES (1, 'Doc 1', 'Content 1', 'Meta 1');");
 
     // Deliberately cause a failure after at least one migration write
-    // by using a temporary trigger that aborts an artifact_versions insert
+    // by using an aborting trigger on artifact_versions insert
     db.execute("CREATE TRIGGER fail_artifact_version BEFORE INSERT ON artifact_versions BEGIN SELECT RAISE(ABORT, 'intentional failure'); END;");
 
     db::MigrationRunner runner23;
@@ -893,33 +893,21 @@ void TestMigrations::testDocumentMigrationIterationFailure() {
     QVERIFY(runner22.run(db, &error));
     db.execute("INSERT INTO documents (folder_id, title, content, metadata) VALUES (1, 'Doc 1', 'Content 1', 'Meta 1');");
 
-    // Interfere with the SELECT statement by setting a custom authorizer that fails on reading `documents.title`
-    // This will cause sqlite3_step to fail (return SQLITE_ERROR instead of SQLITE_DONE or SQLITE_ROW)
-    // Actually, authorizer runs during prepare.
-    // To cause sqlite3_step to fail on iteration, we can drop the table or alter it in another connection,
-    // but the simplest way to simulate a step failure in a single thread is using a busy handler or forcing an error in a custom function?
-    // Wait, the easiest way to cause `sqlite3_step(selectStmt)` to fail *during* iteration is to modify the schema of the table being iterated over.
-    // Wait, we can't do that while inside the loop easily.
-    // A reliable way is to insert a corrupt value if possible, or use sqlite3_interrupt, or a trigger that raises an error?
-    // Since we are just selecting, a trigger won't work on SELECT.
-    // How about registering a scalar function that raises an error and using it? No, the query is fixed to `SELECT ... FROM documents`.
-    // Wait, if we replace the `documents` table with a view that calls a failing function?
-    // "regression coverage for a source-row iteration failure ... if feasible with a deterministic SQLite mechanism"
-    // Let's create a temporary view over documents? No, the table exists.
-    // We can rename `documents` to `documents_real`, and create a view `documents` that does `SELECT id, folder_id, title, (SELECT RAISE(ABORT, 'error')) as content, ...`?
-    // Wait, RAISE() is only allowed in triggers.
-    // We can use a custom function.
-    db.execute("ALTER TABLE documents RENAME TO documents_real;");
+    // Re-create the documents table as a view over documents_real to inject a failing user-defined function
+    // during the `sqlite3_step` loop for migration 23.
+    QVERIFY(db.execute("ALTER TABLE documents RENAME TO documents_real;"));
 
-    // Register a custom function that throws an error
-    sqlite3_create_function(
-        dbHandle, "trigger_step_error", 0, SQLITE_UTF8, nullptr,
+    bool functionCalled = false;
+    QCOMPARE(sqlite3_create_function(
+        dbHandle, "trigger_step_error", 0, SQLITE_UTF8, &functionCalled,
         [](sqlite3_context* context, int, sqlite3_value**) {
+            bool* called = static_cast<bool*>(sqlite3_user_data(context));
+            *called = true;
             sqlite3_result_error(context, "injected iteration error", -1);
         },
-        nullptr, nullptr);
+        nullptr, nullptr), SQLITE_OK);
 
-    db.execute("CREATE VIEW documents AS SELECT id, folder_id, title, trigger_step_error() as content, timestamp, metadata FROM documents_real;");
+    QVERIFY(db.execute("CREATE VIEW documents AS SELECT id, folder_id, title, trigger_step_error() as content, timestamp, metadata FROM documents_real;"));
 
     db::MigrationRunner runner23;
     for (const auto& m : runner.getMigrations()) {
@@ -929,11 +917,18 @@ void TestMigrations::testDocumentMigrationIterationFailure() {
     }
 
     QVERIFY(!runner23.run(db, &error));
+    QVERIFY(functionCalled);
 
     // Verify rollback
     int count = -1;
     QVERIFY(db.queryInt("SELECT COUNT(*) FROM artifacts", count));
     QCOMPARE(count, 0);
+
+    int version = 0;
+    QVERIFY(db.queryInt("PRAGMA user_version", version));
+    QCOMPARE(version, 22);
+    QVERIFY(db.queryInt("SELECT MAX(version) FROM schema_version", version));
+    QCOMPARE(version, 22);
 
     sqlite3_close(dbHandle);
 }
