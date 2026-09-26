@@ -1,5 +1,7 @@
 #include "MigrationFactory.h"
 
+#include <sqlcipher/sqlite3.h>
+
 namespace db {
 
 MigrationRunner MigrationFactory::createRunner() {
@@ -354,6 +356,124 @@ MigrationRunner MigrationFactory::createRunner() {
                      "  SELECT RAISE(ABORT, 'Cannot delete a version currently referenced as current_version_id'); "
                      "END;");
              return ok;
+         }});
+
+    runner.addMigration(
+        {22, 23, "Migrate Documents to Artifacts", [](Database& db) {
+             bool ok = db.execute(
+                 "CREATE TABLE IF NOT EXISTS legacy_document_mapping ("
+                 "document_id INTEGER PRIMARY KEY, "
+                 "artifact_id INTEGER NOT NULL UNIQUE, "
+                 "FOREIGN KEY(artifact_id) REFERENCES artifacts(id)"
+                 ");");
+             if (!ok) return false;
+
+             sqlite3* handle = db.handle();
+             const char* selectSql =
+                 "SELECT id, folder_id, title, content, timestamp, metadata FROM documents "
+                 "WHERE id NOT IN (SELECT document_id FROM legacy_document_mapping);";
+             sqlite3_stmt* selectStmt = nullptr;
+             if (sqlite3_prepare_v2(handle, selectSql, -1, &selectStmt, nullptr) != SQLITE_OK) {
+                 return false;
+             }
+
+             const char* insertArtifactSql =
+                 "INSERT INTO artifacts (kind, folder_id, current_version_id, created_at) "
+                 "VALUES ('document', ?, 0, ?);";
+             sqlite3_stmt* insertArtifactStmt = nullptr;
+             if (sqlite3_prepare_v2(handle, insertArtifactSql, -1, &insertArtifactStmt, nullptr) != SQLITE_OK) {
+                 sqlite3_finalize(selectStmt);
+                 return false;
+             }
+
+             const char* insertVersionSql =
+                 "INSERT INTO artifact_versions (artifact_id, title, content, metadata, created_at) "
+                 "VALUES (?, ?, ?, ?, ?);";
+             sqlite3_stmt* insertVersionStmt = nullptr;
+             if (sqlite3_prepare_v2(handle, insertVersionSql, -1, &insertVersionStmt, nullptr) != SQLITE_OK) {
+                 sqlite3_finalize(selectStmt);
+                 sqlite3_finalize(insertArtifactStmt);
+                 return false;
+             }
+
+             const char* updateArtifactSql = "UPDATE artifacts SET current_version_id = ? WHERE id = ?;";
+             sqlite3_stmt* updateArtifactStmt = nullptr;
+             if (sqlite3_prepare_v2(handle, updateArtifactSql, -1, &updateArtifactStmt, nullptr) != SQLITE_OK) {
+                 sqlite3_finalize(selectStmt);
+                 sqlite3_finalize(insertArtifactStmt);
+                 sqlite3_finalize(insertVersionStmt);
+                 return false;
+             }
+
+             const char* insertMappingSql =
+                 "INSERT INTO legacy_document_mapping (document_id, artifact_id) VALUES (?, ?);";
+             sqlite3_stmt* insertMappingStmt = nullptr;
+             if (sqlite3_prepare_v2(handle, insertMappingSql, -1, &insertMappingStmt, nullptr) != SQLITE_OK) {
+                 sqlite3_finalize(selectStmt);
+                 sqlite3_finalize(insertArtifactStmt);
+                 sqlite3_finalize(insertVersionStmt);
+                 sqlite3_finalize(updateArtifactStmt);
+                 return false;
+             }
+
+             bool success = true;
+             int rc;
+             while ((rc = sqlite3_step(selectStmt)) == SQLITE_ROW) {
+                 int docId = sqlite3_column_int(selectStmt, 0);
+                 int folderId = sqlite3_column_int(selectStmt, 1);
+                 const char* title = reinterpret_cast<const char*>(sqlite3_column_text(selectStmt, 2));
+                 const char* content = reinterpret_cast<const char*>(sqlite3_column_text(selectStmt, 3));
+                 const char* timestamp = reinterpret_cast<const char*>(sqlite3_column_text(selectStmt, 4));
+                 const char* metadata = reinterpret_cast<const char*>(sqlite3_column_text(selectStmt, 5));
+
+                 sqlite3_bind_int(insertArtifactStmt, 1, folderId);
+                 sqlite3_bind_text(insertArtifactStmt, 2, timestamp, -1, SQLITE_STATIC);
+                 if (sqlite3_step(insertArtifactStmt) != SQLITE_DONE) {
+                     success = false;
+                     break;
+                 }
+                 sqlite3_int64 artifactId = sqlite3_last_insert_rowid(handle);
+                 sqlite3_reset(insertArtifactStmt);
+
+                 sqlite3_bind_int64(insertVersionStmt, 1, artifactId);
+                 sqlite3_bind_text(insertVersionStmt, 2, title, -1, SQLITE_STATIC);
+                 sqlite3_bind_text(insertVersionStmt, 3, content, -1, SQLITE_STATIC);
+                 sqlite3_bind_text(insertVersionStmt, 4, metadata, -1, SQLITE_STATIC);
+                 sqlite3_bind_text(insertVersionStmt, 5, timestamp, -1, SQLITE_STATIC);
+                 if (sqlite3_step(insertVersionStmt) != SQLITE_DONE) {
+                     success = false;
+                     break;
+                 }
+                 sqlite3_int64 versionId = sqlite3_last_insert_rowid(handle);
+                 sqlite3_reset(insertVersionStmt);
+
+                 sqlite3_bind_int64(updateArtifactStmt, 1, versionId);
+                 sqlite3_bind_int64(updateArtifactStmt, 2, artifactId);
+                 if (sqlite3_step(updateArtifactStmt) != SQLITE_DONE) {
+                     success = false;
+                     break;
+                 }
+                 sqlite3_reset(updateArtifactStmt);
+
+                 sqlite3_bind_int(insertMappingStmt, 1, docId);
+                 sqlite3_bind_int64(insertMappingStmt, 2, artifactId);
+                 if (sqlite3_step(insertMappingStmt) != SQLITE_DONE) {
+                     success = false;
+                     break;
+                 }
+                 sqlite3_reset(insertMappingStmt);
+             }
+             if (rc != SQLITE_DONE) {
+                 success = false;
+             }
+
+             sqlite3_finalize(selectStmt);
+             sqlite3_finalize(insertArtifactStmt);
+             sqlite3_finalize(insertVersionStmt);
+             sqlite3_finalize(updateArtifactStmt);
+             sqlite3_finalize(insertMappingStmt);
+
+             return success;
          }});
 
     return runner;
