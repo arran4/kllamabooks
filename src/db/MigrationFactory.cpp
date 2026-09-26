@@ -417,7 +417,8 @@ MigrationRunner MigrationFactory::createRunner() {
              }
 
              bool success = true;
-             while (sqlite3_step(selectStmt) == SQLITE_ROW) {
+             int rc;
+             while ((rc = sqlite3_step(selectStmt)) == SQLITE_ROW) {
                  int docId = sqlite3_column_int(selectStmt, 0);
                  int folderId = sqlite3_column_int(selectStmt, 1);
                  const char* title = reinterpret_cast<const char*>(sqlite3_column_text(selectStmt, 2));
@@ -461,6 +462,9 @@ MigrationRunner MigrationFactory::createRunner() {
                      break;
                  }
                  sqlite3_reset(insertMappingStmt);
+             }
+             if (rc != SQLITE_DONE) {
+                 success = false;
              }
 
              sqlite3_finalize(selectStmt);
