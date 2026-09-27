@@ -476,25 +476,24 @@ MigrationRunner MigrationFactory::createRunner() {
              return success;
          }});
 
-    runner.addMigration(
-        {23, 24, "Seal Artifact Version Immutability", [](Database& db) {
-             bool ok = db.execute(
-                 "CREATE TRIGGER IF NOT EXISTS trg_artifact_versions_protect_sealed_update "
-                 "BEFORE UPDATE ON artifact_versions "
-                 "FOR EACH ROW "
-                 "WHEN OLD.is_sealed = 1 AND ("
-                 "NEW.title IS NOT OLD.title OR "
-                 "NEW.content IS NOT OLD.content OR "
-                 "NEW.metadata IS NOT OLD.metadata OR "
-                 "NEW.parent_id IS NOT OLD.parent_id OR "
-                 "NEW.forked_from_version_id IS NOT OLD.forked_from_version_id OR "
-                 "NEW.is_sealed = 0"
-                 ") "
-                 "BEGIN "
-                 "  SELECT RAISE(ABORT, 'Cannot mutate a sealed artifact version'); "
-                 "END;");
-             return ok;
-         }});
+    runner.addMigration({23, 24, "Seal Artifact Version Immutability", [](Database& db) {
+                             bool ok = db.execute(
+                                 "CREATE TRIGGER IF NOT EXISTS trg_artifact_versions_protect_sealed_update "
+                                 "BEFORE UPDATE ON artifact_versions "
+                                 "FOR EACH ROW "
+                                 "WHEN OLD.is_sealed = 1 AND ("
+                                 "NEW.title IS NOT OLD.title OR "
+                                 "NEW.content IS NOT OLD.content OR "
+                                 "NEW.metadata IS NOT OLD.metadata OR "
+                                 "NEW.parent_id IS NOT OLD.parent_id OR "
+                                 "NEW.forked_from_version_id IS NOT OLD.forked_from_version_id OR "
+                                 "NEW.is_sealed = 0"
+                                 ") "
+                                 "BEGIN "
+                                 "  SELECT RAISE(ABORT, 'Cannot mutate a sealed artifact version'); "
+                                 "END;");
+                             return ok;
+                         }});
 
     return runner;
 }

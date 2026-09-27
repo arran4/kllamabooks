@@ -94,7 +94,8 @@ class TestArtifactStore : public QObject {
         int versionId = artResult.value->id;
 
         // Test mutating a mutable version works
-        QString validUpdateSql = QString("UPDATE artifact_versions SET title = 'T2', content = 'C2' WHERE id = %1").arg(versionId);
+        QString validUpdateSql =
+            QString("UPDATE artifact_versions SET title = 'T2', content = 'C2' WHERE id = %1").arg(versionId);
         QVERIFY(m_db->execute(validUpdateSql));
 
         // Test transition to sealed works directly via SQL
@@ -119,15 +120,19 @@ class TestArtifactStore : public QObject {
         QVERIFY(art2Result.isSuccess());
         int parentVersionId = art2Result.value->id;
 
-        QString failParentSql = QString("UPDATE artifact_versions SET parent_id = %1 WHERE id = %2").arg(parentVersionId).arg(versionId);
+        QString failParentSql =
+            QString("UPDATE artifact_versions SET parent_id = %1 WHERE id = %2").arg(parentVersionId).arg(versionId);
         QVERIFY(!m_db->execute(failParentSql));
 
-        QString failForkedSql = QString("UPDATE artifact_versions SET forked_from_version_id = %1 WHERE id = %2").arg(parentVersionId).arg(versionId);
+        QString failForkedSql = QString("UPDATE artifact_versions SET forked_from_version_id = %1 WHERE id = %2")
+                                    .arg(parentVersionId)
+                                    .arg(versionId);
         QVERIFY(!m_db->execute(failForkedSql));
 
-        // Unprotected updates like timestamp should still fail under our strict rule, wait, we didn't include timestamp in trigger condition. Let's see if we can update timestamp.
-        // Actually, the requirement only specifies "ordinary persisted content/title/metadata and lineage fields must not be mutable... is_sealed must not be reset".
-        // Let's test just what we wrote in the trigger.
+        // Unprotected updates like timestamp should still fail under our strict rule, wait, we didn't include timestamp
+        // in trigger condition. Let's see if we can update timestamp. Actually, the requirement only specifies
+        // "ordinary persisted content/title/metadata and lineage fields must not be mutable... is_sealed must not be
+        // reset". Let's test just what we wrote in the trigger.
     }
 
     void cleanup() {
