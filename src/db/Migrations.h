@@ -24,6 +24,9 @@ class MigrationRunner {
     // Returns true if success or already up to date, false on error.
     bool run(Database& db, QString* error = nullptr);
 
+   public:
+    const std::vector<Migration>& getMigrations() const { return m_migrations; }
+
    private:
     std::vector<Migration> m_migrations;
     static bool initSchemaVersionTable(Database& db, QString* error);
