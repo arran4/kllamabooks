@@ -88,6 +88,48 @@ class TestArtifactStore : public QObject {
         QVERIFY(!m_db->execute("INSERT INTO artifacts (kind, current_version_id) VALUES ('document', NULL)"));
     }
 
+    void testDirectSqlSealedImmutability() {
+        auto artResult = m_store->createArtifact(store::ArtifactKind::Document, 1, "T1", "C1", "M1");
+        QVERIFY(artResult.isSuccess());
+        int versionId = artResult.value->id;
+
+        // Test mutating a mutable version works
+        QString validUpdateSql = QString("UPDATE artifact_versions SET title = 'T2', content = 'C2' WHERE id = %1").arg(versionId);
+        QVERIFY(m_db->execute(validUpdateSql));
+
+        // Test transition to sealed works directly via SQL
+        QString sealSql = QString("UPDATE artifact_versions SET is_sealed = 1 WHERE id = %1").arg(versionId);
+        QVERIFY(m_db->execute(sealSql));
+
+        // Now sealed, ensure protected mutations fail
+        QString failTitleSql = QString("UPDATE artifact_versions SET title = 'T3' WHERE id = %1").arg(versionId);
+        QVERIFY(!m_db->execute(failTitleSql));
+
+        QString failContentSql = QString("UPDATE artifact_versions SET content = 'C3' WHERE id = %1").arg(versionId);
+        QVERIFY(!m_db->execute(failContentSql));
+
+        QString failMetadataSql = QString("UPDATE artifact_versions SET metadata = 'M3' WHERE id = %1").arg(versionId);
+        QVERIFY(!m_db->execute(failMetadataSql));
+
+        QString failUnsealSql = QString("UPDATE artifact_versions SET is_sealed = 0 WHERE id = %1").arg(versionId);
+        QVERIFY(!m_db->execute(failUnsealSql));
+
+        // Creating a secondary version to test lineage mutations
+        auto art2Result = m_store->createArtifact(store::ArtifactKind::Document, 1, "Parent", "P", "M");
+        QVERIFY(art2Result.isSuccess());
+        int parentVersionId = art2Result.value->id;
+
+        QString failParentSql = QString("UPDATE artifact_versions SET parent_id = %1 WHERE id = %2").arg(parentVersionId).arg(versionId);
+        QVERIFY(!m_db->execute(failParentSql));
+
+        QString failForkedSql = QString("UPDATE artifact_versions SET forked_from_version_id = %1 WHERE id = %2").arg(parentVersionId).arg(versionId);
+        QVERIFY(!m_db->execute(failForkedSql));
+
+        // Unprotected updates like timestamp should still fail under our strict rule, wait, we didn't include timestamp in trigger condition. Let's see if we can update timestamp.
+        // Actually, the requirement only specifies "ordinary persisted content/title/metadata and lineage fields must not be mutable... is_sealed must not be reset".
+        // Let's test just what we wrote in the trigger.
+    }
+
     void cleanup() {
         delete m_store;
         delete m_db;

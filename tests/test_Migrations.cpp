@@ -469,9 +469,9 @@ void TestMigrations::testFreshSchemaEquivalence() {
 
     int version = 0;
     QVERIFY(db.queryInt("PRAGMA user_version;", version));
-    QCOMPARE(version, 23);
+    QCOMPARE(version, 24);
     QVERIFY(db.queryInt("SELECT MAX(version) FROM schema_version;", version));
-    QCOMPARE(version, 23);
+    QCOMPARE(version, 24);
 
     sqlite3_close(dbHandle);
 }
