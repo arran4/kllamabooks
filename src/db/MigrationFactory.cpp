@@ -476,6 +476,45 @@ MigrationRunner MigrationFactory::createRunner() {
              return success;
          }});
 
+    runner.addMigration(
+        {23, 24, "Seal Artifact Version Immutability", [](Database& db) {
+             bool ok = db.execute(
+                 "CREATE TRIGGER IF NOT EXISTS trg_artifact_versions_protect_sealed_update "
+                 "BEFORE UPDATE ON artifact_versions "
+                 "FOR EACH ROW "
+                 "WHEN OLD.is_sealed = 1 AND ("
+                 "NEW.id IS NOT OLD.id OR "
+                 "NEW.artifact_id IS NOT OLD.artifact_id OR "
+                 "NEW.parent_id IS NOT OLD.parent_id OR "
+                 "NEW.forked_from_version_id IS NOT OLD.forked_from_version_id OR "
+                 "NEW.title IS NOT OLD.title OR "
+                 "NEW.content IS NOT OLD.content OR "
+                 "NEW.metadata IS NOT OLD.metadata OR "
+                 "NEW.is_sealed IS NOT OLD.is_sealed OR "
+                 "NEW.created_at IS NOT OLD.created_at"
+                 ") "
+                 "BEGIN "
+                 "  SELECT RAISE(ABORT, 'Cannot mutate a sealed artifact version'); "
+                 "END;");
+             ok = ok && db.execute(
+                            "CREATE TRIGGER IF NOT EXISTS trg_artifact_versions_validate_is_sealed_update "
+                            "BEFORE UPDATE OF is_sealed ON artifact_versions "
+                            "FOR EACH ROW "
+                            "WHEN NEW.is_sealed IS NULL OR (NEW.is_sealed != 0 AND NEW.is_sealed != 1) "
+                            "BEGIN "
+                            "  SELECT RAISE(ABORT, 'is_sealed must be exactly 0 or 1'); "
+                            "END;");
+             ok = ok && db.execute(
+                            "CREATE TRIGGER IF NOT EXISTS trg_artifact_versions_validate_is_sealed_insert "
+                            "BEFORE INSERT ON artifact_versions "
+                            "FOR EACH ROW "
+                            "WHEN NEW.is_sealed IS NULL OR (NEW.is_sealed != 0 AND NEW.is_sealed != 1) "
+                            "BEGIN "
+                            "  SELECT RAISE(ABORT, 'is_sealed must be exactly 0 or 1'); "
+                            "END;");
+             return ok;
+         }});
+
     return runner;
 }
 

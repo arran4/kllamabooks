@@ -17,7 +17,7 @@
 #endif
 
 namespace {
-constexpr int CURRENT_SCHEMA_VERSION = 21;
+constexpr int CURRENT_SCHEMA_VERSION = 24;
 }
 
 BookDatabase::BookDatabase(const QString& filepath) : m_filepath(filepath), m_db(nullptr), m_isOpen(false) {}

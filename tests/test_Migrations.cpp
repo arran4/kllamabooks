@@ -469,9 +469,9 @@ void TestMigrations::testFreshSchemaEquivalence() {
 
     int version = 0;
     QVERIFY(db.queryInt("PRAGMA user_version;", version));
-    QCOMPARE(version, 23);
+    QCOMPARE(version, 24);
     QVERIFY(db.queryInt("SELECT MAX(version) FROM schema_version;", version));
-    QCOMPARE(version, 23);
+    QCOMPARE(version, 24);
 
     sqlite3_close(dbHandle);
 }
@@ -767,7 +767,9 @@ void TestMigrations::testDocumentMigrationFailure() {
 
     // Deliberately cause a failure after at least one migration write
     // by using an aborting trigger on artifact_versions insert
-    db.execute("CREATE TRIGGER fail_artifact_version BEFORE INSERT ON artifact_versions BEGIN SELECT RAISE(ABORT, 'intentional failure'); END;");
+    db.execute(
+        "CREATE TRIGGER fail_artifact_version BEFORE INSERT ON artifact_versions BEGIN SELECT RAISE(ABORT, "
+        "'intentional failure'); END;");
 
     db::MigrationRunner runner23;
     for (const auto& m : runner.getMigrations()) {
@@ -784,7 +786,7 @@ void TestMigrations::testDocumentMigrationFailure() {
     QCOMPARE(count, 0);  // Rollback should have removed the artifact
     QVERIFY(db.queryInt("SELECT COUNT(*) FROM artifact_versions", count));
     QCOMPARE(count, 0);
-    QVERIFY(!db.queryInt("SELECT COUNT(*) FROM legacy_document_mapping", count)); // table shouldn't exist
+    QVERIFY(!db.queryInt("SELECT COUNT(*) FROM legacy_document_mapping", count));  // table shouldn't exist
 
     int version = 0;
     QVERIFY(db.queryInt("PRAGMA user_version", version));
@@ -875,7 +877,6 @@ void TestMigrations::testDocumentMigrationPreservation() {
     sqlite3_close(dbHandle);
 }
 
-
 void TestMigrations::testDocumentMigrationIterationFailure() {
     sqlite3* dbHandle;
     sqlite3_open(":memory:", &dbHandle);
@@ -891,7 +892,8 @@ void TestMigrations::testDocumentMigrationIterationFailure() {
 
     QString error;
     QVERIFY(runner22.run(db, &error));
-    db.execute("INSERT INTO documents (folder_id, title, content, metadata) VALUES (1, 'Doc 1', 'Content 1', 'Meta 1');");
+    db.execute(
+        "INSERT INTO documents (folder_id, title, content, metadata) VALUES (1, 'Doc 1', 'Content 1', 'Meta 1');");
 
     // Re-create the documents table as a view over documents_real to inject a failing user-defined function
     // during the `sqlite3_step` loop for migration 23.
@@ -899,15 +901,18 @@ void TestMigrations::testDocumentMigrationIterationFailure() {
 
     bool functionCalled = false;
     QCOMPARE(sqlite3_create_function(
-        dbHandle, "trigger_step_error", 0, SQLITE_UTF8, &functionCalled,
-        [](sqlite3_context* context, int, sqlite3_value**) {
-            bool* called = static_cast<bool*>(sqlite3_user_data(context));
-            *called = true;
-            sqlite3_result_error(context, "injected iteration error", -1);
-        },
-        nullptr, nullptr), SQLITE_OK);
+                 dbHandle, "trigger_step_error", 0, SQLITE_UTF8, &functionCalled,
+                 [](sqlite3_context* context, int, sqlite3_value**) {
+                     bool* called = static_cast<bool*>(sqlite3_user_data(context));
+                     *called = true;
+                     sqlite3_result_error(context, "injected iteration error", -1);
+                 },
+                 nullptr, nullptr),
+             SQLITE_OK);
 
-    QVERIFY(db.execute("CREATE VIEW documents AS SELECT id, folder_id, title, trigger_step_error() as content, timestamp, metadata FROM documents_real;"));
+    QVERIFY(
+        db.execute("CREATE VIEW documents AS SELECT id, folder_id, title, trigger_step_error() as content, timestamp, "
+                   "metadata FROM documents_real;"));
 
     db::MigrationRunner runner23;
     for (const auto& m : runner.getMigrations()) {

@@ -88,6 +88,93 @@ class TestArtifactStore : public QObject {
         QVERIFY(!m_db->execute("INSERT INTO artifacts (kind, current_version_id) VALUES ('document', NULL)"));
     }
 
+    void testDirectSqlSealedImmutability() {
+        auto artResult = m_store->createArtifact(store::ArtifactKind::Document, 1, "T1", "C1", "M1");
+        QVERIFY(artResult.isSuccess());
+        int versionId = artResult.value->id;
+
+        // Test mutating a mutable version works
+        QString validUpdateSql =
+            QString("UPDATE artifact_versions SET title = 'T2', content = 'C2' WHERE id = %1").arg(versionId);
+        QVERIFY(m_db->execute(validUpdateSql));
+
+        // Test transitioning mutable to invalid is_sealed states fails
+        QString failMutableToTwoSql =
+            QString("UPDATE artifact_versions SET is_sealed = 2 WHERE id = %1").arg(versionId);
+        QVERIFY(!m_db->execute(failMutableToTwoSql));
+
+        QString failMutableToNullSql =
+            QString("UPDATE artifact_versions SET is_sealed = NULL WHERE id = %1").arg(versionId);
+        QVERIFY(!m_db->execute(failMutableToNullSql));
+
+        // Test inserting a new version with invalid is_sealed states fails
+        QVERIFY(!m_db->execute(
+            "INSERT INTO artifact_versions (artifact_id, title, content, is_sealed) VALUES (1, 't', 'c', 2)"));
+        QVERIFY(!m_db->execute(
+            "INSERT INTO artifact_versions (artifact_id, title, content, is_sealed) VALUES (1, 't', 'c', NULL)"));
+
+        // Test transition to sealed works directly via SQL
+        QString sealSql = QString("UPDATE artifact_versions SET is_sealed = 1 WHERE id = %1").arg(versionId);
+        QVERIFY(m_db->execute(sealSql));
+
+        // Now sealed, ensure protected mutations fail
+        QString failTitleSql = QString("UPDATE artifact_versions SET title = 'T3' WHERE id = %1").arg(versionId);
+        QVERIFY(!m_db->execute(failTitleSql));
+
+        QString failContentSql = QString("UPDATE artifact_versions SET content = 'C3' WHERE id = %1").arg(versionId);
+        QVERIFY(!m_db->execute(failContentSql));
+
+        QString failMetadataSql = QString("UPDATE artifact_versions SET metadata = 'M3' WHERE id = %1").arg(versionId);
+        QVERIFY(!m_db->execute(failMetadataSql));
+
+        QString failUnsealSql = QString("UPDATE artifact_versions SET is_sealed = 0 WHERE id = %1").arg(versionId);
+        QVERIFY(!m_db->execute(failUnsealSql));
+
+        QString failUnsealNullSql =
+            QString("UPDATE artifact_versions SET is_sealed = NULL WHERE id = %1").arg(versionId);
+        QVERIFY(!m_db->execute(failUnsealNullSql));
+
+        QString failUnsealTwoSql = QString("UPDATE artifact_versions SET is_sealed = 2 WHERE id = %1").arg(versionId);
+        QVERIFY(!m_db->execute(failUnsealTwoSql));
+
+        QString failIdSql =
+            QString("UPDATE artifact_versions SET id = %1 WHERE id = %2").arg(versionId + 1000).arg(versionId);
+        QVERIFY(!m_db->execute(failIdSql));
+
+        QString failCreatedAtSql =
+            QString("UPDATE artifact_versions SET created_at = '2000-01-01 00:00:00' WHERE id = %1").arg(versionId);
+        QVERIFY(!m_db->execute(failCreatedAtSql));
+
+        // Create a valid same-artifact version as the proposed parent to test parent_id rejection specifically
+        auto childResult = m_store->createMutableDescendant(versionId, "Child", "C", "M");
+        QVERIFY(childResult.isSuccess());
+        int childVersionId = childResult.value->id;
+
+        // Ensure parent_id mutation fails when row is sealed, avoiding the cross-artifact FK failure
+        QString failParentSql =
+            QString("UPDATE artifact_versions SET parent_id = %1 WHERE id = %2").arg(childVersionId).arg(versionId);
+        QVERIFY(!m_db->execute(failParentSql));
+
+        // Create a different artifact to test forked_from_version_id
+        auto art2Result = m_store->createArtifact(store::ArtifactKind::Document, 1, "Other", "O", "M");
+        QVERIFY(art2Result.isSuccess());
+        int otherVersionId = art2Result.value->id;
+
+        QString failForkedSql = QString("UPDATE artifact_versions SET forked_from_version_id = %1 WHERE id = %2")
+                                    .arg(otherVersionId)
+                                    .arg(versionId);
+        QVERIFY(!m_db->execute(failForkedSql));
+
+        // To test artifact_id mutation, we must bypass the "current version" trigger.
+        // versionId is currently the current version of artResult.value->artifactId.
+        // But childVersionId is now the current version of that artifact, since it's a descendant!
+        // So versionId is NO LONGER the current version. Let's try changing versionId's artifact_id.
+        QString failArtifactIdSql = QString("UPDATE artifact_versions SET artifact_id = %1 WHERE id = %2")
+                                        .arg(art2Result.value->artifactId)
+                                        .arg(versionId);
+        QVERIFY(!m_db->execute(failArtifactIdSql));
+    }
+
     void cleanup() {
         delete m_store;
         delete m_db;
