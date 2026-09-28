@@ -98,6 +98,21 @@ class TestArtifactStore : public QObject {
             QString("UPDATE artifact_versions SET title = 'T2', content = 'C2' WHERE id = %1").arg(versionId);
         QVERIFY(m_db->execute(validUpdateSql));
 
+        // Test transitioning mutable to invalid is_sealed states fails
+        QString failMutableToTwoSql =
+            QString("UPDATE artifact_versions SET is_sealed = 2 WHERE id = %1").arg(versionId);
+        QVERIFY(!m_db->execute(failMutableToTwoSql));
+
+        QString failMutableToNullSql =
+            QString("UPDATE artifact_versions SET is_sealed = NULL WHERE id = %1").arg(versionId);
+        QVERIFY(!m_db->execute(failMutableToNullSql));
+
+        // Test inserting a new version with invalid is_sealed states fails
+        QVERIFY(!m_db->execute(
+            "INSERT INTO artifact_versions (artifact_id, title, content, is_sealed) VALUES (1, 't', 'c', 2)"));
+        QVERIFY(!m_db->execute(
+            "INSERT INTO artifact_versions (artifact_id, title, content, is_sealed) VALUES (1, 't', 'c', NULL)"));
+
         // Test transition to sealed works directly via SQL
         QString sealSql = QString("UPDATE artifact_versions SET is_sealed = 1 WHERE id = %1").arg(versionId);
         QVERIFY(m_db->execute(sealSql));
@@ -135,12 +150,7 @@ class TestArtifactStore : public QObject {
         QVERIFY(childResult.isSuccess());
         int childVersionId = childResult.value->id;
 
-        // Unseal the child for a moment just to set it up, but it's already mutable.
-        // Wait, versionId is sealed. Let's make childVersionId sealed too.
-        m_store->sealVersion(childVersionId);
-
         // Ensure parent_id mutation fails when row is sealed, avoiding the cross-artifact FK failure
-        // We are trying to modify versionId's parent_id to childVersionId, so the WHERE should be versionId.
         QString failParentSql =
             QString("UPDATE artifact_versions SET parent_id = %1 WHERE id = %2").arg(childVersionId).arg(versionId);
         QVERIFY(!m_db->execute(failParentSql));
