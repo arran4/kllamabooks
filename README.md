@@ -1,6 +1,8 @@
 # KLlamaBooks
 A KDE-styled QT application that interacts with local Ollama sessions and stores chat history locally via encrypted SQLite databases.
 
+> **Development Note:** The application is currently undergoing a storage architecture modernization. Please refer to the [Storage vNext Architecture](docs/storage-vnext-architecture.md) and [Storage vNext Migration Plan](docs/storage-vnext-migration.md) for details on the new data models and transition process.
+
 ![Chat](docs/Screenshot_20260415_175107.png)
 
 ## Features
