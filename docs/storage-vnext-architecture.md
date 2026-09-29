@@ -2,7 +2,7 @@
 
 Tracking epic: #238
 
-This document records the intended storage/domain model for the KLlamaBooks restructuring. It is deliberately more authoritative than historical comments in the current v21 implementation. Exact table/column names may change during implementation, but the invariants and user-visible semantics below should not.
+This document records the intended storage/domain model for the KLlamaBooks restructuring. It is deliberately more authoritative than historical comments in older legacy schema implementations. Exact table/column names may change during implementation, but the invariants and user-visible semantics below should not.
 
 ## Current Implementation Status
 
@@ -11,9 +11,9 @@ Portions of the storage-vNext architecture have already landed on the `main` bra
 - **Migration Framework:** The checked `MigrationRunner` has been implemented (#250) and replaces older unmanaged update mechanisms.
 - **Artifact API:** The `ArtifactStore` interface and `artifacts`/`artifact_versions` tables have been created (#253).
 - **Legacy Document Backfill:** Existing documents have been mapped into the new store via `legacy_document_mapping` to seed current state (#255).
-- **Immutability Enforcement:** Triggers have been introduced to protect sealed artifacts from unintended mutation.
+- **Immutability Enforcement:** Database triggers enforcing sealed-version immutability have been introduced (#256).
 
-**However, the cutover is not yet complete:** Production document, note, template, and draft creation paths continue to read/write the legacy tables. Because new legacy rows can still be created, future migration work must re-scan and import any unmapped documents (#239). Full isolation of sealed-version immutability triggers and UI cutovers remain tracked by #240.
+**However, the cutover is not yet complete:** Production document, note, template, and draft creation paths continue to read/write the legacy tables. Because new legacy rows can still be created, future migration work must re-scan and import any unmapped documents (#239). Full UI cutovers remain tracked by #240.
 
 ## Why this cutover exists
 

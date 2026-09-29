@@ -38,7 +38,7 @@ Prefer deterministic database/model tests over UI automation and live network te
 
 ## Storage vNext Architecture
 
-The current production schema is still the legacy schema while the storage-vNext work tracked by #238 is implemented. Do not extend legacy queue/history/merge/document-like persistence with new parallel sources of truth when the vNext issues already define the replacement. Small correctness fixes against current `main` remain valid, but new architecture work should follow the vNext design.
+The database schema already includes the storage-vNext `ArtifactStore` structures and sealed-version invariants, but production application read/write workflows are still using legacy tables while the cutover work tracked by #238 is implemented. Do not extend legacy queue/history/merge/document-like persistence with new parallel sources of truth when the vNext issues already define the replacement. Small correctness fixes against current `main` remain valid, but new architecture work should follow the vNext design.
 
 The authoritative design is documented in `docs/storage-vnext-architecture.md` and `docs/storage-vnext-migration.md` and tracked through #238 and its child issues (#239-#248).
 
