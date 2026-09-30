@@ -165,10 +165,9 @@ class TestArtifactStore : public QObject {
                                     .arg(versionId);
         QVERIFY(!m_db->execute(failForkedSql));
 
-        // To test artifact_id mutation, we must bypass the "current version" trigger.
-        // versionId is currently the current version of artResult.value->artifactId.
-        // But childVersionId is now the current version of that artifact, since it's a descendant!
-        // So versionId is NO LONGER the current version. Let's try changing versionId's artifact_id.
+        // To test artifact_id mutation, we must bypass the current version trigger.
+        // versionId is no longer the current version because childVersionId is a descendant.
+        // Verify that changing the artifact_id of versionId fails.
         QString failArtifactIdSql = QString("UPDATE artifact_versions SET artifact_id = %1 WHERE id = %2")
                                         .arg(art2Result.value->artifactId)
                                         .arg(versionId);

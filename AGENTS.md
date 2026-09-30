@@ -33,22 +33,31 @@ For example:
 .jules/run.sh cmake --build build --parallel
 .jules/run.sh ctest --test-dir build --output-on-failure
 ```
+Prefer deterministic model/database tests rather than UI/network tests.
 
-## Application Architecture Learnings
-- **Books & Databases:** The main application manages "Books" which represent individual encrypted SQLite databases (`BookDatabase`). These store chats, documents, and notes. The connection is handled using SQLCipher.
-- **UI Components:** The main view utilizes `QSplitter`s. The left pane shows "Open Books" (tree view of databases and their contents) and "Closed Books" (list of inactive database files). The right pane is a `QStackedWidget` switching between a linear chat view (`QListWidget`) and a full branching chat tree (`QTreeView`).
-- **Drag and Drop:** Handled in `MainWindow::eventFilter`. Dragging `.db` files from external sources or between "Open" and "Closed" lists is supported.
-- **AI Interaction:** Chat messages support a forking feature (branching) starting from any node in the history. Individual messages track which LLM model generated them. All LLM interaction goes through `OllamaClient` using QtNetwork.
-- **State Management:** Essential UI state (window geometry, splitter sizes, list of open books) is saved using `QSettings` in `MainWindow::closeEvent` and restored in `MainWindow::setupWindow`.
-- Custom chat titles are dynamically resolved using `MainWindow::getChatNodeTitle` by traversing upward from the current leaf/fork node to find the latest inherited title in a linear path.
-- Chat titles, user notes, and incomplete prompts (drafts) are persistently stored in the SQLite `settings` table using the `chat` scope and target ID of the corresponding message.
-- **Markdown Document Editing:** Documents are edited using a dual-view approach (a `QStackedWidget` containing a `QTextEdit` for source editing and a `QTextBrowser` for Markdown preview).
-- **Synchronous AI Operations:** For isolated, single-document text generation tasks (like "Complete this text" or "Replace entirely"), `OllamaClient::generate` is called directly from `MainWindow` rather than enqueuing a job in `QueueManager` (which is designed primarily for multi-turn chat message generation). These callbacks use concurrency checks (`m_generationId` and `currentDocumentId`) to prevent writing AI chunks to the wrong file if the user navigates away during generation.
+## Storage vNext Architecture (TARGET STATE)
 
-- **Document Versioning:** Modifying AI documents via 'Replace in place' or 'Replace entirely' should default to creating a new nested sub-document (fork) representing the version history rather than destructive edits, mirroring the chat hierarchy. This requires the `BookDatabase` schema versions to track parent-child relationships for `documents`.
-- **Note File System Support:** Dropping basic text-based files (`.txt`, `.log`, `.rtf`, `.md`) should integrate seamlessly into the native `Notes` folders to mimic free "file system" logic and upload support.
-- **Robust Error Notifications:** For UI error handling around non-interactive components like single-document RAG generation callbacks or network failures, utilize internal application status bars rather than intrusive `QMessageBox` pop-ups unless the user is actively blocked within a guided workflow. Ensure missing local SQLite databases show a prompt to the user and don't crash.
+The storage-vNext work tracked by #238 defines the replacement architecture. The authoritative design is documented in `docs/storage-vnext-architecture.md` and `docs/storage-vnext-migration.md`.
 
-- **Document AI & Queueing:** Document AI operations (e.g., text completion, rewriting) are fully integrated into the global `QueueManager` and are no longer dispatched synchronously in the UI thread. The SQLite `queue` table tracks a `target_type` (message vs document) to support this.
-- **Configurable Prompts:** AI system prompts for document modes are user-configurable via `AiActionDialog`, saved via `QSettings`, and support the `{context}` placeholder variable for template injection.
-- **State Checks:** Never use UI state (like checking text content or widget properties) to determine internal logic state (like whether a generation is active). Always rely on database results or cached backend states.
+### Mutable Drafts to Sealed References
+Artifacts and prompts are not immutable from birth. User edits update a mutable draft. Explicitly finishing an edit or using it in a durable AI run seals it transactionally. Once sealed, a version is immutable and further edits create a new mutable descendant.
+
+### Unified Artifacts and Folders
+Documents, notes, templates, and drafts use common artifact/version primitives. Folder/container persistence is also unified, while preserving distinct visual roots/spaces. Core mutation code uses typed item references instead of raw IDs.
+
+### Durable AI Runs
+The AI operation/run is the durable lifecycle object. It retains the exact prompt, model, options, inputs, output, and execution state. Queueing is merely a run state, not a separate duplicated history system.
+
+### Migration and Recovery
+Storage-vNext migration must preserve durable user data safely. If legacy data cannot be mapped accurately, it is preserved in an explicit recovery/quarantine storage, exposed via a Help menu, rather than being discarded or guessed.
+
+## Current Application Architecture Learnings (CURRENT STATE)
+
+- **Current Implementation State:** The repository is at schema version 24. The checked/ordered migration runner (#250) is in place. The initial `ArtifactStore` API with `artifacts` and `artifact_versions` exists (#253). A backfill migration (22->23) for legacy documents is implemented (#255), and database-level immutability for sealed artifact versions is enforced (23->24) (#256).
+- **Remaining Storage vNext Work:** Production document/note/template/draft UI and CRUD paths still use the legacy persistence layer. Notes, templates, and saved drafts are not yet migrated onto `ArtifactStore`. The broader artifact lifecycle (#240) and the no-loss migration logic (#239) are still incomplete.
+- **Books & Databases:** The main application manages "Books" which represent individual encrypted SQLite databases (`BookDatabase`).
+- **UI Components:** The main view utilizes `QSplitter`s. The left pane shows "Open Books" and "Closed Books". The right pane is a `QStackedWidget` switching between a linear chat view and a full branching chat tree.
+- **State Management:** Backend/domain state is authoritative. Never use UI state (like checking text content or widget properties) to determine internal logic state.
+- **Document Versioning:** Modifying AI documents defaults to creating a new nested sub-document.
+- **Current AI Interaction & Queueing (Legacy):** Document AI operations (e.g., text completion, rewriting) are currently dispatched via `QueueManager` using the legacy `queue` table, and sometimes `OllamaClient::generate` is called synchronously in the UI thread for isolated single-document text tasks. *This is a transitional legacy state, pending the complete migration to the durable AI-runs architecture (vNext).*
+- **Robust Error Notifications:** For UI error handling around non-interactive components, utilize internal application status bars rather than intrusive `QMessageBox` pop-ups unless the user is actively blocked. Ensure missing local SQLite databases show a prompt to the user and don't crash.
