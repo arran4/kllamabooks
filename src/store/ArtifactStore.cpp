@@ -524,6 +524,11 @@ Result<QList<Artifact>> ArtifactStore::getArtifacts(std::optional<ArtifactKind> 
         }
     }
     sqlite3_finalize(stmt);
+
+    if (rc != SQLITE_DONE) {
+        return Result<QList<Artifact>>::fail(TransitionError::DatabaseError, "Failed during getArtifacts iteration");
+    }
+
     return Result<QList<Artifact>>::success(items);
 }
 
