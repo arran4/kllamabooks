@@ -75,6 +75,9 @@ class ArtifactStore {
 
    private:
     db::Database& m_db;
+
+    Result<Artifact> getArtifactResult(int id) const;
+    Result<ArtifactVersion> getVersionResult(int id) const;
 };
 
 }  // namespace store

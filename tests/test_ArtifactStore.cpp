@@ -412,14 +412,51 @@ class TestArtifactStore : public QObject {
         QVERIFY(sourceArtifactResult.isSuccess());
         QCOMPARE(sourceArtifactResult.value->id, baseArtifactId);
 
-        // Edit the draft to create a descendant without a direct forked_from_version_id
-        auto editDraftResult = m_store->editVersion(draftVersionId, "Edited Draft", "Edited Content", "");
-        QVERIFY(editDraftResult.isSuccess());
+        // Seal the draft version and create a descendant
+        m_store->sealVersion(draftVersionId);
+
+        auto descendantResult = m_store->createMutableDescendant(draftVersionId, "Descendant Draft", "Content", "");
+        QVERIFY(descendantResult.isSuccess());
+
+        // The descendant has parent_id but no forked_from_version_id
+        QCOMPARE(descendantResult.value->parentId, std::optional<int>(draftVersionId));
+        QVERIFY(!descendantResult.value->forkedFromVersionId.has_value());
 
         // Resolve source again, should traverse the parent chain and still find baseArtifactId
         auto sourceArtifactResult2 = m_store->resolveSourceArtifact(draftArtifactId);
         QVERIFY(sourceArtifactResult2.isSuccess());
         QCOMPARE(sourceArtifactResult2.value->id, baseArtifactId);
+    }
+
+    void testResolveSourceArtifactUnsupportedKind() {
+        auto docResult = m_store->createArtifact(store::ArtifactKind::Document, 1, "Doc", "C", "");
+        QVERIFY(docResult.isSuccess());
+        int artifactId = docResult.value->artifactId;
+
+        auto result = m_store->resolveSourceArtifact(artifactId);
+        QVERIFY(!result.isSuccess());
+        QCOMPARE(result.error.value(), store::TransitionError::UnsupportedOperation);
+    }
+
+    void testDatabaseErrorPropagation() {
+        sqlite3* rawDbHandle = nullptr;
+        QVERIFY(sqlite3_open(":memory:", &rawDbHandle) == SQLITE_OK);
+
+        db::Database rawDb(rawDbHandle);
+        // Do NOT run schema migrations
+
+        store::ArtifactStore storeWithNoTables(rawDb);
+
+        auto getResult = storeWithNoTables.getArtifacts();
+        QVERIFY(!getResult.isSuccess());
+        QCOMPARE(getResult.error.value(), store::TransitionError::DatabaseError);
+
+        // resolveSourceArtifact calls getArtifactResult internally which should return DatabaseError
+        auto resolveResult = storeWithNoTables.resolveSourceArtifact(1);
+        QVERIFY(!resolveResult.isSuccess());
+        QCOMPARE(resolveResult.error.value(), store::TransitionError::DatabaseError);
+
+        sqlite3_close(rawDbHandle);
     }
 
     void testDeleteRollback() {

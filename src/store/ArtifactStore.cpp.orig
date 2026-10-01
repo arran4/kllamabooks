@@ -31,17 +31,16 @@ std::optional<ArtifactKind> stringToKind(const QString& kindStr) {
     return std::nullopt;
 }
 
-Result<Artifact> ArtifactStore::getArtifactResult(int id) const {
+std::optional<Artifact> ArtifactStore::getArtifact(int id) const {
     QString sql = "SELECT id, kind, folder_id, current_version_id, created_at FROM artifacts WHERE id = ?";
     sqlite3_stmt* stmt = nullptr;
     int rc = sqlite3_prepare_v2(m_db.handle(), sql.toUtf8().constData(), -1, &stmt, nullptr);
-    if (rc != SQLITE_OK)
-        return Result<Artifact>::fail(TransitionError::DatabaseError, "Failed to prepare getArtifact query");
+    if (rc != SQLITE_OK) return std::nullopt;
 
     sqlite3_bind_int(stmt, 1, id);
 
-    rc = sqlite3_step(stmt);
-    if (rc == SQLITE_ROW) {
+    std::optional<Artifact> result = std::nullopt;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
         Artifact artifact;
         artifact.id = sqlite3_column_int(stmt, 0);
 
@@ -57,40 +56,26 @@ Result<Artifact> ArtifactStore::getArtifactResult(int id) const {
                 if (createdAtText) {
                     artifact.createdAt = QString::fromUtf8(createdAtText);
                 }
-                sqlite3_finalize(stmt);
-                return Result<Artifact>::success(artifact);
+                result = artifact;
             }
         }
-        sqlite3_finalize(stmt);
-        return Result<Artifact>::fail(TransitionError::DatabaseError, "Failed to parse artifact kind");
     }
     sqlite3_finalize(stmt);
-
-    if (rc == SQLITE_DONE) {
-        return Result<Artifact>::fail(TransitionError::NotFound, "Artifact not found");
-    }
-    return Result<Artifact>::fail(TransitionError::DatabaseError, "Failed to execute getArtifact query");
+    return result;
 }
 
-std::optional<Artifact> ArtifactStore::getArtifact(int id) const {
-    auto res = getArtifactResult(id);
-    if (res.isSuccess()) return res.value;
-    return std::nullopt;
-}
-
-Result<ArtifactVersion> ArtifactStore::getVersionResult(int id) const {
+std::optional<ArtifactVersion> ArtifactStore::getVersion(int id) const {
     QString sql =
         "SELECT id, artifact_id, parent_id, forked_from_version_id, title, content, metadata, is_sealed, created_at "
         "FROM artifact_versions WHERE id = ?";
     sqlite3_stmt* stmt = nullptr;
     int rc = sqlite3_prepare_v2(m_db.handle(), sql.toUtf8().constData(), -1, &stmt, nullptr);
-    if (rc != SQLITE_OK)
-        return Result<ArtifactVersion>::fail(TransitionError::DatabaseError, "Failed to prepare getVersion query");
+    if (rc != SQLITE_OK) return std::nullopt;
 
     sqlite3_bind_int(stmt, 1, id);
 
-    rc = sqlite3_step(stmt);
-    if (rc == SQLITE_ROW) {
+    std::optional<ArtifactVersion> result = std::nullopt;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
         ArtifactVersion version;
         version.id = sqlite3_column_int(stmt, 0);
         version.artifactId = sqlite3_column_int(stmt, 1);
@@ -117,21 +102,10 @@ Result<ArtifactVersion> ArtifactStore::getVersionResult(int id) const {
         const char* createdAt = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 8));
         if (createdAt) version.createdAt = QString::fromUtf8(createdAt);
 
-        sqlite3_finalize(stmt);
-        return Result<ArtifactVersion>::success(version);
+        result = version;
     }
     sqlite3_finalize(stmt);
-
-    if (rc == SQLITE_DONE) {
-        return Result<ArtifactVersion>::fail(TransitionError::NotFound, "Version not found");
-    }
-    return Result<ArtifactVersion>::fail(TransitionError::DatabaseError, "Failed to execute getVersion query");
-}
-
-std::optional<ArtifactVersion> ArtifactStore::getVersion(int id) const {
-    auto res = getVersionResult(id);
-    if (res.isSuccess()) return res.value;
-    return std::nullopt;
+    return result;
 }
 
 std::optional<ArtifactVersion> ArtifactStore::getCurrentVersion(int artifactId) const {
@@ -488,22 +462,13 @@ Result<QList<Artifact>> ArtifactStore::getArtifacts(std::optional<ArtifactKind> 
 
     int bindIdx = 1;
     if (kind.has_value()) {
-        if (sqlite3_bind_text(stmt, bindIdx++, kindToString(*kind).toUtf8().constData(), -1, SQLITE_TRANSIENT) !=
-            SQLITE_OK) {
-            sqlite3_finalize(stmt);
-            return Result<QList<Artifact>>::fail(TransitionError::DatabaseError, "Failed to bind kind in getArtifacts");
-        }
+        sqlite3_bind_text(stmt, bindIdx++, kindToString(*kind).toUtf8().constData(), -1, SQLITE_TRANSIENT);
     }
     if (folderId.has_value()) {
-        if (sqlite3_bind_int(stmt, bindIdx++, *folderId) != SQLITE_OK) {
-            sqlite3_finalize(stmt);
-            return Result<QList<Artifact>>::fail(TransitionError::DatabaseError,
-                                                 "Failed to bind folderId in getArtifacts");
-        }
+        sqlite3_bind_int(stmt, bindIdx++, *folderId);
     }
 
-    int rc;
-    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
         Artifact artifact;
         artifact.id = sqlite3_column_int(stmt, 0);
 
@@ -528,32 +493,27 @@ Result<QList<Artifact>> ArtifactStore::getArtifacts(std::optional<ArtifactKind> 
 }
 
 Result<Artifact> ArtifactStore::resolveSourceArtifact(int draftArtifactId) const {
-    auto draftArtifactRes = getArtifactResult(draftArtifactId);
-    if (!draftArtifactRes.isSuccess()) return draftArtifactRes;
+    auto draftArtifact = getArtifact(draftArtifactId);
+    if (!draftArtifact) return Result<Artifact>::fail(TransitionError::NotFound, "Draft artifact not found");
 
-    if (draftArtifactRes.value->kind != ArtifactKind::Draft) {
-        return Result<Artifact>::fail(TransitionError::UnsupportedOperation,
-                                      "Cannot resolve source artifact of non-Draft");
-    }
-
-    int currentVersionId = draftArtifactRes.value->currentVersionId;
+    int currentVersionId = draftArtifact->currentVersionId;
     while (currentVersionId != 0) {
-        auto versionRes = getVersionResult(currentVersionId);
-        if (!versionRes.isSuccess())
-            return Result<Artifact>::fail(versionRes.error.value_or(TransitionError::DatabaseError),
-                                          versionRes.errorMessage);
+        auto version = getVersion(currentVersionId);
+        if (!version)
+            return Result<Artifact>::fail(TransitionError::DatabaseError, "Failed to retrieve version in chain");
 
-        if (versionRes.value->forkedFromVersionId.has_value()) {
-            auto sourceVersionRes = getVersionResult(*versionRes.value->forkedFromVersionId);
-            if (!sourceVersionRes.isSuccess())
-                return Result<Artifact>::fail(sourceVersionRes.error.value_or(TransitionError::DatabaseError),
-                                              sourceVersionRes.errorMessage);
+        if (version->forkedFromVersionId.has_value()) {
+            auto sourceVersion = getVersion(*version->forkedFromVersionId);
+            if (!sourceVersion)
+                return Result<Artifact>::fail(TransitionError::DatabaseError, "Source version not found");
 
-            auto sourceArtifactRes = getArtifactResult(sourceVersionRes.value->artifactId);
-            return sourceArtifactRes;
+            auto sourceArtifact = getArtifact(sourceVersion->artifactId);
+            if (!sourceArtifact)
+                return Result<Artifact>::fail(TransitionError::DatabaseError, "Source artifact not found");
+            return Result<Artifact>::success(*sourceArtifact);
         }
 
-        currentVersionId = versionRes.value->parentId.value_or(0);
+        currentVersionId = version->parentId.value_or(0);
     }
     return Result<Artifact>::fail(TransitionError::NotFound, "No source artifact found in lineage");
 }
