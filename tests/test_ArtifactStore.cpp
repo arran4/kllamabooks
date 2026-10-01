@@ -377,17 +377,21 @@ class TestArtifactStore : public QObject {
         m_store->createArtifact(store::ArtifactKind::Document, 2, "Doc3", "C4", "");
 
         auto allDocs = m_store->getArtifacts(store::ArtifactKind::Document, std::nullopt);
+        QVERIFY(allDocs.isSuccess());
         // Note: The DB is shared across tests but we recreate it in init(). So there are only 3 docs.
-        QCOMPARE(allDocs.size(), 3);
+        QCOMPARE(allDocs.value.value().size(), 3);
 
         auto folder1Docs = m_store->getArtifacts(store::ArtifactKind::Document, 1);
-        QCOMPARE(folder1Docs.size(), 2);
+        QVERIFY(folder1Docs.isSuccess());
+        QCOMPARE(folder1Docs.value.value().size(), 2);
 
         auto folder1Notes = m_store->getArtifacts(store::ArtifactKind::Note, 1);
-        QCOMPARE(folder1Notes.size(), 1);
+        QVERIFY(folder1Notes.isSuccess());
+        QCOMPARE(folder1Notes.value.value().size(), 1);
 
         auto allInFolder1 = m_store->getArtifacts(std::nullopt, 1);
-        QCOMPARE(allInFolder1.size(), 3);
+        QVERIFY(allInFolder1.isSuccess());
+        QCOMPARE(allInFolder1.value.value().size(), 3);
     }
 
     void testDraftSourceResolution() {
@@ -399,29 +403,52 @@ class TestArtifactStore : public QObject {
         m_store->sealVersion(baseVersionId);
 
         // Fork the sealed version into a Draft
-        auto draftForkResult = m_store->forkArtifact(baseVersionId, 1);
+        auto draftForkResult = m_store->createDraftFromVersion(baseVersionId, 1);
+        QVERIFY(draftForkResult.isSuccess());
+        int draftArtifactId = draftForkResult.value->artifactId;
+        int draftVersionId = draftForkResult.value->id;
+
+        auto sourceArtifactResult = m_store->resolveSourceArtifact(draftArtifactId);
+        QVERIFY(sourceArtifactResult.isSuccess());
+        QCOMPARE(sourceArtifactResult.value->id, baseArtifactId);
+
+        // Edit the draft to create a descendant without a direct forked_from_version_id
+        auto editDraftResult = m_store->editVersion(draftVersionId, "Edited Draft", "Edited Content", "");
+        QVERIFY(editDraftResult.isSuccess());
+
+        // Resolve source again, should traverse the parent chain and still find baseArtifactId
+        auto sourceArtifactResult2 = m_store->resolveSourceArtifact(draftArtifactId);
+        QVERIFY(sourceArtifactResult2.isSuccess());
+        QCOMPARE(sourceArtifactResult2.value->id, baseArtifactId);
+    }
+
+    void testDeleteRollback() {
+        auto docResult = m_store->createArtifact(store::ArtifactKind::Document, 1, "BaseDoc", "Content", "");
+        QVERIFY(docResult.isSuccess());
+        int baseVersionId = docResult.value->id;
+        int baseArtifactId = docResult.value->artifactId;
+
+        m_store->sealVersion(baseVersionId);
+
+        // Create a draft from it, which references baseVersionId via forked_from_version_id
+        auto draftForkResult = m_store->createDraftFromVersion(baseVersionId, 1);
         QVERIFY(draftForkResult.isSuccess());
         int draftArtifactId = draftForkResult.value->artifactId;
 
-        // Ensure the artifact is actually a draft for this test.
-        // `forkArtifact` inherits the kind (Document), but drafts resolve similarly.
-        // We'll update the kind in DB just for test validity if we want it to literally be a draft.
-        QString updateKindSql = QString("UPDATE artifacts SET kind = 'draft' WHERE id = %1").arg(draftArtifactId);
-        QVERIFY(m_db->execute(updateKindSql));
+        // Try to delete the base artifact, which should fail due to FK from the draft version
+        auto delResult = m_store->deleteArtifact(baseArtifactId);
+        QVERIFY(!delResult.isSuccess());
+        QCOMPARE(delResult.error.value(), store::TransitionError::DatabaseError);
 
-        auto sourceArtifactOpt = m_store->resolveSourceArtifact(draftArtifactId);
-        QVERIFY(sourceArtifactOpt.has_value());
-        QCOMPARE(sourceArtifactOpt->id, baseArtifactId);
-    }
+        // Verify rollback: base artifact and version still exist
+        auto artifact = m_store->getArtifact(baseArtifactId);
+        QVERIFY(artifact.has_value());
 
-    void testUnsupportedOperations() {
-        auto draftResult = m_store->createArtifact(store::ArtifactKind::Draft, 1, "Draft", "C", "");
-        QVERIFY(draftResult.isSuccess());
-        int draftVersionId = draftResult.value->id;
+        auto version = m_store->getVersion(baseVersionId);
+        QVERIFY(version.has_value());
 
-        auto sealResult = m_store->sealVersion(draftVersionId);
-        QVERIFY(!sealResult.isSuccess());
-        QCOMPARE(sealResult.error.value(), store::TransitionError::UnsupportedOperation);
+        // Cleanup draft so we don't leak
+        m_store->deleteArtifact(draftArtifactId);
     }
 };
 
