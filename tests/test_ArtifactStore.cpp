@@ -338,6 +338,91 @@ class TestArtifactStore : public QObject {
         QCOMPARE(forkedArtifact->folderId, 20);
         QCOMPARE(forkedArtifact->kind, store::ArtifactKind::Document);
     }
+
+    void testDeleteArtifact() {
+        auto createResult = m_store->createArtifact(store::ArtifactKind::Document, 1, "DelTitle", "DelContent", "");
+        QVERIFY(createResult.isSuccess());
+        int artifactId = createResult.value->artifactId;
+        int versionId = createResult.value->id;
+
+        auto delResult = m_store->deleteArtifact(artifactId);
+        QVERIFY2(delResult.isSuccess(), qPrintable(delResult.errorMessage));
+        QVERIFY(delResult.value.value());
+
+        auto artifact = m_store->getArtifact(artifactId);
+        QVERIFY(!artifact.has_value());
+
+        auto version = m_store->getVersion(versionId);
+        QVERIFY(!version.has_value());
+    }
+
+    void testMoveArtifact() {
+        auto createResult = m_store->createArtifact(store::ArtifactKind::Document, 1, "MoveDoc", "MoveContent", "");
+        QVERIFY(createResult.isSuccess());
+        int artifactId = createResult.value->artifactId;
+
+        auto moveResult = m_store->moveArtifact(artifactId, 42);
+        QVERIFY(moveResult.isSuccess());
+        QCOMPARE(moveResult.value->folderId, 42);
+
+        auto artifact = m_store->getArtifact(artifactId);
+        QVERIFY(artifact.has_value());
+        QCOMPARE(artifact->folderId, 42);
+    }
+
+    void testGetArtifacts() {
+        m_store->createArtifact(store::ArtifactKind::Document, 1, "Doc1", "C1", "");
+        m_store->createArtifact(store::ArtifactKind::Document, 1, "Doc2", "C2", "");
+        m_store->createArtifact(store::ArtifactKind::Note, 1, "Note1", "C3", "");
+        m_store->createArtifact(store::ArtifactKind::Document, 2, "Doc3", "C4", "");
+
+        auto allDocs = m_store->getArtifacts(store::ArtifactKind::Document, std::nullopt);
+        // Note: The DB is shared across tests but we recreate it in init(). So there are only 3 docs.
+        QCOMPARE(allDocs.size(), 3);
+
+        auto folder1Docs = m_store->getArtifacts(store::ArtifactKind::Document, 1);
+        QCOMPARE(folder1Docs.size(), 2);
+
+        auto folder1Notes = m_store->getArtifacts(store::ArtifactKind::Note, 1);
+        QCOMPARE(folder1Notes.size(), 1);
+
+        auto allInFolder1 = m_store->getArtifacts(std::nullopt, 1);
+        QCOMPARE(allInFolder1.size(), 3);
+    }
+
+    void testDraftSourceResolution() {
+        auto docResult = m_store->createArtifact(store::ArtifactKind::Document, 1, "BaseDoc", "Content", "");
+        QVERIFY(docResult.isSuccess());
+        int baseVersionId = docResult.value->id;
+        int baseArtifactId = docResult.value->artifactId;
+
+        m_store->sealVersion(baseVersionId);
+
+        // Fork the sealed version into a Draft
+        auto draftForkResult = m_store->forkArtifact(baseVersionId, 1);
+        QVERIFY(draftForkResult.isSuccess());
+        int draftArtifactId = draftForkResult.value->artifactId;
+
+        // Ensure the artifact is actually a draft for this test.
+        // `forkArtifact` inherits the kind (Document), but drafts resolve similarly.
+        // We'll update the kind in DB just for test validity if we want it to literally be a draft.
+        QString updateKindSql = QString("UPDATE artifacts SET kind = 'draft' WHERE id = %1").arg(draftArtifactId);
+        QVERIFY(m_db->execute(updateKindSql));
+
+        auto sourceArtifactOpt = m_store->resolveSourceArtifact(draftArtifactId);
+        QVERIFY(sourceArtifactOpt.has_value());
+        QCOMPARE(sourceArtifactOpt->id, baseArtifactId);
+    }
+
+    void testUnsupportedOperations() {
+        auto draftResult = m_store->createArtifact(store::ArtifactKind::Draft, 1, "Draft", "C", "");
+        QVERIFY(draftResult.isSuccess());
+        int draftVersionId = draftResult.value->id;
+
+        auto sealResult = m_store->sealVersion(draftVersionId);
+        QVERIFY(!sealResult.isSuccess());
+        QCOMPARE(sealResult.error.value(), store::TransitionError::UnsupportedOperation);
+    }
 };
 
 QTEST_MAIN(TestArtifactStore)
