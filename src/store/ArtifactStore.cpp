@@ -17,6 +17,8 @@ QString kindToString(ArtifactKind kind) {
             return "note";
         case ArtifactKind::Template:
             return "template";
+        case ArtifactKind::Draft:
+            return "draft";
     }
     return "unknown";
 }
@@ -25,19 +27,21 @@ std::optional<ArtifactKind> stringToKind(const QString& kindStr) {
     if (kindStr == "document") return ArtifactKind::Document;
     if (kindStr == "note") return ArtifactKind::Note;
     if (kindStr == "template") return ArtifactKind::Template;
+    if (kindStr == "draft") return ArtifactKind::Draft;
     return std::nullopt;
 }
 
-std::optional<Artifact> ArtifactStore::getArtifact(int id) const {
+Result<Artifact> ArtifactStore::getArtifactResult(int id) const {
     QString sql = "SELECT id, kind, folder_id, current_version_id, created_at FROM artifacts WHERE id = ?";
     sqlite3_stmt* stmt = nullptr;
     int rc = sqlite3_prepare_v2(m_db.handle(), sql.toUtf8().constData(), -1, &stmt, nullptr);
-    if (rc != SQLITE_OK) return std::nullopt;
+    if (rc != SQLITE_OK)
+        return Result<Artifact>::fail(TransitionError::DatabaseError, "Failed to prepare getArtifact query");
 
     sqlite3_bind_int(stmt, 1, id);
 
-    std::optional<Artifact> result = std::nullopt;
-    if (sqlite3_step(stmt) == SQLITE_ROW) {
+    rc = sqlite3_step(stmt);
+    if (rc == SQLITE_ROW) {
         Artifact artifact;
         artifact.id = sqlite3_column_int(stmt, 0);
 
@@ -53,26 +57,40 @@ std::optional<Artifact> ArtifactStore::getArtifact(int id) const {
                 if (createdAtText) {
                     artifact.createdAt = QString::fromUtf8(createdAtText);
                 }
-                result = artifact;
+                sqlite3_finalize(stmt);
+                return Result<Artifact>::success(artifact);
             }
         }
+        sqlite3_finalize(stmt);
+        return Result<Artifact>::fail(TransitionError::DatabaseError, "Failed to parse artifact kind");
     }
     sqlite3_finalize(stmt);
-    return result;
+
+    if (rc == SQLITE_DONE) {
+        return Result<Artifact>::fail(TransitionError::NotFound, "Artifact not found");
+    }
+    return Result<Artifact>::fail(TransitionError::DatabaseError, "Failed to execute getArtifact query");
 }
 
-std::optional<ArtifactVersion> ArtifactStore::getVersion(int id) const {
+std::optional<Artifact> ArtifactStore::getArtifact(int id) const {
+    auto res = getArtifactResult(id);
+    if (res.isSuccess()) return res.value;
+    return std::nullopt;
+}
+
+Result<ArtifactVersion> ArtifactStore::getVersionResult(int id) const {
     QString sql =
         "SELECT id, artifact_id, parent_id, forked_from_version_id, title, content, metadata, is_sealed, created_at "
         "FROM artifact_versions WHERE id = ?";
     sqlite3_stmt* stmt = nullptr;
     int rc = sqlite3_prepare_v2(m_db.handle(), sql.toUtf8().constData(), -1, &stmt, nullptr);
-    if (rc != SQLITE_OK) return std::nullopt;
+    if (rc != SQLITE_OK)
+        return Result<ArtifactVersion>::fail(TransitionError::DatabaseError, "Failed to prepare getVersion query");
 
     sqlite3_bind_int(stmt, 1, id);
 
-    std::optional<ArtifactVersion> result = std::nullopt;
-    if (sqlite3_step(stmt) == SQLITE_ROW) {
+    rc = sqlite3_step(stmt);
+    if (rc == SQLITE_ROW) {
         ArtifactVersion version;
         version.id = sqlite3_column_int(stmt, 0);
         version.artifactId = sqlite3_column_int(stmt, 1);
@@ -99,10 +117,21 @@ std::optional<ArtifactVersion> ArtifactStore::getVersion(int id) const {
         const char* createdAt = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 8));
         if (createdAt) version.createdAt = QString::fromUtf8(createdAt);
 
-        result = version;
+        sqlite3_finalize(stmt);
+        return Result<ArtifactVersion>::success(version);
     }
     sqlite3_finalize(stmt);
-    return result;
+
+    if (rc == SQLITE_DONE) {
+        return Result<ArtifactVersion>::fail(TransitionError::NotFound, "Version not found");
+    }
+    return Result<ArtifactVersion>::fail(TransitionError::DatabaseError, "Failed to execute getVersion query");
+}
+
+std::optional<ArtifactVersion> ArtifactStore::getVersion(int id) const {
+    auto res = getVersionResult(id);
+    if (res.isSuccess()) return res.value;
+    return std::nullopt;
 }
 
 std::optional<ArtifactVersion> ArtifactStore::getCurrentVersion(int artifactId) const {
@@ -439,6 +468,271 @@ Result<ArtifactVersion> ArtifactStore::forkArtifact(int expectedBaseVersionId, i
         return Result<ArtifactVersion>::success(*version);
     }
     return Result<ArtifactVersion>::fail(TransitionError::NotFound, "Failed to retrieve forked version");
+}
+
+Result<QList<Artifact>> ArtifactStore::getArtifacts(std::optional<ArtifactKind> kind,
+                                                    std::optional<int> folderId) const {
+    QList<Artifact> items;
+    QString sql = "SELECT id, kind, folder_id, current_version_id, created_at FROM artifacts WHERE 1=1";
+    if (kind.has_value()) {
+        sql += " AND kind = ?";
+    }
+    if (folderId.has_value()) {
+        sql += " AND folder_id = ?";
+    }
+
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(m_db.handle(), sql.toUtf8().constData(), -1, &stmt, nullptr) != SQLITE_OK) {
+        return Result<QList<Artifact>>::fail(TransitionError::DatabaseError, "Failed to prepare getArtifacts query");
+    }
+
+    int bindIdx = 1;
+    if (kind.has_value()) {
+        if (sqlite3_bind_text(stmt, bindIdx++, kindToString(*kind).toUtf8().constData(), -1, SQLITE_TRANSIENT) !=
+            SQLITE_OK) {
+            sqlite3_finalize(stmt);
+            return Result<QList<Artifact>>::fail(TransitionError::DatabaseError, "Failed to bind kind in getArtifacts");
+        }
+    }
+    if (folderId.has_value()) {
+        if (sqlite3_bind_int(stmt, bindIdx++, *folderId) != SQLITE_OK) {
+            sqlite3_finalize(stmt);
+            return Result<QList<Artifact>>::fail(TransitionError::DatabaseError,
+                                                 "Failed to bind folderId in getArtifacts");
+        }
+    }
+
+    int rc;
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+        Artifact artifact;
+        artifact.id = sqlite3_column_int(stmt, 0);
+
+        const char* kindText = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+        if (kindText) {
+            auto kindOpt = stringToKind(QString::fromUtf8(kindText));
+            if (kindOpt) {
+                artifact.kind = *kindOpt;
+                artifact.folderId = sqlite3_column_int(stmt, 2);
+                artifact.currentVersionId = sqlite3_column_int(stmt, 3);
+
+                const char* createdAtText = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4));
+                if (createdAtText) {
+                    artifact.createdAt = QString::fromUtf8(createdAtText);
+                }
+                items.append(artifact);
+            }
+        }
+    }
+    sqlite3_finalize(stmt);
+
+    if (rc != SQLITE_DONE) {
+        return Result<QList<Artifact>>::fail(TransitionError::DatabaseError, "Failed during getArtifacts iteration");
+    }
+
+    return Result<QList<Artifact>>::success(items);
+}
+
+Result<Artifact> ArtifactStore::resolveSourceArtifact(int draftArtifactId) const {
+    auto draftArtifactRes = getArtifactResult(draftArtifactId);
+    if (!draftArtifactRes.isSuccess()) return draftArtifactRes;
+
+    if (draftArtifactRes.value->kind != ArtifactKind::Draft) {
+        return Result<Artifact>::fail(TransitionError::UnsupportedOperation,
+                                      "Cannot resolve source artifact of non-Draft");
+    }
+
+    int currentVersionId = draftArtifactRes.value->currentVersionId;
+    while (currentVersionId != 0) {
+        auto versionRes = getVersionResult(currentVersionId);
+        if (!versionRes.isSuccess())
+            return Result<Artifact>::fail(versionRes.error.value_or(TransitionError::DatabaseError),
+                                          versionRes.errorMessage);
+
+        if (versionRes.value->forkedFromVersionId.has_value()) {
+            auto sourceVersionRes = getVersionResult(*versionRes.value->forkedFromVersionId);
+            if (!sourceVersionRes.isSuccess())
+                return Result<Artifact>::fail(sourceVersionRes.error.value_or(TransitionError::DatabaseError),
+                                              sourceVersionRes.errorMessage);
+
+            auto sourceArtifactRes = getArtifactResult(sourceVersionRes.value->artifactId);
+            return sourceArtifactRes;
+        }
+
+        currentVersionId = versionRes.value->parentId.value_or(0);
+    }
+    return Result<Artifact>::fail(TransitionError::NotFound, "No source artifact found in lineage");
+}
+
+Result<bool> ArtifactStore::deleteArtifact(int id) {
+    db::Transaction tx(m_db);
+
+    auto artifact = getArtifact(id);
+    if (!artifact) {
+        return Result<bool>::fail(TransitionError::NotFound, "Artifact not found");
+    }
+
+    // Break the cycle first: set current_version_id to 0 so we can delete the referenced version
+    QString updateArtifactSql = "UPDATE artifacts SET current_version_id = 0 WHERE id = ?";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(m_db.handle(), updateArtifactSql.toUtf8().constData(), -1, &stmt, nullptr) != SQLITE_OK) {
+        return Result<bool>::fail(TransitionError::DatabaseError, "Failed to prepare artifact update");
+    }
+    sqlite3_bind_int(stmt, 1, id);
+
+    if (sqlite3_step(stmt) != SQLITE_DONE) {
+        sqlite3_finalize(stmt);
+        return Result<bool>::fail(TransitionError::DatabaseError, "Failed to update artifact current version");
+    }
+    sqlite3_finalize(stmt);
+
+    // Now delete versions safely
+    QString deleteVersionsSql = "DELETE FROM artifact_versions WHERE artifact_id = ?";
+    if (sqlite3_prepare_v2(m_db.handle(), deleteVersionsSql.toUtf8().constData(), -1, &stmt, nullptr) != SQLITE_OK) {
+        return Result<bool>::fail(TransitionError::DatabaseError, "Failed to prepare version deletion");
+    }
+    sqlite3_bind_int(stmt, 1, id);
+
+    if (sqlite3_step(stmt) != SQLITE_DONE) {
+        sqlite3_finalize(stmt);
+        return Result<bool>::fail(TransitionError::DatabaseError, "Failed to delete versions");
+    }
+    sqlite3_finalize(stmt);
+
+    // Finally delete the artifact
+    QString deleteArtifactSql = "DELETE FROM artifacts WHERE id = ?";
+    if (sqlite3_prepare_v2(m_db.handle(), deleteArtifactSql.toUtf8().constData(), -1, &stmt, nullptr) != SQLITE_OK) {
+        return Result<bool>::fail(TransitionError::DatabaseError, "Failed to prepare artifact deletion");
+    }
+    sqlite3_bind_int(stmt, 1, id);
+
+    if (sqlite3_step(stmt) != SQLITE_DONE) {
+        sqlite3_finalize(stmt);
+        return Result<bool>::fail(TransitionError::DatabaseError, "Failed to delete artifact");
+    }
+    sqlite3_finalize(stmt);
+
+    if (!tx.commit()) {
+        return Result<bool>::fail(TransitionError::DatabaseError, "Transaction commit failed for delete");
+    }
+
+    return Result<bool>::success(true);
+}
+
+Result<Artifact> ArtifactStore::moveArtifact(int id, int newFolderId) {
+    db::Transaction tx(m_db);
+
+    auto existingArtifact = getArtifact(id);
+    if (!existingArtifact) {
+        return Result<Artifact>::fail(TransitionError::NotFound, "Artifact not found");
+    }
+
+    QString updateSql = "UPDATE artifacts SET folder_id = ? WHERE id = ?";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(m_db.handle(), updateSql.toUtf8().constData(), -1, &stmt, nullptr) != SQLITE_OK) {
+        return Result<Artifact>::fail(TransitionError::DatabaseError, "Failed to prepare artifact move");
+    }
+
+    sqlite3_bind_int(stmt, 1, newFolderId);
+    sqlite3_bind_int(stmt, 2, id);
+
+    if (sqlite3_step(stmt) != SQLITE_DONE) {
+        sqlite3_finalize(stmt);
+        return Result<Artifact>::fail(TransitionError::DatabaseError, "Failed to move artifact");
+    }
+    sqlite3_finalize(stmt);
+
+    if (!tx.commit()) {
+        return Result<Artifact>::fail(TransitionError::DatabaseError, "Transaction commit failed for move");
+    }
+
+    auto updatedArtifact = getArtifact(id);
+    if (updatedArtifact) {
+        return Result<Artifact>::success(*updatedArtifact);
+    }
+    return Result<Artifact>::fail(TransitionError::NotFound, "Failed to retrieve moved artifact");
+}
+
+Result<ArtifactVersion> ArtifactStore::createDraftFromVersion(int expectedBaseVersionId, int folderId) {
+    db::Transaction tx(m_db);
+
+    auto baseVersion = getVersion(expectedBaseVersionId);
+    if (!baseVersion) {
+        return Result<ArtifactVersion>::fail(TransitionError::NotFound, "Base version not found");
+    }
+
+    if (!baseVersion->isSealed) {
+        return Result<ArtifactVersion>::fail(TransitionError::Conflict,
+                                             "Base version must be sealed to create a draft");
+    }
+
+    auto baseArtifact = getArtifact(baseVersion->artifactId);
+    if (!baseArtifact) {
+        return Result<ArtifactVersion>::fail(TransitionError::NotFound, "Base artifact not found");
+    }
+
+    QString insertArtifactSql = "INSERT INTO artifacts (kind, folder_id) VALUES (?, ?)";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(m_db.handle(), insertArtifactSql.toUtf8().constData(), -1, &stmt, nullptr) != SQLITE_OK) {
+        return Result<ArtifactVersion>::fail(TransitionError::DatabaseError, "Failed to prepare draft artifact insert");
+    }
+
+    sqlite3_bind_text(stmt, 1, kindToString(ArtifactKind::Draft).toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 2, folderId);
+
+    if (sqlite3_step(stmt) != SQLITE_DONE) {
+        sqlite3_finalize(stmt);
+        return Result<ArtifactVersion>::fail(TransitionError::DatabaseError, "Failed to insert draft artifact");
+    }
+
+    int newArtifactId = sqlite3_last_insert_rowid(m_db.handle());
+    sqlite3_finalize(stmt);
+
+    QString insertVersionSql =
+        "INSERT INTO artifact_versions (artifact_id, parent_id, forked_from_version_id, title, content, metadata, "
+        "is_sealed) VALUES (?, NULL, ?, ?, ?, ?, 0)";
+    if (sqlite3_prepare_v2(m_db.handle(), insertVersionSql.toUtf8().constData(), -1, &stmt, nullptr) != SQLITE_OK) {
+        return Result<ArtifactVersion>::fail(TransitionError::DatabaseError, "Failed to prepare version insert");
+    }
+
+    sqlite3_bind_int(stmt, 1, newArtifactId);
+    sqlite3_bind_int(stmt, 2, expectedBaseVersionId);
+    sqlite3_bind_text(stmt, 3, baseVersion->title.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 4, baseVersion->content.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 5, baseVersion->metadata.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+
+    if (sqlite3_step(stmt) != SQLITE_DONE) {
+        sqlite3_finalize(stmt);
+        return Result<ArtifactVersion>::fail(TransitionError::DatabaseError, "Failed to insert version");
+    }
+
+    int newVersionId = sqlite3_last_insert_rowid(m_db.handle());
+    sqlite3_finalize(stmt);
+
+    QString updateArtifactSql = "UPDATE artifacts SET current_version_id = ? WHERE id = ?";
+    if (sqlite3_prepare_v2(m_db.handle(), updateArtifactSql.toUtf8().constData(), -1, &stmt, nullptr) != SQLITE_OK) {
+        return Result<ArtifactVersion>::fail(TransitionError::DatabaseError, "Failed to prepare artifact update");
+    }
+
+    sqlite3_bind_int(stmt, 1, newVersionId);
+    sqlite3_bind_int(stmt, 2, newArtifactId);
+
+    if (sqlite3_step(stmt) != SQLITE_DONE) {
+        sqlite3_finalize(stmt);
+        return Result<ArtifactVersion>::fail(TransitionError::DatabaseError,
+                                             "Failed to update artifact current version");
+    }
+    sqlite3_finalize(stmt);
+
+    if (!tx.commit()) {
+        return Result<ArtifactVersion>::fail(TransitionError::DatabaseError,
+                                             "Transaction commit failed for draft creation");
+    }
+
+    auto version = getVersion(newVersionId);
+    if (version) {
+        return Result<ArtifactVersion>::success(*version);
+    }
+    return Result<ArtifactVersion>::fail(TransitionError::NotFound, "Failed to retrieve draft version");
 }
 
 }  // namespace store
