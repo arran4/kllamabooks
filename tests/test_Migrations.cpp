@@ -462,7 +462,10 @@ void TestMigrations::testFreshSchemaEquivalence() {
          {{"template_id", "INTEGER", "", 1}, {"artifact_id", "INTEGER", "", 0}},
          {{true, {"artifact_id"}}}},
         {"legacy_draft_mapping",
-         {{"draft_id", "INTEGER", "", 1}, {"artifact_id", "INTEGER", "", 0}, {"legacy_parent_id", "INTEGER", "0", 0}, {"legacy_target_type", "TEXT", "'document'", 0}},
+         {{"draft_id", "INTEGER", "", 1},
+          {"artifact_id", "INTEGER", "", 0},
+          {"legacy_parent_id", "INTEGER", "0", 0},
+          {"legacy_target_type", "TEXT", "'document'", 0}},
          {{true, {"artifact_id"}}}},
         {"artifact_versions",
          {{"id", "INTEGER", "", 1},
@@ -948,7 +951,6 @@ void TestMigrations::testDocumentMigrationIterationFailure() {
     sqlite3_close(dbHandle);
 }
 
-
 void TestMigrations::testMigration24To25() {
     sqlite3* dbHandle;
     sqlite3_open(":memory:", &dbHandle);
@@ -966,10 +968,13 @@ void TestMigrations::testMigration24To25() {
     QVERIFY(runner24.run(db, &error));
 
     // Insert legacy data
-    db.execute("INSERT INTO documents (folder_id, title, content, metadata) VALUES (1, 'Doc 1', 'Content 1', 'Meta 1');");
+    db.execute(
+        "INSERT INTO documents (folder_id, title, content, metadata) VALUES (1, 'Doc 1', 'Content 1', 'Meta 1');");
     db.execute("INSERT INTO notes (folder_id, title, content) VALUES (2, 'Note 1', 'Content Note 1');");
     db.execute("INSERT INTO templates (title, content) VALUES ('Template 1', 'Content Template 1');");
-    db.execute("INSERT INTO drafts (folder_id, title, content, parent_id, target_type) VALUES (3, 'Draft 1', 'Content Draft 1', 10, 'message');");
+    db.execute(
+        "INSERT INTO drafts (folder_id, title, content, parent_id, target_type) VALUES (3, 'Draft 1', 'Content Draft "
+        "1', 10, 'message');");
 
     // Run migration 24->25
     db::MigrationRunner runner25;
@@ -1006,7 +1011,9 @@ void TestMigrations::testMigration24To25() {
 
     // Verify draft parent/target mapping
     sqlite3_stmt* stmt = nullptr;
-    QCOMPARE(sqlite3_prepare_v2(db.handle(), "SELECT legacy_parent_id, legacy_target_type FROM legacy_draft_mapping", -1, &stmt, nullptr), SQLITE_OK);
+    QCOMPARE(sqlite3_prepare_v2(db.handle(), "SELECT legacy_parent_id, legacy_target_type FROM legacy_draft_mapping",
+                                -1, &stmt, nullptr),
+             SQLITE_OK);
     QCOMPARE(sqlite3_step(stmt), SQLITE_ROW);
     QCOMPARE(sqlite3_column_int(stmt, 0), 10);
     QCOMPARE(QString((const char*)sqlite3_column_text(stmt, 1)), QString("message"));

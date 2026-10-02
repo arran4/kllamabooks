@@ -515,7 +515,6 @@ MigrationRunner MigrationFactory::createRunner() {
              return ok;
          }});
 
-
     runner.addMigration(
         {24, 25, "Migrate Unmapped Legacy Artifacts", [](Database& db) {
              sqlite3* handle = db.handle();
@@ -531,22 +530,26 @@ MigrationRunner MigrationFactory::createRunner() {
                  "INSERT INTO artifacts (kind, folder_id, current_version_id, created_at) "
                  "VALUES (?, ?, 0, ?);";
              sqlite3_stmt* insertArtifactStmt = nullptr;
-             if (sqlite3_prepare_v2(handle, insertArtifactSql, -1, &insertArtifactStmt, nullptr) != SQLITE_OK) return false;
+             if (sqlite3_prepare_v2(handle, insertArtifactSql, -1, &insertArtifactStmt, nullptr) != SQLITE_OK)
+                 return false;
 
              const char* insertVersionSql =
                  "INSERT INTO artifact_versions (artifact_id, title, content, metadata, created_at) "
                  "VALUES (?, ?, ?, ?, ?);";
              sqlite3_stmt* insertVersionStmt = nullptr;
-             if (sqlite3_prepare_v2(handle, insertVersionSql, -1, &insertVersionStmt, nullptr) != SQLITE_OK) return false;
+             if (sqlite3_prepare_v2(handle, insertVersionSql, -1, &insertVersionStmt, nullptr) != SQLITE_OK)
+                 return false;
 
              const char* updateArtifactSql = "UPDATE artifacts SET current_version_id = ? WHERE id = ?;";
              sqlite3_stmt* updateArtifactStmt = nullptr;
-             if (sqlite3_prepare_v2(handle, updateArtifactSql, -1, &updateArtifactStmt, nullptr) != SQLITE_OK) return false;
+             if (sqlite3_prepare_v2(handle, updateArtifactSql, -1, &updateArtifactStmt, nullptr) != SQLITE_OK)
+                 return false;
 
              const char* insertDocMappingSql =
                  "INSERT INTO legacy_document_mapping (document_id, artifact_id) VALUES (?, ?);";
              sqlite3_stmt* insertDocMappingStmt = nullptr;
-             if (sqlite3_prepare_v2(handle, insertDocMappingSql, -1, &insertDocMappingStmt, nullptr) != SQLITE_OK) return false;
+             if (sqlite3_prepare_v2(handle, insertDocMappingSql, -1, &insertDocMappingStmt, nullptr) != SQLITE_OK)
+                 return false;
 
              // 2. Unmapped notes
              bool ok = db.execute(
@@ -563,10 +566,10 @@ MigrationRunner MigrationFactory::createRunner() {
              sqlite3_stmt* selectNotesStmt = nullptr;
              if (sqlite3_prepare_v2(handle, selectNotesSql, -1, &selectNotesStmt, nullptr) != SQLITE_OK) return false;
 
-             const char* insertNoteMappingSql =
-                 "INSERT INTO legacy_note_mapping (note_id, artifact_id) VALUES (?, ?);";
+             const char* insertNoteMappingSql = "INSERT INTO legacy_note_mapping (note_id, artifact_id) VALUES (?, ?);";
              sqlite3_stmt* insertNoteMappingStmt = nullptr;
-             if (sqlite3_prepare_v2(handle, insertNoteMappingSql, -1, &insertNoteMappingStmt, nullptr) != SQLITE_OK) return false;
+             if (sqlite3_prepare_v2(handle, insertNoteMappingSql, -1, &insertNoteMappingStmt, nullptr) != SQLITE_OK)
+                 return false;
 
              // 3. Unmapped templates
              ok = db.execute(
@@ -581,12 +584,15 @@ MigrationRunner MigrationFactory::createRunner() {
                  "SELECT id, title, content, timestamp FROM templates "
                  "WHERE id NOT IN (SELECT template_id FROM legacy_template_mapping);";
              sqlite3_stmt* selectTemplatesStmt = nullptr;
-             if (sqlite3_prepare_v2(handle, selectTemplatesSql, -1, &selectTemplatesStmt, nullptr) != SQLITE_OK) return false;
+             if (sqlite3_prepare_v2(handle, selectTemplatesSql, -1, &selectTemplatesStmt, nullptr) != SQLITE_OK)
+                 return false;
 
              const char* insertTemplateMappingSql =
                  "INSERT INTO legacy_template_mapping (template_id, artifact_id) VALUES (?, ?);";
              sqlite3_stmt* insertTemplateMappingStmt = nullptr;
-             if (sqlite3_prepare_v2(handle, insertTemplateMappingSql, -1, &insertTemplateMappingStmt, nullptr) != SQLITE_OK) return false;
+             if (sqlite3_prepare_v2(handle, insertTemplateMappingSql, -1, &insertTemplateMappingStmt, nullptr) !=
+                 SQLITE_OK)
+                 return false;
 
              // 4. Unmapped drafts
              ok = db.execute(
@@ -606,15 +612,19 @@ MigrationRunner MigrationFactory::createRunner() {
              if (sqlite3_prepare_v2(handle, selectDraftsSql, -1, &selectDraftsStmt, nullptr) != SQLITE_OK) return false;
 
              const char* insertDraftMappingSql =
-                 "INSERT INTO legacy_draft_mapping (draft_id, artifact_id, legacy_parent_id, legacy_target_type) VALUES (?, ?, ?, ?);";
+                 "INSERT INTO legacy_draft_mapping (draft_id, artifact_id, legacy_parent_id, legacy_target_type) "
+                 "VALUES (?, ?, ?, ?);";
              sqlite3_stmt* insertDraftMappingStmt = nullptr;
-             if (sqlite3_prepare_v2(handle, insertDraftMappingSql, -1, &insertDraftMappingStmt, nullptr) != SQLITE_OK) return false;
+             if (sqlite3_prepare_v2(handle, insertDraftMappingSql, -1, &insertDraftMappingStmt, nullptr) != SQLITE_OK)
+                 return false;
 
              bool success = true;
              int rc;
 
              // Common function to avoid duplicating logic
-             auto insertArtifactAndVersion = [&](const char* kind, int folderId, const char* title, const char* content, const char* metadata, const char* timestamp, sqlite3_int64& outArtifactId) -> bool {
+             auto insertArtifactAndVersion = [&](const char* kind, int folderId, const char* title, const char* content,
+                                                 const char* metadata, const char* timestamp,
+                                                 sqlite3_int64& outArtifactId) -> bool {
                  sqlite3_bind_text(insertArtifactStmt, 1, kind, -1, SQLITE_STATIC);
                  sqlite3_bind_int(insertArtifactStmt, 2, folderId);
                  sqlite3_bind_text(insertArtifactStmt, 3, timestamp, -1, SQLITE_STATIC);
@@ -648,12 +658,16 @@ MigrationRunner MigrationFactory::createRunner() {
 
                  sqlite3_int64 artifactId;
                  if (!insertArtifactAndVersion("document", folderId, title, content, metadata, timestamp, artifactId)) {
-                     success = false; break;
+                     success = false;
+                     break;
                  }
 
                  sqlite3_bind_int(insertDocMappingStmt, 1, docId);
                  sqlite3_bind_int64(insertDocMappingStmt, 2, artifactId);
-                 if (sqlite3_step(insertDocMappingStmt) != SQLITE_DONE) { success = false; break; }
+                 if (sqlite3_step(insertDocMappingStmt) != SQLITE_DONE) {
+                     success = false;
+                     break;
+                 }
                  sqlite3_reset(insertDocMappingStmt);
              }
              if (rc != SQLITE_DONE) success = false;
@@ -667,12 +681,16 @@ MigrationRunner MigrationFactory::createRunner() {
 
                  sqlite3_int64 artifactId;
                  if (!insertArtifactAndVersion("note", folderId, title, content, "", timestamp, artifactId)) {
-                     success = false; break;
+                     success = false;
+                     break;
                  }
 
                  sqlite3_bind_int(insertNoteMappingStmt, 1, noteId);
                  sqlite3_bind_int64(insertNoteMappingStmt, 2, artifactId);
-                 if (sqlite3_step(insertNoteMappingStmt) != SQLITE_DONE) { success = false; break; }
+                 if (sqlite3_step(insertNoteMappingStmt) != SQLITE_DONE) {
+                     success = false;
+                     break;
+                 }
                  sqlite3_reset(insertNoteMappingStmt);
              }
              if (rc != SQLITE_DONE) success = false;
@@ -685,12 +703,16 @@ MigrationRunner MigrationFactory::createRunner() {
 
                  sqlite3_int64 artifactId;
                  if (!insertArtifactAndVersion("template", 0, title, content, "", timestamp, artifactId)) {
-                     success = false; break;
+                     success = false;
+                     break;
                  }
 
                  sqlite3_bind_int(insertTemplateMappingStmt, 1, templateId);
                  sqlite3_bind_int64(insertTemplateMappingStmt, 2, artifactId);
-                 if (sqlite3_step(insertTemplateMappingStmt) != SQLITE_DONE) { success = false; break; }
+                 if (sqlite3_step(insertTemplateMappingStmt) != SQLITE_DONE) {
+                     success = false;
+                     break;
+                 }
                  sqlite3_reset(insertTemplateMappingStmt);
              }
              if (rc != SQLITE_DONE) success = false;
@@ -706,14 +728,18 @@ MigrationRunner MigrationFactory::createRunner() {
 
                  sqlite3_int64 artifactId;
                  if (!insertArtifactAndVersion("draft", folderId, title, content, "", timestamp, artifactId)) {
-                     success = false; break;
+                     success = false;
+                     break;
                  }
 
                  sqlite3_bind_int(insertDraftMappingStmt, 1, draftId);
                  sqlite3_bind_int64(insertDraftMappingStmt, 2, artifactId);
                  sqlite3_bind_int(insertDraftMappingStmt, 3, parentId);
                  sqlite3_bind_text(insertDraftMappingStmt, 4, targetType, -1, SQLITE_STATIC);
-                 if (sqlite3_step(insertDraftMappingStmt) != SQLITE_DONE) { success = false; break; }
+                 if (sqlite3_step(insertDraftMappingStmt) != SQLITE_DONE) {
+                     success = false;
+                     break;
+                 }
                  sqlite3_reset(insertDraftMappingStmt);
              }
              if (rc != SQLITE_DONE) success = false;
