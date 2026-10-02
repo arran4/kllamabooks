@@ -206,6 +206,7 @@ class TestMigrations : public QObject {
     void testDocumentMigrationIntegrity();
     void testDocumentMigrationPreservation();
     void testDocumentMigrationIterationFailure();
+    void testMigration24To25();
 };
 
 void TestMigrations::testFreshDatabaseMigration() {
@@ -454,6 +455,15 @@ void TestMigrations::testFreshSchemaEquivalence() {
         {"legacy_document_mapping",
          {{"document_id", "INTEGER", "", 1}, {"artifact_id", "INTEGER", "", 0}},
          {{true, {"artifact_id"}}}},
+        {"legacy_note_mapping",
+         {{"note_id", "INTEGER", "", 1}, {"artifact_id", "INTEGER", "", 0}},
+         {{true, {"artifact_id"}}}},
+        {"legacy_template_mapping",
+         {{"template_id", "INTEGER", "", 1}, {"artifact_id", "INTEGER", "", 0}},
+         {{true, {"artifact_id"}}}},
+        {"legacy_draft_mapping",
+         {{"draft_id", "INTEGER", "", 1}, {"artifact_id", "INTEGER", "", 0}, {"legacy_parent_id", "INTEGER", "0", 0}, {"legacy_target_type", "TEXT", "'document'", 0}},
+         {{true, {"artifact_id"}}}},
         {"artifact_versions",
          {{"id", "INTEGER", "", 1},
           {"artifact_id", "INTEGER", "", 0},
@@ -469,9 +479,9 @@ void TestMigrations::testFreshSchemaEquivalence() {
 
     int version = 0;
     QVERIFY(db.queryInt("PRAGMA user_version;", version));
-    QCOMPARE(version, 24);
+    QCOMPARE(version, 25);
     QVERIFY(db.queryInt("SELECT MAX(version) FROM schema_version;", version));
-    QCOMPARE(version, 24);
+    QCOMPARE(version, 25);
 
     sqlite3_close(dbHandle);
 }
@@ -935,6 +945,95 @@ void TestMigrations::testDocumentMigrationIterationFailure() {
     QVERIFY(db.queryInt("SELECT MAX(version) FROM schema_version", version));
     QCOMPARE(version, 22);
 
+    sqlite3_close(dbHandle);
+}
+
+
+void TestMigrations::testMigration24To25() {
+    sqlite3* dbHandle;
+    sqlite3_open(":memory:", &dbHandle);
+    db::Database db(dbHandle);
+
+    db::MigrationRunner runner = db::MigrationFactory::createRunner();
+    db::MigrationRunner runner24;
+    for (const auto& m : runner.getMigrations()) {
+        if (m.toVersion <= 24) {
+            runner24.addMigration(m);
+        }
+    }
+
+    QString error;
+    QVERIFY(runner24.run(db, &error));
+
+    // Insert legacy data
+    db.execute("INSERT INTO documents (folder_id, title, content, metadata) VALUES (1, 'Doc 1', 'Content 1', 'Meta 1');");
+    db.execute("INSERT INTO notes (folder_id, title, content) VALUES (2, 'Note 1', 'Content Note 1');");
+    db.execute("INSERT INTO templates (title, content) VALUES ('Template 1', 'Content Template 1');");
+    db.execute("INSERT INTO drafts (folder_id, title, content, parent_id, target_type) VALUES (3, 'Draft 1', 'Content Draft 1', 10, 'message');");
+
+    // Run migration 24->25
+    db::MigrationRunner runner25;
+    for (const auto& m : runner.getMigrations()) {
+        if (m.toVersion == 25) {
+            runner25.addMigration(m);
+        }
+    }
+
+    QVERIFY(runner25.run(db, &error));
+
+    // Assert mappings exist
+    int count = 0;
+    db.queryInt("SELECT COUNT(*) FROM artifacts", count);
+    QCOMPARE(count, 4);
+    db.queryInt("SELECT COUNT(*) FROM legacy_document_mapping", count);
+    QCOMPARE(count, 1);
+    db.queryInt("SELECT COUNT(*) FROM legacy_note_mapping", count);
+    QCOMPARE(count, 1);
+    db.queryInt("SELECT COUNT(*) FROM legacy_template_mapping", count);
+    QCOMPARE(count, 1);
+    db.queryInt("SELECT COUNT(*) FROM legacy_draft_mapping", count);
+    QCOMPARE(count, 1);
+
+    // Verify artifact kinds
+    db.queryInt("SELECT COUNT(*) FROM artifacts WHERE kind = 'document'", count);
+    QCOMPARE(count, 1);
+    db.queryInt("SELECT COUNT(*) FROM artifacts WHERE kind = 'note'", count);
+    QCOMPARE(count, 1);
+    db.queryInt("SELECT COUNT(*) FROM artifacts WHERE kind = 'template'", count);
+    QCOMPARE(count, 1);
+    db.queryInt("SELECT COUNT(*) FROM artifacts WHERE kind = 'draft'", count);
+    QCOMPARE(count, 1);
+
+    // Verify draft parent/target mapping
+    sqlite3_stmt* stmt = nullptr;
+    QCOMPARE(sqlite3_prepare_v2(db.handle(), "SELECT legacy_parent_id, legacy_target_type FROM legacy_draft_mapping", -1, &stmt, nullptr), SQLITE_OK);
+    QCOMPARE(sqlite3_step(stmt), SQLITE_ROW);
+    QCOMPARE(sqlite3_column_int(stmt, 0), 10);
+    QCOMPARE(QString((const char*)sqlite3_column_text(stmt, 1)), QString("message"));
+    sqlite3_finalize(stmt);
+
+    // Verify idempotency
+    QVERIFY(runner25.run(db, &error));
+    db.queryInt("SELECT COUNT(*) FROM artifacts", count);
+    QCOMPARE(count, 4);
+
+    // Inject migration failure (simulate table lock or schema violation on a fresh run)
+    sqlite3* dbHandleFail;
+    sqlite3_open(":memory:", &dbHandleFail);
+    db::Database dbFail(dbHandleFail);
+    QVERIFY(runner24.run(dbFail, &error));
+
+    // Create conflicting table to trigger failure
+    dbFail.execute("CREATE TABLE legacy_note_mapping (note_id TEXT);");
+
+    QVERIFY(!runner25.run(dbFail, &error));
+
+    // Verify rollback
+    int version = 0;
+    dbFail.queryInt("PRAGMA user_version;", version);
+    QCOMPARE(version, 24);
+
+    sqlite3_close(dbHandleFail);
     sqlite3_close(dbHandle);
 }
 
