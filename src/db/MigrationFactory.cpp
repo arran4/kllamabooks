@@ -624,13 +624,17 @@ MigrationRunner MigrationFactory::createRunner() {
                                                  const QString& title, const QString& content, const QString& metadata,
                                                  const QString& timestamp, sqlite3_int64& outArtifactId) -> bool {
                  if (sqlite3_reset(insertArtifactStmt) != SQLITE_OK) return false;
-                 if (sqlite3_bind_text(insertArtifactStmt, 1, kind.toUtf8().constData(), -1, SQLITE_TRANSIENT) != SQLITE_OK) return false;
+                 if (sqlite3_bind_text(insertArtifactStmt, 1, kind.toUtf8().constData(), -1, SQLITE_TRANSIENT) !=
+                     SQLITE_OK)
+                     return false;
                  if (folderId.has_value()) {
                      if (sqlite3_bind_int64(insertArtifactStmt, 2, folderId.value()) != SQLITE_OK) return false;
                  } else {
                      if (sqlite3_bind_null(insertArtifactStmt, 2) != SQLITE_OK) return false;
                  }
-                 if (sqlite3_bind_text(insertArtifactStmt, 3, timestamp.toUtf8().constData(), -1, SQLITE_TRANSIENT) != SQLITE_OK) return false;
+                 if (sqlite3_bind_text(insertArtifactStmt, 3, timestamp.toUtf8().constData(), -1, SQLITE_TRANSIENT) !=
+                     SQLITE_OK)
+                     return false;
 
                  if (sqlite3_step(insertArtifactStmt) != SQLITE_ROW) return false;
                  outArtifactId = sqlite3_column_int64(insertArtifactStmt, 0);
@@ -638,22 +642,30 @@ MigrationRunner MigrationFactory::createRunner() {
                  if (sqlite3_reset(insertVersionStmt) != SQLITE_OK) return false;
                  if (sqlite3_bind_int64(insertVersionStmt, 1, outArtifactId) != SQLITE_OK) return false;
                  if (!title.isNull()) {
-                     if (sqlite3_bind_text(insertVersionStmt, 2, title.toUtf8().constData(), -1, SQLITE_TRANSIENT) != SQLITE_OK) return false;
+                     if (sqlite3_bind_text(insertVersionStmt, 2, title.toUtf8().constData(), -1, SQLITE_TRANSIENT) !=
+                         SQLITE_OK)
+                         return false;
                  } else {
                      if (sqlite3_bind_null(insertVersionStmt, 2) != SQLITE_OK) return false;
                  }
                  if (!content.isNull()) {
-                     if (sqlite3_bind_text(insertVersionStmt, 3, content.toUtf8().constData(), -1, SQLITE_TRANSIENT) != SQLITE_OK) return false;
+                     if (sqlite3_bind_text(insertVersionStmt, 3, content.toUtf8().constData(), -1, SQLITE_TRANSIENT) !=
+                         SQLITE_OK)
+                         return false;
                  } else {
                      if (sqlite3_bind_null(insertVersionStmt, 3) != SQLITE_OK) return false;
                  }
                  if (!metadata.isNull()) {
-                     if (sqlite3_bind_text(insertVersionStmt, 4, metadata.toUtf8().constData(), -1, SQLITE_TRANSIENT) != SQLITE_OK) return false;
+                     if (sqlite3_bind_text(insertVersionStmt, 4, metadata.toUtf8().constData(), -1, SQLITE_TRANSIENT) !=
+                         SQLITE_OK)
+                         return false;
                  } else {
                      if (sqlite3_bind_null(insertVersionStmt, 4) != SQLITE_OK) return false;
                  }
                  if (!timestamp.isNull()) {
-                     if (sqlite3_bind_text(insertVersionStmt, 5, timestamp.toUtf8().constData(), -1, SQLITE_TRANSIENT) != SQLITE_OK) return false;
+                     if (sqlite3_bind_text(insertVersionStmt, 5, timestamp.toUtf8().constData(), -1,
+                                           SQLITE_TRANSIENT) != SQLITE_OK)
+                         return false;
                  } else {
                      if (sqlite3_bind_null(insertVersionStmt, 5) != SQLITE_OK) return false;
                  }
@@ -784,7 +796,8 @@ MigrationRunner MigrationFactory::createRunner() {
                      &selectDraftsStmt, nullptr) != SQLITE_OK)
                  return fail();
 
-             while (sqlite3_step(selectDraftsStmt) == SQLITE_ROW) {
+             int rcDrafts;
+             while ((rcDrafts = sqlite3_step(selectDraftsStmt)) == SQLITE_ROW) {
                  sqlite3_int64 draftId = sqlite3_column_int64(selectDraftsStmt, 0);
                  std::optional<sqlite3_int64> folderId;
                  if (sqlite3_column_type(selectDraftsStmt, 1) != SQLITE_NULL) {
@@ -822,13 +835,15 @@ MigrationRunner MigrationFactory::createRunner() {
                  if (sqlite3_bind_int64(insertDraftMappingStmt, 1, draftId) != SQLITE_OK) return fail();
                  if (sqlite3_bind_int64(insertDraftMappingStmt, 2, artifactId) != SQLITE_OK) return fail();
                  if (legacyParentId.has_value()) {
-                     if (sqlite3_bind_int64(insertDraftMappingStmt, 3, legacyParentId.value()) != SQLITE_OK) return fail();
+                     if (sqlite3_bind_int64(insertDraftMappingStmt, 3, legacyParentId.value()) != SQLITE_OK)
+                         return fail();
                  } else {
                      if (sqlite3_bind_null(insertDraftMappingStmt, 3) != SQLITE_OK) return fail();
                  }
                  if (legacyTargetType.has_value()) {
                      if (sqlite3_bind_text(insertDraftMappingStmt, 4, legacyTargetType.value().toUtf8().constData(), -1,
-                                       SQLITE_TRANSIENT) != SQLITE_OK) return fail();
+                                           SQLITE_TRANSIENT) != SQLITE_OK)
+                         return fail();
                  } else {
                      if (sqlite3_bind_null(insertDraftMappingStmt, 4) != SQLITE_OK) return fail();
                  }
