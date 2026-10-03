@@ -457,16 +457,16 @@ void TestMigrations::testFreshSchemaEquivalence() {
          {{true, {"artifact_id"}}}},
         {"legacy_note_mapping",
          {{"note_id", "INTEGER", "", 1}, {"artifact_id", "INTEGER", "", 0}},
-         {}},
+         {{true, {"artifact_id"}}}},
         {"legacy_template_mapping",
          {{"template_id", "INTEGER", "", 1}, {"artifact_id", "INTEGER", "", 0}},
-         {}},
+         {{true, {"artifact_id"}}}},
         {"legacy_draft_mapping",
          {{"draft_id", "INTEGER", "", 1},
           {"artifact_id", "INTEGER", "", 0},
           {"legacy_parent_id", "INTEGER", "", 0},
           {"legacy_target_type", "TEXT", "", 0}},
-         {}},
+         {{true, {"artifact_id"}}}},
         {"artifact_versions",
          {{"id", "INTEGER", "", 1},
           {"artifact_id", "INTEGER", "", 0},
@@ -1122,14 +1122,26 @@ void TestMigrations::testMigration24To25() {
     db.queryInt("SELECT COUNT(*) FROM artifacts", count);
     QCOMPARE(count, 7);
 
-    // Inject migration failure (simulate table lock or schema violation on a fresh run)
+    // Inject migration failure AFTER some rows are created
     sqlite3* dbHandleFail;
     sqlite3_open(":memory:", &dbHandleFail);
     db::Database dbFail(dbHandleFail);
     QVERIFY(runner24.run(dbFail, &error));
 
-    // Create conflicting table to trigger failure
-    dbFail.execute("CREATE TABLE legacy_note_mapping (note_id TEXT);");
+    // Seed some documents and notes
+    dbFail.execute(
+        "INSERT INTO documents (folder_id, title, content, metadata) VALUES (1, 'Doc 1', 'Content 1', 'Meta 1');");
+    dbFail.execute("INSERT INTO notes (folder_id, title, content) VALUES (2, 'Note 1', 'Content Note 1');");
+    dbFail.execute(
+        "INSERT INTO drafts (folder_id, title, content, parent_id, target_type) VALUES (3, 'Draft 1', 'Content Draft "
+        "1', 1, 'document');");
+
+    // Create conflicting table to trigger failure at drafts
+    dbFail.execute("CREATE TABLE legacy_draft_mapping (draft_id INTEGER);");
+
+    int artifactsBefore = 0;
+    dbFail.queryInt("SELECT COUNT(*) FROM artifacts", artifactsBefore);
+    QCOMPARE(artifactsBefore, 0);
 
     QVERIFY(!runner25.run(dbFail, &error));
 
@@ -1137,10 +1149,17 @@ void TestMigrations::testMigration24To25() {
     int version = 0;
     dbFail.queryInt("PRAGMA user_version;", version);
     QCOMPARE(version, 24);
-    dbFail.queryInt("SELECT COUNT(*) FROM sqlite_master WHERE name='legacy_draft_mapping'", count);
-    QCOMPARE(count, 0);  // Table was rolled back
+
+    int schemaVersion = 0;
+    dbFail.queryInt("SELECT MAX(version) FROM schema_version;", schemaVersion);
+    QCOMPARE(schemaVersion, 24);
+
+    dbFail.queryInt("SELECT COUNT(*) FROM artifacts", count);
+    QCOMPARE(count, artifactsBefore);
 
     // Check that we fully rolled back mappings and artifacts created in v25
+    dbFail.queryInt("SELECT COUNT(*) FROM sqlite_master WHERE name='legacy_note_mapping'", count);
+    QCOMPARE(count, 0);
     dbFail.queryInt("SELECT COUNT(*) FROM sqlite_master WHERE name='legacy_template_mapping'", count);
     QCOMPARE(count, 0);
 
