@@ -637,10 +637,22 @@ MigrationRunner MigrationFactory::createRunner() {
 
                  sqlite3_reset(insertVersionStmt);
                  sqlite3_bind_int64(insertVersionStmt, 1, outArtifactId);
-                 sqlite3_bind_text(insertVersionStmt, 2, title.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-                 sqlite3_bind_text(insertVersionStmt, 3, content.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-                 sqlite3_bind_text(insertVersionStmt, 4, metadata.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-                 sqlite3_bind_text(insertVersionStmt, 5, timestamp.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+                 if (!title.isNull())
+                     sqlite3_bind_text(insertVersionStmt, 2, title.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+                 else
+                     sqlite3_bind_null(insertVersionStmt, 2);
+                 if (!content.isNull())
+                     sqlite3_bind_text(insertVersionStmt, 3, content.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+                 else
+                     sqlite3_bind_null(insertVersionStmt, 3);
+                 if (!metadata.isNull())
+                     sqlite3_bind_text(insertVersionStmt, 4, metadata.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+                 else
+                     sqlite3_bind_null(insertVersionStmt, 4);
+                 if (!timestamp.isNull())
+                     sqlite3_bind_text(insertVersionStmt, 5, timestamp.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+                 else
+                     sqlite3_bind_null(insertVersionStmt, 5);
 
                  if (sqlite3_step(insertVersionStmt) != SQLITE_ROW) return false;
                  sqlite3_int64 versionId = sqlite3_column_int64(insertVersionStmt, 0);
@@ -686,6 +698,7 @@ MigrationRunner MigrationFactory::createRunner() {
                  sqlite3_bind_int64(insertDocMappingStmt, 2, artifactId);
                  if (sqlite3_step(insertDocMappingStmt) != SQLITE_DONE) return fail();
              }
+             if (rcDocs != SQLITE_DONE) return fail();
 
              // 2. Notes
              if (sqlite3_prepare_v2(handle,
@@ -701,12 +714,17 @@ MigrationRunner MigrationFactory::createRunner() {
                  if (sqlite3_column_type(selectNotesStmt, 1) != SQLITE_NULL) {
                      folderId = sqlite3_column_int64(selectNotesStmt, 1);
                  }
-                 QString title =
-                     QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(selectNotesStmt, 2)));
-                 QString content =
-                     QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(selectNotesStmt, 3)));
-                 QString timestamp =
-                     QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(selectNotesStmt, 4)));
+                 QString title;
+                 if (sqlite3_column_type(selectNotesStmt, 2) != SQLITE_NULL)
+                     title = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(selectNotesStmt, 2)));
+                 QString content;
+                 if (sqlite3_column_type(selectNotesStmt, 3) != SQLITE_NULL)
+                     content =
+                         QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(selectNotesStmt, 3)));
+                 QString timestamp;
+                 if (sqlite3_column_type(selectNotesStmt, 4) != SQLITE_NULL)
+                     timestamp =
+                         QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(selectNotesStmt, 4)));
 
                  sqlite3_int64 artifactId;
                  if (!insertArtifactAndVersion("note", folderId, title, content, "", timestamp, artifactId))
@@ -717,6 +735,7 @@ MigrationRunner MigrationFactory::createRunner() {
                  sqlite3_bind_int64(insertNoteMappingStmt, 2, artifactId);
                  if (sqlite3_step(insertNoteMappingStmt) != SQLITE_DONE) return fail();
              }
+             if (rc != SQLITE_DONE) return fail();
 
              // 3. Templates
              if (sqlite3_prepare_v2(handle,
@@ -731,12 +750,18 @@ MigrationRunner MigrationFactory::createRunner() {
                  if (sqlite3_column_type(selectTemplatesStmt, 1) != SQLITE_NULL) {
                      folderId = sqlite3_column_int64(selectTemplatesStmt, 1);
                  }
-                 QString title =
-                     QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(selectTemplatesStmt, 2)));
-                 QString content =
-                     QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(selectTemplatesStmt, 3)));
-                 QString timestamp =
-                     QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(selectTemplatesStmt, 4)));
+                 QString title;
+                 if (sqlite3_column_type(selectTemplatesStmt, 2) != SQLITE_NULL)
+                     title =
+                         QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(selectTemplatesStmt, 2)));
+                 QString content;
+                 if (sqlite3_column_type(selectTemplatesStmt, 3) != SQLITE_NULL)
+                     content =
+                         QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(selectTemplatesStmt, 3)));
+                 QString timestamp;
+                 if (sqlite3_column_type(selectTemplatesStmt, 4) != SQLITE_NULL)
+                     timestamp =
+                         QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(selectTemplatesStmt, 4)));
 
                  sqlite3_int64 artifactId;
                  if (!insertArtifactAndVersion("template", folderId, title, content, "", timestamp, artifactId))
@@ -747,6 +772,7 @@ MigrationRunner MigrationFactory::createRunner() {
                  sqlite3_bind_int64(insertTemplateMappingStmt, 2, artifactId);
                  if (sqlite3_step(insertTemplateMappingStmt) != SQLITE_DONE) return fail();
              }
+             if (rc != SQLITE_DONE) return fail();
 
              // 4. Drafts (Phase A - Insert)
              if (sqlite3_prepare_v2(
@@ -760,10 +786,13 @@ MigrationRunner MigrationFactory::createRunner() {
                  if (sqlite3_column_type(selectDraftsStmt, 1) != SQLITE_NULL) {
                      folderId = sqlite3_column_int64(selectDraftsStmt, 1);
                  }
-                 QString title =
-                     QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(selectDraftsStmt, 2)));
-                 QString content =
-                     QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(selectDraftsStmt, 3)));
+                 QString title;
+                 if (sqlite3_column_type(selectDraftsStmt, 2) != SQLITE_NULL)
+                     title = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(selectDraftsStmt, 2)));
+                 QString content;
+                 if (sqlite3_column_type(selectDraftsStmt, 3) != SQLITE_NULL)
+                     content =
+                         QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(selectDraftsStmt, 3)));
 
                  std::optional<sqlite3_int64> legacyParentId;
                  if (sqlite3_column_type(selectDraftsStmt, 4) != SQLITE_NULL) {
@@ -776,8 +805,10 @@ MigrationRunner MigrationFactory::createRunner() {
                          QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(selectDraftsStmt, 5)));
                  }
 
-                 QString timestamp =
-                     QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(selectDraftsStmt, 6)));
+                 QString timestamp;
+                 if (sqlite3_column_type(selectDraftsStmt, 6) != SQLITE_NULL)
+                     timestamp =
+                         QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(selectDraftsStmt, 6)));
 
                  sqlite3_int64 artifactId;
                  if (!insertArtifactAndVersion("draft", folderId, title, content, "", timestamp, artifactId))
@@ -800,6 +831,7 @@ MigrationRunner MigrationFactory::createRunner() {
 
                  if (sqlite3_step(insertDraftMappingStmt) != SQLITE_DONE) return fail();
              }
+             if (rc != SQLITE_DONE) return fail();
 
              // Drafts Phase B: Lineage resolution
              if (sqlite3_prepare_v2(
@@ -860,18 +892,40 @@ MigrationRunner MigrationFactory::createRunner() {
                      resolveStmt = resolveDraftLineageStmt;
 
                  if (resolveStmt) {
-                     sqlite3_reset(resolveStmt);
-                     sqlite3_bind_int64(resolveStmt, 1, parentId);
-                     if (sqlite3_step(resolveStmt) == SQLITE_ROW) {
+                     if (sqlite3_reset(resolveStmt) != SQLITE_OK) return fail();
+                     if (sqlite3_bind_int64(resolveStmt, 1, parentId) != SQLITE_OK) return fail();
+
+                     int resRc = sqlite3_step(resolveStmt);
+                     if (resRc == SQLITE_ROW) {
                          sqlite3_int64 parentVersionId = sqlite3_column_int64(resolveStmt, 0);
 
-                         sqlite3_reset(updateForkedVersionStmt);
-                         sqlite3_bind_int64(updateForkedVersionStmt, 1, parentVersionId);
-                         sqlite3_bind_int64(updateForkedVersionStmt, 2, artifactId);
+                         if (sqlite3_reset(updateForkedVersionStmt) != SQLITE_OK) return fail();
+                         if (sqlite3_bind_int64(updateForkedVersionStmt, 1, parentVersionId) != SQLITE_OK)
+                             return fail();
+                         if (sqlite3_bind_int64(updateForkedVersionStmt, 2, artifactId) != SQLITE_OK) return fail();
                          if (sqlite3_step(updateForkedVersionStmt) != SQLITE_DONE) return fail();
+                     } else if (resRc != SQLITE_DONE) {
+                         return fail();  // Database error, not just 'no resolution'
                      }
                  }
              }
+             if (rc != SQLITE_DONE) return fail();
+
+             sqlite3_stmt* sealStmt = nullptr;
+             if (sqlite3_prepare_v2(
+                     handle,
+                     "UPDATE artifact_versions SET is_sealed = 1 WHERE id IN (SELECT "
+                     "forked_from_version_id FROM artifact_versions WHERE forked_from_version_id IS NOT NULL)",
+                     -1, &sealStmt, nullptr) != SQLITE_OK) {
+                 cleanup();
+                 return false;
+             }
+             if (sqlite3_step(sealStmt) != SQLITE_DONE) {
+                 sqlite3_finalize(sealStmt);
+                 cleanup();
+                 return false;
+             }
+             sqlite3_finalize(sealStmt);
 
              cleanup();
              return true;

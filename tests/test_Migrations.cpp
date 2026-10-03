@@ -997,6 +997,8 @@ void TestMigrations::testMigration24To25() {
     QVERIFY(
         db.execute("INSERT INTO notes (folder_id, title, content, timestamp) VALUES (2, 'Note 1', 'Content Note 1', "
                    "'2025-01-01 10:00:02');"));
+    // Insert a NULL title and content note to prove exact preservation of NULLs
+    QVERIFY(db.execute("INSERT INTO notes (folder_id, timestamp) VALUES (10, '2025-01-01 10:00:09');"));
     QVERIFY(
         db.execute("INSERT INTO templates (folder_id, title, content, timestamp) VALUES (5, 'Template 1', 'Content "
                    "Template 1', '2025-01-01 10:00:03');"));
@@ -1026,6 +1028,11 @@ void TestMigrations::testMigration24To25() {
         "INSERT INTO drafts (folder_id, title, content, parent_id, target_type, timestamp) VALUES (7, 'Draft 5', "
         "'Content Draft 5', 1, 'unknown_type', '2025-01-01 10:00:08');"));
 
+    // Draft that is a child of another draft (draft 1, which has ID 1 locally)
+    QVERIFY(db.execute(
+        "INSERT INTO drafts (folder_id, title, content, parent_id, target_type, timestamp) VALUES (8, 'Draft 6', "
+        "'Content Draft 6', 1, 'draft', '2025-01-01 10:00:09');"));
+
     // Run migration 24->25
     db::MigrationRunner runner25;
     for (const auto& m : runner.getMigrations()) {
@@ -1039,25 +1046,25 @@ void TestMigrations::testMigration24To25() {
     // Assert mappings exist
     int count = 0;
     db.queryInt("SELECT COUNT(*) FROM artifacts", count);
-    QCOMPARE(count, 9);
+    QCOMPARE(count, 11);
     db.queryInt("SELECT COUNT(*) FROM legacy_document_mapping", count);
     QCOMPARE(count, 2);
     db.queryInt("SELECT COUNT(*) FROM legacy_note_mapping", count);
-    QCOMPARE(count, 1);
+    QCOMPARE(count, 2);
     db.queryInt("SELECT COUNT(*) FROM legacy_template_mapping", count);
     QCOMPARE(count, 1);
     db.queryInt("SELECT COUNT(*) FROM legacy_draft_mapping", count);
-    QCOMPARE(count, 5);
+    QCOMPARE(count, 6);
 
     // Verify artifact kinds
     db.queryInt("SELECT COUNT(*) FROM artifacts WHERE kind = 'document'", count);
     QCOMPARE(count, 2);
     db.queryInt("SELECT COUNT(*) FROM artifacts WHERE kind = 'note'", count);
-    QCOMPARE(count, 1);
+    QCOMPARE(count, 2);
     db.queryInt("SELECT COUNT(*) FROM artifacts WHERE kind = 'template'", count);
     QCOMPARE(count, 1);
     db.queryInt("SELECT COUNT(*) FROM artifacts WHERE kind = 'draft'", count);
-    QCOMPARE(count, 5);
+    QCOMPARE(count, 6);
 
     // Verify template folder preservation
     int folderId = 0;
@@ -1133,7 +1140,7 @@ void TestMigrations::testMigration24To25() {
     // Verify idempotency
     QVERIFY(runner25.run(db, &error));
     db.queryInt("SELECT COUNT(*) FROM artifacts", count);
-    QCOMPARE(count, 9);
+    QCOMPARE(count, 11);
 
     // Inject migration failure AFTER some rows are created
     sqlite3* dbHandleFail;
@@ -1175,6 +1182,42 @@ void TestMigrations::testMigration24To25() {
     QCOMPARE(count, 0);
     dbFail.queryInt("SELECT COUNT(*) FROM sqlite_master WHERE name='legacy_template_mapping'", count);
     QCOMPARE(count, 0);
+
+    // Verify mapped document remains the same and is not duplicated
+    int mappedArtId = 0;
+    QVERIFY(db.queryInt("SELECT artifact_id FROM legacy_document_mapping WHERE document_id = 2", mappedArtId));
+    QCOMPARE(mappedArtId, artId);
+
+    // Check Draft 6 lineage (draft -> draft)
+    int expectedDraftVersionId = 0;
+    QVERIFY(
+        db.queryInt("SELECT a.current_version_id FROM legacy_draft_mapping m JOIN artifacts a ON a.id = "
+                    "m.artifact_id WHERE m.draft_id = 1;",
+                    expectedDraftVersionId));
+    QVERIFY(expectedDraftVersionId > 0);
+    int forkedFromIdDraft = 0;
+    QVERIFY(
+        db.queryInt("SELECT forked_from_version_id FROM artifact_versions v JOIN legacy_draft_mapping m ON "
+                    "v.artifact_id = m.artifact_id WHERE m.draft_id = 6",
+                    forkedFromIdDraft));
+    QCOMPARE(forkedFromIdDraft, expectedDraftVersionId);
+
+    // Verify NULL note preservation
+    QCOMPARE(
+        sqlite3_prepare_v2(
+            db.handle(),
+            "SELECT a.folder_id, v.title, v.content, v.metadata, v.created_at FROM artifacts a JOIN artifact_versions "
+            "v ON a.current_version_id = v.id JOIN legacy_note_mapping m ON a.id = m.artifact_id WHERE m.note_id = 2",
+            -1, &stmt, nullptr),
+        SQLITE_OK);
+    QCOMPARE(sqlite3_step(stmt), SQLITE_ROW);
+    QCOMPARE(sqlite3_column_int(stmt, 0), 10);
+    QCOMPARE(sqlite3_column_type(stmt, 1) == SQLITE_NULL, true);
+    QCOMPARE(sqlite3_column_type(stmt, 2) == SQLITE_NULL, true);
+    QCOMPARE(QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3))), QString(""));
+    QCOMPARE(QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4))),
+             QString("2025-01-01 10:00:09"));
+    sqlite3_finalize(stmt);
 
     sqlite3_close(dbHandleFail);
     sqlite3_close(dbHandle);
