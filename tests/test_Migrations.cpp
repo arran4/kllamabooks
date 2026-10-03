@@ -390,7 +390,7 @@ void TestMigrations::testFreshSchemaEquivalence() {
           {"processing_id", "INTEGER", "0", 0},
           {"last_error", "TEXT", "''", 0},
           {"priority", "INTEGER", "0", 0},
-          {"created_at", "DATETIME", "CURRENT_TIMESTAMP", 0},
+          {"timestamp", "DATETIME", "CURRENT_TIMESTAMP", 0},
           {"target_type", "TEXT", "'message'", 0},
           {"state", "TEXT", "'pending'", 0},
           {"response", "TEXT", "''", 0},
@@ -402,7 +402,7 @@ void TestMigrations::testFreshSchemaEquivalence() {
           {"target_id", "INTEGER", "", 0},
           {"type", "TEXT", "", 0},
           {"is_dismissed", "BOOLEAN", "0", 0},
-          {"created_at", "DATETIME", "CURRENT_TIMESTAMP", 0},
+          {"timestamp", "DATETIME", "CURRENT_TIMESTAMP", 0},
           {"target_type", "TEXT", "'message'", 0}},
          {}},
         {"comments",
@@ -410,7 +410,7 @@ void TestMigrations::testFreshSchemaEquivalence() {
           {"entity_type", "TEXT", "", 0},
           {"entity_id", "INTEGER", "", 0},
           {"content", "TEXT", "", 0},
-          {"created_at", "DATETIME", "CURRENT_TIMESTAMP", 0}},
+          {"timestamp", "DATETIME", "CURRENT_TIMESTAMP", 0}},
          {}},
         {"chats",
          {{"message_id", "INTEGER", "", 1},
@@ -450,7 +450,7 @@ void TestMigrations::testFreshSchemaEquivalence() {
           {"kind", "TEXT", "", 0},
           {"folder_id", "INTEGER", "0", 0},
           {"current_version_id", "INTEGER", "0", 0},
-          {"created_at", "DATETIME", "CURRENT_TIMESTAMP", 0}},
+          {"timestamp", "DATETIME", "CURRENT_TIMESTAMP", 0}},
          {}},
         {"legacy_document_mapping",
          {{"document_id", "INTEGER", "", 1}, {"artifact_id", "INTEGER", "", 0}},
@@ -476,7 +476,7 @@ void TestMigrations::testFreshSchemaEquivalence() {
           {"content", "TEXT", "", 0},
           {"metadata", "TEXT", "''", 0},
           {"is_sealed", "BOOLEAN", "0", 0},
-          {"created_at", "DATETIME", "CURRENT_TIMESTAMP", 0}},
+          {"timestamp", "DATETIME", "CURRENT_TIMESTAMP", 0}},
          {{true, {"id", "artifact_id"}}}}};
     QVERIFY2(matchesExpectedSchema(db, expectedTables, error), qPrintable(error));
 
@@ -871,7 +871,7 @@ void TestMigrations::testDocumentMigrationPreservation() {
     sqlite3_stmt* stmt = nullptr;
     QCOMPARE(
         sqlite3_prepare_v2(dbHandle,
-                           "SELECT a.kind, a.folder_id, v.title, v.content, v.metadata, v.created_at, m.document_id "
+                           "SELECT a.kind, a.folder_id, v.title, v.content, v.metadata, v.timestamp, m.document_id "
                            "FROM artifacts a JOIN artifact_versions v ON a.current_version_id = v.id "
                            "JOIN legacy_document_mapping m ON m.artifact_id = a.id WHERE m.document_id = 100;",
                            -1, &stmt, nullptr),
@@ -968,13 +968,42 @@ void TestMigrations::testMigration24To25() {
     QVERIFY(runner24.run(db, &error));
 
     // Insert legacy data
-    db.execute(
-        "INSERT INTO documents (folder_id, title, content, metadata) VALUES (1, 'Doc 1', 'Content 1', 'Meta 1');");
-    db.execute("INSERT INTO notes (folder_id, title, content) VALUES (2, 'Note 1', 'Content Note 1');");
-    db.execute("INSERT INTO templates (title, content) VALUES ('Template 1', 'Content Template 1');");
-    db.execute(
-        "INSERT INTO drafts (folder_id, title, content, parent_id, target_type) VALUES (3, 'Draft 1', 'Content Draft "
-        "1', 10, 'message');");
+    QVERIFY(db.execute(
+        "INSERT INTO documents (folder_id, title, content, metadata) VALUES (1, 'Doc 1', 'Content 1', 'Meta 1');"));
+    QVERIFY(
+        db.execute("INSERT INTO documents (folder_id, title, content, metadata) VALUES (1, 'Doc Mapped', 'Content "
+                   "Mapped', 'Meta 2');"));
+
+    // We let the DB auto-increment ID to avoid any constraints we missed.
+    if (!db.execute("INSERT INTO artifacts (kind, folder_id, timestamp) VALUES ('document', 1, CURRENT_TIMESTAMP);")) {
+        qDebug() << "Artifact insert failed";
+    }
+    int artId = 0;
+    QVERIFY(db.queryInt("SELECT MAX(id) FROM artifacts;", artId));
+
+    QVERIFY(db.execute(QString("INSERT INTO artifact_versions (artifact_id, title, content, metadata, timestamp) "
+                               "VALUES (%1, 'Doc Mapped', 'Content Mapped', 'Meta 2', CURRENT_TIMESTAMP);")
+                           .arg(artId)));
+    int verId = 0;
+    QVERIFY(db.queryInt("SELECT MAX(id) FROM artifact_versions;", verId));
+
+    QVERIFY(db.execute(QString("UPDATE artifacts SET current_version_id = %1 WHERE id = %2;").arg(verId).arg(artId)));
+    QVERIFY(db.execute(
+        QString("INSERT INTO legacy_document_mapping (document_id, artifact_id) VALUES (2, %1);").arg(artId)));
+
+    QVERIFY(db.execute("INSERT INTO notes (folder_id, title, content) VALUES (2, 'Note 1', 'Content Note 1');"));
+    QVERIFY(db.execute(
+        "INSERT INTO templates (folder_id, title, content) VALUES (5, 'Template 1', 'Content Template 1');"));
+
+    // Draft that is a child of the unmapped doc 1
+    QVERIFY(
+        db.execute("INSERT INTO drafts (folder_id, title, content, parent_id, target_type) VALUES (3, 'Draft 1', "
+                   "'Content Draft 1', 1, 'document');"));
+
+    // Draft with NULL parent_id and target_type
+    QVERIFY(
+        db.execute("INSERT INTO drafts (folder_id, title, content, parent_id, target_type) VALUES (4, 'Draft 2', "
+                   "'Content Draft 2', NULL, NULL);"));
 
     // Run migration 24->25
     db::MigrationRunner runner25;
@@ -989,15 +1018,15 @@ void TestMigrations::testMigration24To25() {
     // Assert mappings exist
     int count = 0;
     db.queryInt("SELECT COUNT(*) FROM artifacts", count);
-    QCOMPARE(count, 4);
+    QCOMPARE(count, 6);
     db.queryInt("SELECT COUNT(*) FROM legacy_document_mapping", count);
-    QCOMPARE(count, 1);
+    QCOMPARE(count, 2);
     db.queryInt("SELECT COUNT(*) FROM legacy_note_mapping", count);
     QCOMPARE(count, 1);
     db.queryInt("SELECT COUNT(*) FROM legacy_template_mapping", count);
     QCOMPARE(count, 1);
     db.queryInt("SELECT COUNT(*) FROM legacy_draft_mapping", count);
-    QCOMPARE(count, 1);
+    QCOMPARE(count, 2);
 
     // Verify artifact kinds
     db.queryInt("SELECT COUNT(*) FROM artifacts WHERE kind = 'document'", count);
@@ -1009,20 +1038,61 @@ void TestMigrations::testMigration24To25() {
     db.queryInt("SELECT COUNT(*) FROM artifacts WHERE kind = 'draft'", count);
     QCOMPARE(count, 1);
 
-    // Verify draft parent/target mapping
+    // Verify template folder preservation
+    int folderId = 0;
+    db.queryInt("SELECT folder_id FROM artifacts WHERE kind = 'template'", folderId);
+    QCOMPARE(folderId, 5);
+
+    // Verify draft parent/target mapping and lineage
     sqlite3_stmt* stmt = nullptr;
-    QCOMPARE(sqlite3_prepare_v2(db.handle(), "SELECT legacy_parent_id, legacy_target_type FROM legacy_draft_mapping",
-                                -1, &stmt, nullptr),
-             SQLITE_OK);
+    QCOMPARE(
+        sqlite3_prepare_v2(db.handle(),
+                           "SELECT legacy_parent_id, legacy_target_type FROM legacy_draft_mapping WHERE draft_id = 3",
+                           -1, &stmt, nullptr),
+        SQLITE_OK);
     QCOMPARE(sqlite3_step(stmt), SQLITE_ROW);
-    QCOMPARE(sqlite3_column_int(stmt, 0), 10);
-    QCOMPARE(QString((const char*)sqlite3_column_text(stmt, 1)), QString("message"));
+    QCOMPARE(sqlite3_column_int(stmt, 0), 1);
+    QCOMPARE(QString((const char*)sqlite3_column_text(stmt, 1)), QString("document"));
     sqlite3_finalize(stmt);
+
+    // Draft 3 should have forked_from_version_id pointing to the document's version
+    int forkedFromId = 0;
+    QVERIFY(
+        db.queryInt("SELECT forked_from_version_id FROM artifact_versions v JOIN legacy_draft_mapping m ON "
+                    "v.artifact_id = m.artifact_id WHERE m.draft_id = 3",
+                    forkedFromId));
+    QVERIFY(forkedFromId > 0);
+
+    // Draft 4 should have NULLs
+    QCOMPARE(
+        sqlite3_prepare_v2(db.handle(),
+                           "SELECT legacy_parent_id, legacy_target_type FROM legacy_draft_mapping WHERE draft_id = 4",
+                           -1, &stmt, nullptr),
+        SQLITE_OK);
+    QCOMPARE(sqlite3_step(stmt), SQLITE_ROW);
+    QCOMPARE(sqlite3_column_type(stmt, 0) == SQLITE_NULL, true);
+    QCOMPARE(sqlite3_column_type(stmt, 1) == SQLITE_NULL, true);
+    sqlite3_finalize(stmt);
+
+    // PRAGMA checks
+    int pragmaCount = 0;
+    QCOMPARE(sqlite3_prepare_v2(db.handle(), "PRAGMA foreign_key_check;", -1, &stmt, nullptr), SQLITE_OK);
+    while (sqlite3_step(stmt) == SQLITE_ROW) pragmaCount++;
+    sqlite3_finalize(stmt);
+    QCOMPARE(pragmaCount, 0);
+
+    QString integrity;
+    QCOMPARE(sqlite3_prepare_v2(db.handle(), "PRAGMA integrity_check;", -1, &stmt, nullptr), SQLITE_OK);
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        integrity = (const char*)sqlite3_column_text(stmt, 0);
+    }
+    sqlite3_finalize(stmt);
+    QCOMPARE(integrity, QString("ok"));
 
     // Verify idempotency
     QVERIFY(runner25.run(db, &error));
     db.queryInt("SELECT COUNT(*) FROM artifacts", count);
-    QCOMPARE(count, 4);
+    QCOMPARE(count, 6);
 
     // Inject migration failure (simulate table lock or schema violation on a fresh run)
     sqlite3* dbHandleFail;
@@ -1039,6 +1109,8 @@ void TestMigrations::testMigration24To25() {
     int version = 0;
     dbFail.queryInt("PRAGMA user_version;", version);
     QCOMPARE(version, 24);
+    dbFail.queryInt("SELECT COUNT(*) FROM sqlite_master WHERE name='legacy_draft_mapping'", count);
+    QCOMPARE(count, 0);  // Table was rolled back
 
     sqlite3_close(dbHandleFail);
     sqlite3_close(dbHandle);

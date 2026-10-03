@@ -2,6 +2,9 @@
 
 #include <sqlcipher/sqlite3.h>
 
+#include <QString>
+#include <optional>
+
 namespace db {
 
 MigrationRunner MigrationFactory::createRunner() {
@@ -758,6 +761,8 @@ MigrationRunner MigrationFactory::createRunner() {
 
              return success;
          }});
+
+    return runner;
 
     return runner;
 }
