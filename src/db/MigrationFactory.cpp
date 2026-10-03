@@ -623,43 +623,47 @@ MigrationRunner MigrationFactory::createRunner() {
              auto insertArtifactAndVersion = [&](const QString& kind, std::optional<sqlite3_int64> folderId,
                                                  const QString& title, const QString& content, const QString& metadata,
                                                  const QString& timestamp, sqlite3_int64& outArtifactId) -> bool {
-                 sqlite3_reset(insertArtifactStmt);
-                 sqlite3_bind_text(insertArtifactStmt, 1, kind.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+                 if (sqlite3_reset(insertArtifactStmt) != SQLITE_OK) return false;
+                 if (sqlite3_bind_text(insertArtifactStmt, 1, kind.toUtf8().constData(), -1, SQLITE_TRANSIENT) != SQLITE_OK) return false;
                  if (folderId.has_value()) {
-                     sqlite3_bind_int64(insertArtifactStmt, 2, folderId.value());
+                     if (sqlite3_bind_int64(insertArtifactStmt, 2, folderId.value()) != SQLITE_OK) return false;
                  } else {
-                     sqlite3_bind_null(insertArtifactStmt, 2);
+                     if (sqlite3_bind_null(insertArtifactStmt, 2) != SQLITE_OK) return false;
                  }
-                 sqlite3_bind_text(insertArtifactStmt, 3, timestamp.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+                 if (sqlite3_bind_text(insertArtifactStmt, 3, timestamp.toUtf8().constData(), -1, SQLITE_TRANSIENT) != SQLITE_OK) return false;
 
                  if (sqlite3_step(insertArtifactStmt) != SQLITE_ROW) return false;
                  outArtifactId = sqlite3_column_int64(insertArtifactStmt, 0);
 
-                 sqlite3_reset(insertVersionStmt);
-                 sqlite3_bind_int64(insertVersionStmt, 1, outArtifactId);
-                 if (!title.isNull())
-                     sqlite3_bind_text(insertVersionStmt, 2, title.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-                 else
-                     sqlite3_bind_null(insertVersionStmt, 2);
-                 if (!content.isNull())
-                     sqlite3_bind_text(insertVersionStmt, 3, content.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-                 else
-                     sqlite3_bind_null(insertVersionStmt, 3);
-                 if (!metadata.isNull())
-                     sqlite3_bind_text(insertVersionStmt, 4, metadata.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-                 else
-                     sqlite3_bind_null(insertVersionStmt, 4);
-                 if (!timestamp.isNull())
-                     sqlite3_bind_text(insertVersionStmt, 5, timestamp.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-                 else
-                     sqlite3_bind_null(insertVersionStmt, 5);
+                 if (sqlite3_reset(insertVersionStmt) != SQLITE_OK) return false;
+                 if (sqlite3_bind_int64(insertVersionStmt, 1, outArtifactId) != SQLITE_OK) return false;
+                 if (!title.isNull()) {
+                     if (sqlite3_bind_text(insertVersionStmt, 2, title.toUtf8().constData(), -1, SQLITE_TRANSIENT) != SQLITE_OK) return false;
+                 } else {
+                     if (sqlite3_bind_null(insertVersionStmt, 2) != SQLITE_OK) return false;
+                 }
+                 if (!content.isNull()) {
+                     if (sqlite3_bind_text(insertVersionStmt, 3, content.toUtf8().constData(), -1, SQLITE_TRANSIENT) != SQLITE_OK) return false;
+                 } else {
+                     if (sqlite3_bind_null(insertVersionStmt, 3) != SQLITE_OK) return false;
+                 }
+                 if (!metadata.isNull()) {
+                     if (sqlite3_bind_text(insertVersionStmt, 4, metadata.toUtf8().constData(), -1, SQLITE_TRANSIENT) != SQLITE_OK) return false;
+                 } else {
+                     if (sqlite3_bind_null(insertVersionStmt, 4) != SQLITE_OK) return false;
+                 }
+                 if (!timestamp.isNull()) {
+                     if (sqlite3_bind_text(insertVersionStmt, 5, timestamp.toUtf8().constData(), -1, SQLITE_TRANSIENT) != SQLITE_OK) return false;
+                 } else {
+                     if (sqlite3_bind_null(insertVersionStmt, 5) != SQLITE_OK) return false;
+                 }
 
                  if (sqlite3_step(insertVersionStmt) != SQLITE_ROW) return false;
                  sqlite3_int64 versionId = sqlite3_column_int64(insertVersionStmt, 0);
 
-                 sqlite3_reset(updateArtifactStmt);
-                 sqlite3_bind_int64(updateArtifactStmt, 1, versionId);
-                 sqlite3_bind_int64(updateArtifactStmt, 2, outArtifactId);
+                 if (sqlite3_reset(updateArtifactStmt) != SQLITE_OK) return false;
+                 if (sqlite3_bind_int64(updateArtifactStmt, 1, versionId) != SQLITE_OK) return false;
+                 if (sqlite3_bind_int64(updateArtifactStmt, 2, outArtifactId) != SQLITE_OK) return false;
                  if (sqlite3_step(updateArtifactStmt) != SQLITE_DONE) return false;
 
                  return true;
@@ -693,9 +697,9 @@ MigrationRunner MigrationFactory::createRunner() {
                  if (!insertArtifactAndVersion("document", folderId, title, content, metadata, timestamp, artifactId))
                      return fail();
 
-                 sqlite3_reset(insertDocMappingStmt);
-                 sqlite3_bind_int64(insertDocMappingStmt, 1, docId);
-                 sqlite3_bind_int64(insertDocMappingStmt, 2, artifactId);
+                 if (sqlite3_reset(insertDocMappingStmt) != SQLITE_OK) return fail();
+                 if (sqlite3_bind_int64(insertDocMappingStmt, 1, docId) != SQLITE_OK) return fail();
+                 if (sqlite3_bind_int64(insertDocMappingStmt, 2, artifactId) != SQLITE_OK) return fail();
                  if (sqlite3_step(insertDocMappingStmt) != SQLITE_DONE) return fail();
              }
              if (rcDocs != SQLITE_DONE) return fail();
@@ -730,9 +734,9 @@ MigrationRunner MigrationFactory::createRunner() {
                  if (!insertArtifactAndVersion("note", folderId, title, content, "", timestamp, artifactId))
                      return fail();
 
-                 sqlite3_reset(insertNoteMappingStmt);
-                 sqlite3_bind_int64(insertNoteMappingStmt, 1, noteId);
-                 sqlite3_bind_int64(insertNoteMappingStmt, 2, artifactId);
+                 if (sqlite3_reset(insertNoteMappingStmt) != SQLITE_OK) return fail();
+                 if (sqlite3_bind_int64(insertNoteMappingStmt, 1, noteId) != SQLITE_OK) return fail();
+                 if (sqlite3_bind_int64(insertNoteMappingStmt, 2, artifactId) != SQLITE_OK) return fail();
                  if (sqlite3_step(insertNoteMappingStmt) != SQLITE_DONE) return fail();
              }
              if (rc != SQLITE_DONE) return fail();
@@ -767,9 +771,9 @@ MigrationRunner MigrationFactory::createRunner() {
                  if (!insertArtifactAndVersion("template", folderId, title, content, "", timestamp, artifactId))
                      return fail();
 
-                 sqlite3_reset(insertTemplateMappingStmt);
-                 sqlite3_bind_int64(insertTemplateMappingStmt, 1, templateId);
-                 sqlite3_bind_int64(insertTemplateMappingStmt, 2, artifactId);
+                 if (sqlite3_reset(insertTemplateMappingStmt) != SQLITE_OK) return fail();
+                 if (sqlite3_bind_int64(insertTemplateMappingStmt, 1, templateId) != SQLITE_OK) return fail();
+                 if (sqlite3_bind_int64(insertTemplateMappingStmt, 2, artifactId) != SQLITE_OK) return fail();
                  if (sqlite3_step(insertTemplateMappingStmt) != SQLITE_DONE) return fail();
              }
              if (rc != SQLITE_DONE) return fail();
@@ -814,24 +818,24 @@ MigrationRunner MigrationFactory::createRunner() {
                  if (!insertArtifactAndVersion("draft", folderId, title, content, "", timestamp, artifactId))
                      return fail();
 
-                 sqlite3_reset(insertDraftMappingStmt);
-                 sqlite3_bind_int64(insertDraftMappingStmt, 1, draftId);
-                 sqlite3_bind_int64(insertDraftMappingStmt, 2, artifactId);
+                 if (sqlite3_reset(insertDraftMappingStmt) != SQLITE_OK) return fail();
+                 if (sqlite3_bind_int64(insertDraftMappingStmt, 1, draftId) != SQLITE_OK) return fail();
+                 if (sqlite3_bind_int64(insertDraftMappingStmt, 2, artifactId) != SQLITE_OK) return fail();
                  if (legacyParentId.has_value()) {
-                     sqlite3_bind_int64(insertDraftMappingStmt, 3, legacyParentId.value());
+                     if (sqlite3_bind_int64(insertDraftMappingStmt, 3, legacyParentId.value()) != SQLITE_OK) return fail();
                  } else {
-                     sqlite3_bind_null(insertDraftMappingStmt, 3);
+                     if (sqlite3_bind_null(insertDraftMappingStmt, 3) != SQLITE_OK) return fail();
                  }
                  if (legacyTargetType.has_value()) {
-                     sqlite3_bind_text(insertDraftMappingStmt, 4, legacyTargetType.value().toUtf8().constData(), -1,
-                                       SQLITE_TRANSIENT);
+                     if (sqlite3_bind_text(insertDraftMappingStmt, 4, legacyTargetType.value().toUtf8().constData(), -1,
+                                       SQLITE_TRANSIENT) != SQLITE_OK) return fail();
                  } else {
-                     sqlite3_bind_null(insertDraftMappingStmt, 4);
+                     if (sqlite3_bind_null(insertDraftMappingStmt, 4) != SQLITE_OK) return fail();
                  }
 
                  if (sqlite3_step(insertDraftMappingStmt) != SQLITE_DONE) return fail();
              }
-             if (rc != SQLITE_DONE) return fail();
+             if (rcDrafts != SQLITE_DONE) return fail();
 
              // Drafts Phase B: Lineage resolution
              if (sqlite3_prepare_v2(
