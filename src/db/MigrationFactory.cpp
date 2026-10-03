@@ -2,9 +2,6 @@
 
 #include <sqlcipher/sqlite3.h>
 
-#include <QString>
-#include <optional>
-
 namespace db {
 
 MigrationRunner MigrationFactory::createRunner() {
@@ -518,253 +515,348 @@ MigrationRunner MigrationFactory::createRunner() {
              return ok;
          }});
 
-    runner.addMigration(
+        runner.addMigration(
         {24, 25, "Migrate Unmapped Legacy Artifacts", [](Database& db) {
              sqlite3* handle = db.handle();
 
-             // 1. Unmapped documents
-             const char* selectDocsSql =
-                 "SELECT id, folder_id, title, content, timestamp, metadata FROM documents "
-                 "WHERE id NOT IN (SELECT document_id FROM legacy_document_mapping);";
-             sqlite3_stmt* selectDocsStmt = nullptr;
-             if (sqlite3_prepare_v2(handle, selectDocsSql, -1, &selectDocsStmt, nullptr) != SQLITE_OK) return false;
+             if (!db.execute("CREATE TABLE IF NOT EXISTS legacy_note_mapping ("
+                             "note_id INTEGER PRIMARY KEY,"
+                             "artifact_id INTEGER NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE"
+                             ");"))
+                 return false;
 
-             const char* insertArtifactSql =
-                 "INSERT INTO artifacts (kind, folder_id, current_version_id, created_at) "
-                 "VALUES (?, ?, 0, ?);";
+             if (!db.execute("CREATE TABLE IF NOT EXISTS legacy_template_mapping ("
+                             "template_id INTEGER PRIMARY KEY,"
+                             "artifact_id INTEGER NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE"
+                             ");"))
+                 return false;
+
+             if (!db.execute("CREATE TABLE IF NOT EXISTS legacy_draft_mapping ("
+                             "draft_id INTEGER PRIMARY KEY,"
+                             "artifact_id INTEGER NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE,"
+                             "legacy_parent_id INTEGER,"
+                             "legacy_target_type TEXT"
+                             ");"))
+                 return false;
+
              sqlite3_stmt* insertArtifactStmt = nullptr;
-             if (sqlite3_prepare_v2(handle, insertArtifactSql, -1, &insertArtifactStmt, nullptr) != SQLITE_OK)
-                 return false;
-
-             const char* insertVersionSql =
-                 "INSERT INTO artifact_versions (artifact_id, title, content, metadata, created_at) "
-                 "VALUES (?, ?, ?, ?, ?);";
              sqlite3_stmt* insertVersionStmt = nullptr;
-             if (sqlite3_prepare_v2(handle, insertVersionSql, -1, &insertVersionStmt, nullptr) != SQLITE_OK)
-                 return false;
-
-             const char* updateArtifactSql = "UPDATE artifacts SET current_version_id = ? WHERE id = ?;";
              sqlite3_stmt* updateArtifactStmt = nullptr;
-             if (sqlite3_prepare_v2(handle, updateArtifactSql, -1, &updateArtifactStmt, nullptr) != SQLITE_OK)
-                 return false;
 
-             const char* insertDocMappingSql =
-                 "INSERT INTO legacy_document_mapping (document_id, artifact_id) VALUES (?, ?);";
              sqlite3_stmt* insertDocMappingStmt = nullptr;
-             if (sqlite3_prepare_v2(handle, insertDocMappingSql, -1, &insertDocMappingStmt, nullptr) != SQLITE_OK)
-                 return false;
-
-             // 2. Unmapped notes
-             bool ok = db.execute(
-                 "CREATE TABLE IF NOT EXISTS legacy_note_mapping ("
-                 "note_id INTEGER PRIMARY KEY, "
-                 "artifact_id INTEGER NOT NULL UNIQUE, "
-                 "FOREIGN KEY(artifact_id) REFERENCES artifacts(id)"
-                 ");");
-             if (!ok) return false;
-
-             const char* selectNotesSql =
-                 "SELECT id, folder_id, title, content, timestamp FROM notes "
-                 "WHERE id NOT IN (SELECT note_id FROM legacy_note_mapping);";
-             sqlite3_stmt* selectNotesStmt = nullptr;
-             if (sqlite3_prepare_v2(handle, selectNotesSql, -1, &selectNotesStmt, nullptr) != SQLITE_OK) return false;
-
-             const char* insertNoteMappingSql = "INSERT INTO legacy_note_mapping (note_id, artifact_id) VALUES (?, ?);";
              sqlite3_stmt* insertNoteMappingStmt = nullptr;
-             if (sqlite3_prepare_v2(handle, insertNoteMappingSql, -1, &insertNoteMappingStmt, nullptr) != SQLITE_OK)
-                 return false;
-
-             // 3. Unmapped templates
-             ok = db.execute(
-                 "CREATE TABLE IF NOT EXISTS legacy_template_mapping ("
-                 "template_id INTEGER PRIMARY KEY, "
-                 "artifact_id INTEGER NOT NULL UNIQUE, "
-                 "FOREIGN KEY(artifact_id) REFERENCES artifacts(id)"
-                 ");");
-             if (!ok) return false;
-
-             const char* selectTemplatesSql =
-                 "SELECT id, title, content, timestamp FROM templates "
-                 "WHERE id NOT IN (SELECT template_id FROM legacy_template_mapping);";
-             sqlite3_stmt* selectTemplatesStmt = nullptr;
-             if (sqlite3_prepare_v2(handle, selectTemplatesSql, -1, &selectTemplatesStmt, nullptr) != SQLITE_OK)
-                 return false;
-
-             const char* insertTemplateMappingSql =
-                 "INSERT INTO legacy_template_mapping (template_id, artifact_id) VALUES (?, ?);";
              sqlite3_stmt* insertTemplateMappingStmt = nullptr;
-             if (sqlite3_prepare_v2(handle, insertTemplateMappingSql, -1, &insertTemplateMappingStmt, nullptr) !=
-                 SQLITE_OK)
-                 return false;
-
-             // 4. Unmapped drafts
-             ok = db.execute(
-                 "CREATE TABLE IF NOT EXISTS legacy_draft_mapping ("
-                 "draft_id INTEGER PRIMARY KEY, "
-                 "artifact_id INTEGER NOT NULL UNIQUE, "
-                 "legacy_parent_id INTEGER DEFAULT 0, "
-                 "legacy_target_type TEXT DEFAULT 'document', "
-                 "FOREIGN KEY(artifact_id) REFERENCES artifacts(id)"
-                 ");");
-             if (!ok) return false;
-
-             const char* selectDraftsSql =
-                 "SELECT id, folder_id, title, content, timestamp, parent_id, target_type FROM drafts "
-                 "WHERE id NOT IN (SELECT draft_id FROM legacy_draft_mapping);";
-             sqlite3_stmt* selectDraftsStmt = nullptr;
-             if (sqlite3_prepare_v2(handle, selectDraftsSql, -1, &selectDraftsStmt, nullptr) != SQLITE_OK) return false;
-
-             const char* insertDraftMappingSql =
-                 "INSERT INTO legacy_draft_mapping (draft_id, artifact_id, legacy_parent_id, legacy_target_type) "
-                 "VALUES (?, ?, ?, ?);";
              sqlite3_stmt* insertDraftMappingStmt = nullptr;
-             if (sqlite3_prepare_v2(handle, insertDraftMappingSql, -1, &insertDraftMappingStmt, nullptr) != SQLITE_OK)
+
+             sqlite3_stmt* selectUnmappedDocsStmt = nullptr;
+             sqlite3_stmt* selectNotesStmt = nullptr;
+             sqlite3_stmt* selectTemplatesStmt = nullptr;
+             sqlite3_stmt* selectDraftsStmt = nullptr;
+
+             sqlite3_stmt* selectLegacyDraftMappingsStmt = nullptr;
+             sqlite3_stmt* resolveDocLineageStmt = nullptr;
+             sqlite3_stmt* resolveNoteLineageStmt = nullptr;
+             sqlite3_stmt* resolveTemplateLineageStmt = nullptr;
+             sqlite3_stmt* resolveDraftLineageStmt = nullptr;
+             sqlite3_stmt* updateForkedVersionStmt = nullptr;
+
+             auto cleanup = [&]() {
+                 if (insertArtifactStmt) sqlite3_finalize(insertArtifactStmt);
+                 if (insertVersionStmt) sqlite3_finalize(insertVersionStmt);
+                 if (updateArtifactStmt) sqlite3_finalize(updateArtifactStmt);
+                 if (insertDocMappingStmt) sqlite3_finalize(insertDocMappingStmt);
+                 if (insertNoteMappingStmt) sqlite3_finalize(insertNoteMappingStmt);
+                 if (insertTemplateMappingStmt) sqlite3_finalize(insertTemplateMappingStmt);
+                 if (insertDraftMappingStmt) sqlite3_finalize(insertDraftMappingStmt);
+                 if (selectUnmappedDocsStmt) sqlite3_finalize(selectUnmappedDocsStmt);
+                 if (selectNotesStmt) sqlite3_finalize(selectNotesStmt);
+                 if (selectTemplatesStmt) sqlite3_finalize(selectTemplatesStmt);
+                 if (selectDraftsStmt) sqlite3_finalize(selectDraftsStmt);
+                 if (selectLegacyDraftMappingsStmt) sqlite3_finalize(selectLegacyDraftMappingsStmt);
+                 if (resolveDocLineageStmt) sqlite3_finalize(resolveDocLineageStmt);
+                 if (resolveNoteLineageStmt) sqlite3_finalize(resolveNoteLineageStmt);
+                 if (resolveTemplateLineageStmt) sqlite3_finalize(resolveTemplateLineageStmt);
+                 if (resolveDraftLineageStmt) sqlite3_finalize(resolveDraftLineageStmt);
+                 if (updateForkedVersionStmt) sqlite3_finalize(updateForkedVersionStmt);
+             };
+
+             auto fail = [&]() {
+                 cleanup();
                  return false;
+             };
 
-             bool success = true;
-             int rc;
+             if (sqlite3_prepare_v2(handle,
+                                    "INSERT INTO artifacts (kind, folder_id, created_at) VALUES (?, ?, ?) RETURNING id",
+                                    -1, &insertArtifactStmt, nullptr) != SQLITE_OK)
+                 return fail();
 
-             // Common function to avoid duplicating logic
-             auto insertArtifactAndVersion = [&](const char* kind, int folderId, const char* title, const char* content,
-                                                 const char* metadata, const char* timestamp,
-                                                 sqlite3_int64& outArtifactId) -> bool {
-                 sqlite3_bind_text(insertArtifactStmt, 1, kind, -1, SQLITE_STATIC);
-                 sqlite3_bind_int(insertArtifactStmt, 2, folderId);
-                 sqlite3_bind_text(insertArtifactStmt, 3, timestamp, -1, SQLITE_STATIC);
-                 if (sqlite3_step(insertArtifactStmt) != SQLITE_DONE) return false;
-                 outArtifactId = sqlite3_last_insert_rowid(handle);
+             if (sqlite3_prepare_v2(handle,
+                                    "INSERT INTO artifact_versions (artifact_id, title, content, metadata, created_at) "
+                                    "VALUES (?, ?, ?, ?, ?) RETURNING id",
+                                    -1, &insertVersionStmt, nullptr) != SQLITE_OK)
+                 return fail();
+
+             if (sqlite3_prepare_v2(handle, "UPDATE artifacts SET current_version_id = ? WHERE id = ?", -1,
+                                    &updateArtifactStmt, nullptr) != SQLITE_OK)
+                 return fail();
+
+             if (sqlite3_prepare_v2(handle, "INSERT INTO legacy_document_mapping (document_id, artifact_id) VALUES (?, ?)",
+                                    -1, &insertDocMappingStmt, nullptr) != SQLITE_OK)
+                 return fail();
+
+             if (sqlite3_prepare_v2(handle, "INSERT INTO legacy_note_mapping (note_id, artifact_id) VALUES (?, ?)", -1,
+                                    &insertNoteMappingStmt, nullptr) != SQLITE_OK)
+                 return fail();
+
+             if (sqlite3_prepare_v2(handle, "INSERT INTO legacy_template_mapping (template_id, artifact_id) VALUES (?, ?)",
+                                    -1, &insertTemplateMappingStmt, nullptr) != SQLITE_OK)
+                 return fail();
+
+             if (sqlite3_prepare_v2(handle,
+                                    "INSERT INTO legacy_draft_mapping (draft_id, artifact_id, legacy_parent_id, "
+                                    "legacy_target_type) VALUES (?, ?, ?, ?)",
+                                    -1, &insertDraftMappingStmt, nullptr) != SQLITE_OK)
+                 return fail();
+
+             auto insertArtifactAndVersion = [&](const QString& kind, std::optional<sqlite3_int64> folderId,
+                                                 const QString& title, const QString& content, const QString& metadata,
+                                                 const QString& timestamp, sqlite3_int64& outArtifactId) -> bool {
                  sqlite3_reset(insertArtifactStmt);
+                 sqlite3_bind_text(insertArtifactStmt, 1, kind.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+                 if (folderId.has_value()) {
+                     sqlite3_bind_int64(insertArtifactStmt, 2, folderId.value());
+                 } else {
+                     sqlite3_bind_null(insertArtifactStmt, 2);
+                 }
+                 sqlite3_bind_text(insertArtifactStmt, 3, timestamp.toUtf8().constData(), -1, SQLITE_TRANSIENT);
 
-                 sqlite3_bind_int64(insertVersionStmt, 1, outArtifactId);
-                 sqlite3_bind_text(insertVersionStmt, 2, title, -1, SQLITE_STATIC);
-                 sqlite3_bind_text(insertVersionStmt, 3, content, -1, SQLITE_STATIC);
-                 sqlite3_bind_text(insertVersionStmt, 4, metadata, -1, SQLITE_STATIC);
-                 sqlite3_bind_text(insertVersionStmt, 5, timestamp, -1, SQLITE_STATIC);
-                 if (sqlite3_step(insertVersionStmt) != SQLITE_DONE) return false;
-                 sqlite3_int64 versionId = sqlite3_last_insert_rowid(handle);
+                 if (sqlite3_step(insertArtifactStmt) != SQLITE_ROW)
+                     return false;
+                 outArtifactId = sqlite3_column_int64(insertArtifactStmt, 0);
+
                  sqlite3_reset(insertVersionStmt);
+                 sqlite3_bind_int64(insertVersionStmt, 1, outArtifactId);
+                 sqlite3_bind_text(insertVersionStmt, 2, title.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+                 sqlite3_bind_text(insertVersionStmt, 3, content.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+                 sqlite3_bind_text(insertVersionStmt, 4, metadata.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+                 sqlite3_bind_text(insertVersionStmt, 5, timestamp.toUtf8().constData(), -1, SQLITE_TRANSIENT);
 
+                 if (sqlite3_step(insertVersionStmt) != SQLITE_ROW)
+                     return false;
+                 sqlite3_int64 versionId = sqlite3_column_int64(insertVersionStmt, 0);
+
+                 sqlite3_reset(updateArtifactStmt);
                  sqlite3_bind_int64(updateArtifactStmt, 1, versionId);
                  sqlite3_bind_int64(updateArtifactStmt, 2, outArtifactId);
-                 if (sqlite3_step(updateArtifactStmt) != SQLITE_DONE) return false;
-                 sqlite3_reset(updateArtifactStmt);
+                 if (sqlite3_step(updateArtifactStmt) != SQLITE_DONE)
+                     return false;
+
                  return true;
              };
 
-             while ((rc = sqlite3_step(selectDocsStmt)) == SQLITE_ROW) {
-                 int docId = sqlite3_column_int(selectDocsStmt, 0);
-                 int folderId = sqlite3_column_int(selectDocsStmt, 1);
-                 const char* title = reinterpret_cast<const char*>(sqlite3_column_text(selectDocsStmt, 2));
-                 const char* content = reinterpret_cast<const char*>(sqlite3_column_text(selectDocsStmt, 3));
-                 const char* timestamp = reinterpret_cast<const char*>(sqlite3_column_text(selectDocsStmt, 4));
-                 const char* metadata = reinterpret_cast<const char*>(sqlite3_column_text(selectDocsStmt, 5));
+             // 1. Documents
+             if (sqlite3_prepare_v2(handle,
+                                    "SELECT id, folder_id, title, content, metadata, timestamp FROM documents WHERE id NOT "
+                                    "IN (SELECT document_id FROM legacy_document_mapping)",
+                                    -1, &selectUnmappedDocsStmt, nullptr) != SQLITE_OK)
+                 return fail();
+
+             while (sqlite3_step(selectUnmappedDocsStmt) == SQLITE_ROW) {
+                 sqlite3_int64 docId = sqlite3_column_int64(selectUnmappedDocsStmt, 0);
+                 std::optional<sqlite3_int64> folderId;
+                 if (sqlite3_column_type(selectUnmappedDocsStmt, 1) != SQLITE_NULL) {
+                     folderId = sqlite3_column_int64(selectUnmappedDocsStmt, 1);
+                 }
+                 QString title = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(selectUnmappedDocsStmt, 2)));
+                 QString content = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(selectUnmappedDocsStmt, 3)));
+                 QString metadata = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(selectUnmappedDocsStmt, 4)));
+                 QString timestamp = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(selectUnmappedDocsStmt, 5)));
 
                  sqlite3_int64 artifactId;
-                 if (!insertArtifactAndVersion("document", folderId, title, content, metadata, timestamp, artifactId)) {
-                     success = false;
-                     break;
-                 }
+                 if (!insertArtifactAndVersion("document", folderId, title, content, metadata, timestamp, artifactId))
+                     return fail();
 
-                 sqlite3_bind_int(insertDocMappingStmt, 1, docId);
-                 sqlite3_bind_int64(insertDocMappingStmt, 2, artifactId);
-                 if (sqlite3_step(insertDocMappingStmt) != SQLITE_DONE) {
-                     success = false;
-                     break;
-                 }
                  sqlite3_reset(insertDocMappingStmt);
+                 sqlite3_bind_int64(insertDocMappingStmt, 1, docId);
+                 sqlite3_bind_int64(insertDocMappingStmt, 2, artifactId);
+                 if (sqlite3_step(insertDocMappingStmt) != SQLITE_DONE)
+                     return fail();
              }
-             if (rc != SQLITE_DONE) success = false;
 
-             while (success && (rc = sqlite3_step(selectNotesStmt)) == SQLITE_ROW) {
-                 int noteId = sqlite3_column_int(selectNotesStmt, 0);
-                 int folderId = sqlite3_column_int(selectNotesStmt, 1);
-                 const char* title = reinterpret_cast<const char*>(sqlite3_column_text(selectNotesStmt, 2));
-                 const char* content = reinterpret_cast<const char*>(sqlite3_column_text(selectNotesStmt, 3));
-                 const char* timestamp = reinterpret_cast<const char*>(sqlite3_column_text(selectNotesStmt, 4));
+             // 2. Notes
+             if (sqlite3_prepare_v2(handle, "SELECT id, folder_id, title, content, timestamp FROM notes", -1,
+                                    &selectNotesStmt, nullptr) != SQLITE_OK)
+                 return fail();
+
+             while (sqlite3_step(selectNotesStmt) == SQLITE_ROW) {
+                 sqlite3_int64 noteId = sqlite3_column_int64(selectNotesStmt, 0);
+                 std::optional<sqlite3_int64> folderId;
+                 if (sqlite3_column_type(selectNotesStmt, 1) != SQLITE_NULL) {
+                     folderId = sqlite3_column_int64(selectNotesStmt, 1);
+                 }
+                 QString title = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(selectNotesStmt, 2)));
+                 QString content = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(selectNotesStmt, 3)));
+                 QString timestamp = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(selectNotesStmt, 4)));
 
                  sqlite3_int64 artifactId;
-                 if (!insertArtifactAndVersion("note", folderId, title, content, "", timestamp, artifactId)) {
-                     success = false;
-                     break;
-                 }
+                 if (!insertArtifactAndVersion("note", folderId, title, content, "", timestamp, artifactId))
+                     return fail();
 
-                 sqlite3_bind_int(insertNoteMappingStmt, 1, noteId);
-                 sqlite3_bind_int64(insertNoteMappingStmt, 2, artifactId);
-                 if (sqlite3_step(insertNoteMappingStmt) != SQLITE_DONE) {
-                     success = false;
-                     break;
-                 }
                  sqlite3_reset(insertNoteMappingStmt);
+                 sqlite3_bind_int64(insertNoteMappingStmt, 1, noteId);
+                 sqlite3_bind_int64(insertNoteMappingStmt, 2, artifactId);
+                 if (sqlite3_step(insertNoteMappingStmt) != SQLITE_DONE)
+                     return fail();
              }
-             if (rc != SQLITE_DONE) success = false;
 
-             while (success && (rc = sqlite3_step(selectTemplatesStmt)) == SQLITE_ROW) {
-                 int templateId = sqlite3_column_int(selectTemplatesStmt, 0);
-                 const char* title = reinterpret_cast<const char*>(sqlite3_column_text(selectTemplatesStmt, 1));
-                 const char* content = reinterpret_cast<const char*>(sqlite3_column_text(selectTemplatesStmt, 2));
-                 const char* timestamp = reinterpret_cast<const char*>(sqlite3_column_text(selectTemplatesStmt, 3));
+             // 3. Templates
+             if (sqlite3_prepare_v2(handle, "SELECT id, folder_id, title, content, timestamp FROM templates", -1,
+                                    &selectTemplatesStmt, nullptr) != SQLITE_OK)
+                 return fail();
+
+             while (sqlite3_step(selectTemplatesStmt) == SQLITE_ROW) {
+                 sqlite3_int64 templateId = sqlite3_column_int64(selectTemplatesStmt, 0);
+                 std::optional<sqlite3_int64> folderId;
+                 if (sqlite3_column_type(selectTemplatesStmt, 1) != SQLITE_NULL) {
+                     folderId = sqlite3_column_int64(selectTemplatesStmt, 1);
+                 }
+                 QString title = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(selectTemplatesStmt, 2)));
+                 QString content = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(selectTemplatesStmt, 3)));
+                 QString timestamp = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(selectTemplatesStmt, 4)));
 
                  sqlite3_int64 artifactId;
-                 if (!insertArtifactAndVersion("template", 0, title, content, "", timestamp, artifactId)) {
-                     success = false;
-                     break;
-                 }
+                 if (!insertArtifactAndVersion("template", folderId, title, content, "", timestamp, artifactId))
+                     return fail();
 
-                 sqlite3_bind_int(insertTemplateMappingStmt, 1, templateId);
-                 sqlite3_bind_int64(insertTemplateMappingStmt, 2, artifactId);
-                 if (sqlite3_step(insertTemplateMappingStmt) != SQLITE_DONE) {
-                     success = false;
-                     break;
-                 }
                  sqlite3_reset(insertTemplateMappingStmt);
+                 sqlite3_bind_int64(insertTemplateMappingStmt, 1, templateId);
+                 sqlite3_bind_int64(insertTemplateMappingStmt, 2, artifactId);
+                 if (sqlite3_step(insertTemplateMappingStmt) != SQLITE_DONE)
+                     return fail();
              }
-             if (rc != SQLITE_DONE) success = false;
 
-             while (success && (rc = sqlite3_step(selectDraftsStmt)) == SQLITE_ROW) {
-                 int draftId = sqlite3_column_int(selectDraftsStmt, 0);
-                 int folderId = sqlite3_column_int(selectDraftsStmt, 1);
-                 const char* title = reinterpret_cast<const char*>(sqlite3_column_text(selectDraftsStmt, 2));
-                 const char* content = reinterpret_cast<const char*>(sqlite3_column_text(selectDraftsStmt, 3));
-                 const char* timestamp = reinterpret_cast<const char*>(sqlite3_column_text(selectDraftsStmt, 4));
-                 int parentId = sqlite3_column_int(selectDraftsStmt, 5);
-                 const char* targetType = reinterpret_cast<const char*>(sqlite3_column_text(selectDraftsStmt, 6));
+             // 4. Drafts (Phase A - Insert)
+             if (sqlite3_prepare_v2(handle,
+                                    "SELECT id, folder_id, title, content, parent_id, target_type, timestamp FROM drafts",
+                                    -1, &selectDraftsStmt, nullptr) != SQLITE_OK)
+                 return fail();
+
+             while (sqlite3_step(selectDraftsStmt) == SQLITE_ROW) {
+                 sqlite3_int64 draftId = sqlite3_column_int64(selectDraftsStmt, 0);
+                 std::optional<sqlite3_int64> folderId;
+                 if (sqlite3_column_type(selectDraftsStmt, 1) != SQLITE_NULL) {
+                     folderId = sqlite3_column_int64(selectDraftsStmt, 1);
+                 }
+                 QString title = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(selectDraftsStmt, 2)));
+                 QString content = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(selectDraftsStmt, 3)));
+
+                 std::optional<sqlite3_int64> legacyParentId;
+                 if (sqlite3_column_type(selectDraftsStmt, 4) != SQLITE_NULL) {
+                     legacyParentId = sqlite3_column_int64(selectDraftsStmt, 4);
+                 }
+
+                 std::optional<QString> legacyTargetType;
+                 if (sqlite3_column_type(selectDraftsStmt, 5) != SQLITE_NULL) {
+                     legacyTargetType = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(selectDraftsStmt, 5)));
+                 }
+
+                 QString timestamp = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(selectDraftsStmt, 6)));
 
                  sqlite3_int64 artifactId;
-                 if (!insertArtifactAndVersion("draft", folderId, title, content, "", timestamp, artifactId)) {
-                     success = false;
-                     break;
-                 }
+                 if (!insertArtifactAndVersion("draft", folderId, title, content, "", timestamp, artifactId))
+                     return fail();
 
-                 sqlite3_bind_int(insertDraftMappingStmt, 1, draftId);
-                 sqlite3_bind_int64(insertDraftMappingStmt, 2, artifactId);
-                 sqlite3_bind_int(insertDraftMappingStmt, 3, parentId);
-                 sqlite3_bind_text(insertDraftMappingStmt, 4, targetType, -1, SQLITE_STATIC);
-                 if (sqlite3_step(insertDraftMappingStmt) != SQLITE_DONE) {
-                     success = false;
-                     break;
-                 }
                  sqlite3_reset(insertDraftMappingStmt);
+                 sqlite3_bind_int64(insertDraftMappingStmt, 1, draftId);
+                 sqlite3_bind_int64(insertDraftMappingStmt, 2, artifactId);
+                 if (legacyParentId.has_value()) {
+                     sqlite3_bind_int64(insertDraftMappingStmt, 3, legacyParentId.value());
+                 } else {
+                     sqlite3_bind_null(insertDraftMappingStmt, 3);
+                 }
+                 if (legacyTargetType.has_value()) {
+                     sqlite3_bind_text(insertDraftMappingStmt, 4, legacyTargetType.value().toUtf8().constData(), -1,
+                                       SQLITE_TRANSIENT);
+                 } else {
+                     sqlite3_bind_null(insertDraftMappingStmt, 4);
+                 }
+
+                 if (sqlite3_step(insertDraftMappingStmt) != SQLITE_DONE)
+                     return fail();
              }
-             if (rc != SQLITE_DONE) success = false;
 
-             sqlite3_finalize(selectDocsStmt);
-             sqlite3_finalize(selectNotesStmt);
-             sqlite3_finalize(selectTemplatesStmt);
-             sqlite3_finalize(selectDraftsStmt);
-             sqlite3_finalize(insertArtifactStmt);
-             sqlite3_finalize(insertVersionStmt);
-             sqlite3_finalize(updateArtifactStmt);
-             sqlite3_finalize(insertDocMappingStmt);
-             sqlite3_finalize(insertNoteMappingStmt);
-             sqlite3_finalize(insertTemplateMappingStmt);
-             sqlite3_finalize(insertDraftMappingStmt);
+             // Drafts Phase B: Lineage resolution
+             if (sqlite3_prepare_v2(handle,
+                                    "SELECT artifact_id, legacy_parent_id, legacy_target_type FROM legacy_draft_mapping "
+                                    "WHERE legacy_parent_id IS NOT NULL AND legacy_target_type IS NOT NULL",
+                                    -1, &selectLegacyDraftMappingsStmt, nullptr) != SQLITE_OK)
+                 return fail();
 
-             return success;
+             if (sqlite3_prepare_v2(
+                     handle,
+                     "SELECT a.current_version_id FROM legacy_document_mapping m JOIN artifacts a ON a.id = m.artifact_id "
+                     "WHERE m.document_id = ?",
+                     -1, &resolveDocLineageStmt, nullptr) != SQLITE_OK)
+                 return fail();
+
+             if (sqlite3_prepare_v2(
+                     handle,
+                     "SELECT a.current_version_id FROM legacy_note_mapping m JOIN artifacts a ON a.id = m.artifact_id "
+                     "WHERE m.note_id = ?",
+                     -1, &resolveNoteLineageStmt, nullptr) != SQLITE_OK)
+                 return fail();
+
+             if (sqlite3_prepare_v2(
+                     handle,
+                     "SELECT a.current_version_id FROM legacy_template_mapping m JOIN artifacts a ON a.id = m.artifact_id "
+                     "WHERE m.template_id = ?",
+                     -1, &resolveTemplateLineageStmt, nullptr) != SQLITE_OK)
+                 return fail();
+
+             if (sqlite3_prepare_v2(
+                     handle,
+                     "SELECT a.current_version_id FROM legacy_draft_mapping m JOIN artifacts a ON a.id = m.artifact_id "
+                     "WHERE m.draft_id = ?",
+                     -1, &resolveDraftLineageStmt, nullptr) != SQLITE_OK)
+                 return fail();
+
+             if (sqlite3_prepare_v2(handle,
+                                    "UPDATE artifact_versions SET forked_from_version_id = ? WHERE id = (SELECT "
+                                    "current_version_id FROM artifacts WHERE id = ?)",
+                                    -1, &updateForkedVersionStmt, nullptr) != SQLITE_OK)
+                 return fail();
+
+             while (sqlite3_step(selectLegacyDraftMappingsStmt) == SQLITE_ROW) {
+                 sqlite3_int64 artifactId = sqlite3_column_int64(selectLegacyDraftMappingsStmt, 0);
+                 sqlite3_int64 parentId = sqlite3_column_int64(selectLegacyDraftMappingsStmt, 1);
+                 QString targetType = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(selectLegacyDraftMappingsStmt, 2)));
+
+                 sqlite3_stmt* resolveStmt = nullptr;
+                 if (targetType == "document") resolveStmt = resolveDocLineageStmt;
+                 else if (targetType == "note") resolveStmt = resolveNoteLineageStmt;
+                 else if (targetType == "template") resolveStmt = resolveTemplateLineageStmt;
+                 else if (targetType == "draft") resolveStmt = resolveDraftLineageStmt;
+
+                 if (resolveStmt) {
+                     sqlite3_reset(resolveStmt);
+                     sqlite3_bind_int64(resolveStmt, 1, parentId);
+                     if (sqlite3_step(resolveStmt) == SQLITE_ROW) {
+                         sqlite3_int64 parentVersionId = sqlite3_column_int64(resolveStmt, 0);
+
+                         sqlite3_reset(updateForkedVersionStmt);
+                         sqlite3_bind_int64(updateForkedVersionStmt, 1, parentVersionId);
+                         sqlite3_bind_int64(updateForkedVersionStmt, 2, artifactId);
+                         if (sqlite3_step(updateForkedVersionStmt) != SQLITE_DONE)
+                             return fail();
+                     }
+                 }
+             }
+
+             cleanup();
+             return true;
          }});
 
-    return runner;
-
-    return runner;
+return runner;
 }
 
 }  // namespace db
