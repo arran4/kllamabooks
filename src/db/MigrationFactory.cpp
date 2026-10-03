@@ -641,6 +641,7 @@ MigrationRunner MigrationFactory::createRunner() {
 
                  if (sqlite3_reset(insertVersionStmt) != SQLITE_OK) return false;
                  if (sqlite3_bind_int64(insertVersionStmt, 1, outArtifactId) != SQLITE_OK) return false;
+
                  if (!title.isNull()) {
                      if (sqlite3_bind_text(insertVersionStmt, 2, title.toUtf8().constData(), -1, SQLITE_TRANSIENT) !=
                          SQLITE_OK)
@@ -648,6 +649,7 @@ MigrationRunner MigrationFactory::createRunner() {
                  } else {
                      if (sqlite3_bind_null(insertVersionStmt, 2) != SQLITE_OK) return false;
                  }
+
                  if (!content.isNull()) {
                      if (sqlite3_bind_text(insertVersionStmt, 3, content.toUtf8().constData(), -1, SQLITE_TRANSIENT) !=
                          SQLITE_OK)
@@ -655,6 +657,7 @@ MigrationRunner MigrationFactory::createRunner() {
                  } else {
                      if (sqlite3_bind_null(insertVersionStmt, 3) != SQLITE_OK) return false;
                  }
+
                  if (!metadata.isNull()) {
                      if (sqlite3_bind_text(insertVersionStmt, 4, metadata.toUtf8().constData(), -1, SQLITE_TRANSIENT) !=
                          SQLITE_OK)
@@ -662,6 +665,7 @@ MigrationRunner MigrationFactory::createRunner() {
                  } else {
                      if (sqlite3_bind_null(insertVersionStmt, 4) != SQLITE_OK) return false;
                  }
+
                  if (!timestamp.isNull()) {
                      if (sqlite3_bind_text(insertVersionStmt, 5, timestamp.toUtf8().constData(), -1,
                                            SQLITE_TRANSIENT) != SQLITE_OK)
@@ -696,14 +700,22 @@ MigrationRunner MigrationFactory::createRunner() {
                  if (sqlite3_column_type(selectUnmappedDocsStmt, 1) != SQLITE_NULL) {
                      folderId = sqlite3_column_int64(selectUnmappedDocsStmt, 1);
                  }
-                 QString title =
-                     QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(selectUnmappedDocsStmt, 2)));
-                 QString content =
-                     QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(selectUnmappedDocsStmt, 3)));
-                 QString metadata =
-                     QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(selectUnmappedDocsStmt, 4)));
-                 QString timestamp =
-                     QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(selectUnmappedDocsStmt, 5)));
+                 QString title;
+                 if (sqlite3_column_type(selectUnmappedDocsStmt, 2) != SQLITE_NULL)
+                     title = QString::fromUtf8(
+                         reinterpret_cast<const char*>(sqlite3_column_text(selectUnmappedDocsStmt, 2)));
+                 QString content;
+                 if (sqlite3_column_type(selectUnmappedDocsStmt, 3) != SQLITE_NULL)
+                     content = QString::fromUtf8(
+                         reinterpret_cast<const char*>(sqlite3_column_text(selectUnmappedDocsStmt, 3)));
+                 QString metadata;
+                 if (sqlite3_column_type(selectUnmappedDocsStmt, 4) != SQLITE_NULL)
+                     metadata = QString::fromUtf8(
+                         reinterpret_cast<const char*>(sqlite3_column_text(selectUnmappedDocsStmt, 4)));
+                 QString timestamp;
+                 if (sqlite3_column_type(selectUnmappedDocsStmt, 5) != SQLITE_NULL)
+                     timestamp = QString::fromUtf8(
+                         reinterpret_cast<const char*>(sqlite3_column_text(selectUnmappedDocsStmt, 5)));
 
                  sqlite3_int64 artifactId;
                  if (!insertArtifactAndVersion("document", folderId, title, content, metadata, timestamp, artifactId))
@@ -743,7 +755,7 @@ MigrationRunner MigrationFactory::createRunner() {
                          QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(selectNotesStmt, 4)));
 
                  sqlite3_int64 artifactId;
-                 if (!insertArtifactAndVersion("note", folderId, title, content, "", timestamp, artifactId))
+                 if (!insertArtifactAndVersion("note", folderId, title, content, QString(), timestamp, artifactId))
                      return fail();
 
                  if (sqlite3_reset(insertNoteMappingStmt) != SQLITE_OK) return fail();
@@ -780,7 +792,7 @@ MigrationRunner MigrationFactory::createRunner() {
                          QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(selectTemplatesStmt, 4)));
 
                  sqlite3_int64 artifactId;
-                 if (!insertArtifactAndVersion("template", folderId, title, content, "", timestamp, artifactId))
+                 if (!insertArtifactAndVersion("template", folderId, title, content, QString(), timestamp, artifactId))
                      return fail();
 
                  if (sqlite3_reset(insertTemplateMappingStmt) != SQLITE_OK) return fail();
@@ -792,8 +804,10 @@ MigrationRunner MigrationFactory::createRunner() {
 
              // 4. Drafts (Phase A - Insert)
              if (sqlite3_prepare_v2(
-                     handle, "SELECT id, folder_id, title, content, parent_id, target_type, timestamp FROM drafts", -1,
-                     &selectDraftsStmt, nullptr) != SQLITE_OK)
+                     handle,
+                     "SELECT id, folder_id, title, content, parent_id, target_type, timestamp FROM drafts WHERE id NOT "
+                     "IN (SELECT draft_id FROM legacy_draft_mapping)",
+                     -1, &selectDraftsStmt, nullptr) != SQLITE_OK)
                  return fail();
 
              int rcDrafts;
@@ -828,7 +842,7 @@ MigrationRunner MigrationFactory::createRunner() {
                          QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(selectDraftsStmt, 6)));
 
                  sqlite3_int64 artifactId;
-                 if (!insertArtifactAndVersion("draft", folderId, title, content, "", timestamp, artifactId))
+                 if (!insertArtifactAndVersion("draft", folderId, title, content, QString(), timestamp, artifactId))
                      return fail();
 
                  if (sqlite3_reset(insertDraftMappingStmt) != SQLITE_OK) return fail();
