@@ -971,16 +971,16 @@ void TestMigrations::testMigration24To25() {
     QVERIFY(runner24.run(db, &error));
 
     // Insert legacy data
-    QVERIFY(db.execute(
-        "INSERT INTO documents (folder_id, title, content, metadata) VALUES (1, 'Doc 1', 'Content 1', 'Meta 1');"));
     QVERIFY(
-        db.execute("INSERT INTO documents (folder_id, title, content, metadata) VALUES (1, 'Doc Mapped', 'Content "
-                   "Mapped', 'Meta 2');"));
+        db.execute("INSERT INTO documents (folder_id, title, content, metadata, timestamp) VALUES (1, 'Doc 1', "
+                   "'Content 1', 'Meta 1', '2025-01-01 10:00:00');"));
+    QVERIFY(db.execute(
+        "INSERT INTO documents (folder_id, title, content, metadata, timestamp) VALUES (1, 'Doc Mapped', 'Content "
+        "Mapped', 'Meta 2', '2025-01-01 10:00:01');"));
 
     // We let the DB auto-increment ID to avoid any constraints we missed.
-    if (!db.execute("INSERT INTO artifacts (kind, folder_id, created_at) VALUES ('document', 1, CURRENT_TIMESTAMP);")) {
-        qDebug() << "Artifact insert failed";
-    }
+    QVERIFY(
+        db.execute("INSERT INTO artifacts (kind, folder_id, created_at) VALUES ('document', 1, CURRENT_TIMESTAMP);"));
     int artId = 0;
     QVERIFY(db.queryInt("SELECT MAX(id) FROM artifacts;", artId));
 
@@ -994,24 +994,37 @@ void TestMigrations::testMigration24To25() {
     QVERIFY(db.execute(
         QString("INSERT INTO legacy_document_mapping (document_id, artifact_id) VALUES (2, %1);").arg(artId)));
 
-    QVERIFY(db.execute("INSERT INTO notes (folder_id, title, content) VALUES (2, 'Note 1', 'Content Note 1');"));
-    QVERIFY(db.execute(
-        "INSERT INTO templates (folder_id, title, content) VALUES (5, 'Template 1', 'Content Template 1');"));
+    QVERIFY(
+        db.execute("INSERT INTO notes (folder_id, title, content, timestamp) VALUES (2, 'Note 1', 'Content Note 1', "
+                   "'2025-01-01 10:00:02');"));
+    QVERIFY(
+        db.execute("INSERT INTO templates (folder_id, title, content, timestamp) VALUES (5, 'Template 1', 'Content "
+                   "Template 1', '2025-01-01 10:00:03');"));
 
     // Draft that is a child of the unmapped doc 1
-    QVERIFY(
-        db.execute("INSERT INTO drafts (folder_id, title, content, parent_id, target_type) VALUES (3, 'Draft 1', "
-                   "'Content Draft 1', 1, 'document');"));
+    QVERIFY(db.execute(
+        "INSERT INTO drafts (folder_id, title, content, parent_id, target_type, timestamp) VALUES (3, 'Draft 1', "
+        "'Content Draft 1', 1, 'document', '2025-01-01 10:00:04');"));
 
     // Draft with NULL parent_id and target_type
-    QVERIFY(
-        db.execute("INSERT INTO drafts (folder_id, title, content, parent_id, target_type) VALUES (4, 'Draft 2', "
-                   "'Content Draft 2', NULL, NULL);"));
+    QVERIFY(db.execute(
+        "INSERT INTO drafts (folder_id, title, content, parent_id, target_type, timestamp) VALUES (4, 'Draft 2', "
+        "'Content Draft 2', NULL, NULL, '2025-01-01 10:00:05');"));
 
     // Draft that is a child of note 1 (from migration, its local ID is 1, so ID 1)
-    QVERIFY(
-        db.execute("INSERT INTO drafts (folder_id, title, content, parent_id, target_type) VALUES (5, 'Draft 3', "
-                   "'Content Draft 3', 1, 'note');"));
+    QVERIFY(db.execute(
+        "INSERT INTO drafts (folder_id, title, content, parent_id, target_type, timestamp) VALUES (5, 'Draft 3', "
+        "'Content Draft 3', 1, 'note', '2025-01-01 10:00:06');"));
+
+    // Draft that is a child of template 1
+    QVERIFY(db.execute(
+        "INSERT INTO drafts (folder_id, title, content, parent_id, target_type, timestamp) VALUES (6, 'Draft 4', "
+        "'Content Draft 4', 1, 'template', '2025-01-01 10:00:07');"));
+
+    // Draft that is a child of an unknown type
+    QVERIFY(db.execute(
+        "INSERT INTO drafts (folder_id, title, content, parent_id, target_type, timestamp) VALUES (7, 'Draft 5', "
+        "'Content Draft 5', 1, 'unknown_type', '2025-01-01 10:00:08');"));
 
     // Run migration 24->25
     db::MigrationRunner runner25;
@@ -1026,7 +1039,7 @@ void TestMigrations::testMigration24To25() {
     // Assert mappings exist
     int count = 0;
     db.queryInt("SELECT COUNT(*) FROM artifacts", count);
-    QCOMPARE(count, 7);
+    QCOMPARE(count, 9);
     db.queryInt("SELECT COUNT(*) FROM legacy_document_mapping", count);
     QCOMPARE(count, 2);
     db.queryInt("SELECT COUNT(*) FROM legacy_note_mapping", count);
@@ -1034,7 +1047,7 @@ void TestMigrations::testMigration24To25() {
     db.queryInt("SELECT COUNT(*) FROM legacy_template_mapping", count);
     QCOMPARE(count, 1);
     db.queryInt("SELECT COUNT(*) FROM legacy_draft_mapping", count);
-    QCOMPARE(count, 3);
+    QCOMPARE(count, 5);
 
     // Verify artifact kinds
     db.queryInt("SELECT COUNT(*) FROM artifacts WHERE kind = 'document'", count);
@@ -1044,7 +1057,7 @@ void TestMigrations::testMigration24To25() {
     db.queryInt("SELECT COUNT(*) FROM artifacts WHERE kind = 'template'", count);
     QCOMPARE(count, 1);
     db.queryInt("SELECT COUNT(*) FROM artifacts WHERE kind = 'draft'", count);
-    QCOMPARE(count, 3);
+    QCOMPARE(count, 5);
 
     // Verify template folder preservation
     int folderId = 0;
@@ -1120,7 +1133,7 @@ void TestMigrations::testMigration24To25() {
     // Verify idempotency
     QVERIFY(runner25.run(db, &error));
     db.queryInt("SELECT COUNT(*) FROM artifacts", count);
-    QCOMPARE(count, 7);
+    QCOMPARE(count, 9);
 
     // Inject migration failure AFTER some rows are created
     sqlite3* dbHandleFail;
