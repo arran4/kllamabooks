@@ -632,9 +632,13 @@ MigrationRunner MigrationFactory::createRunner() {
                  } else {
                      if (sqlite3_bind_null(insertArtifactStmt, 2) != SQLITE_OK) return false;
                  }
-                 if (sqlite3_bind_text(insertArtifactStmt, 3, timestamp.toUtf8().constData(), -1, SQLITE_TRANSIENT) !=
-                     SQLITE_OK)
-                     return false;
+                 if (!timestamp.isNull()) {
+                     if (sqlite3_bind_text(insertArtifactStmt, 3, timestamp.toUtf8().constData(), -1,
+                                           SQLITE_TRANSIENT) != SQLITE_OK)
+                         return false;
+                 } else {
+                     if (sqlite3_bind_null(insertArtifactStmt, 3) != SQLITE_OK) return false;
+                 }
 
                  if (sqlite3_step(insertArtifactStmt) != SQLITE_ROW) return false;
                  outArtifactId = sqlite3_column_int64(insertArtifactStmt, 0);

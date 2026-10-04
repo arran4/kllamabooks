@@ -996,6 +996,8 @@ void TestMigrations::testMigration24To25() {
                    "'2025-01-01 10:00:02');"));
     // Insert a NULL title and content note to prove exact preservation of NULLs
     QVERIFY(db.execute("INSERT INTO notes (folder_id, timestamp) VALUES (10, '2025-01-01 10:00:09');"));
+    // Insert a totally NULL timestamp note
+    QVERIFY(db.execute("INSERT INTO notes (folder_id, title, timestamp) VALUES (11, 'Null Timestamp Note', NULL);"));
 
     QVERIFY(
         db.execute("INSERT INTO templates (folder_id, title, content, timestamp) VALUES (5, 'Template 1', 'Content "
@@ -1044,11 +1046,11 @@ void TestMigrations::testMigration24To25() {
     // Assert mappings exist
     int count = 0;
     db.queryInt("SELECT COUNT(*) FROM artifacts", count);
-    QCOMPARE(count, 11);
+    QCOMPARE(count, 12);
     db.queryInt("SELECT COUNT(*) FROM legacy_document_mapping", count);
     QCOMPARE(count, 2);
     db.queryInt("SELECT COUNT(*) FROM legacy_note_mapping", count);
-    QCOMPARE(count, 2);
+    QCOMPARE(count, 3);
     db.queryInt("SELECT COUNT(*) FROM legacy_template_mapping", count);
     QCOMPARE(count, 1);
     db.queryInt("SELECT COUNT(*) FROM legacy_draft_mapping", count);
@@ -1058,7 +1060,7 @@ void TestMigrations::testMigration24To25() {
     db.queryInt("SELECT COUNT(*) FROM artifacts WHERE kind = 'document'", count);
     QCOMPARE(count, 2);
     db.queryInt("SELECT COUNT(*) FROM artifacts WHERE kind = 'note'", count);
-    QCOMPARE(count, 2);
+    QCOMPARE(count, 3);
     db.queryInt("SELECT COUNT(*) FROM artifacts WHERE kind = 'template'", count);
     QCOMPARE(count, 1);
     db.queryInt("SELECT COUNT(*) FROM artifacts WHERE kind = 'draft'", count);
@@ -1252,6 +1254,19 @@ void TestMigrations::testMigration24To25() {
              QString("2025-01-01 10:00:09"));
     sqlite3_finalize(stmt);
 
+    // Verify completely NULL timestamp note
+    QCOMPARE(
+        sqlite3_prepare_v2(
+            db.handle(),
+            "SELECT a.created_at, v.created_at FROM artifacts a JOIN artifact_versions "
+            "v ON a.current_version_id = v.id JOIN legacy_note_mapping m ON a.id = m.artifact_id WHERE m.note_id = 3",
+            -1, &stmt, nullptr),
+        SQLITE_OK);
+    QCOMPARE(sqlite3_step(stmt), SQLITE_ROW);
+    QCOMPARE(sqlite3_column_type(stmt, 0) == SQLITE_NULL, true);
+    QCOMPARE(sqlite3_column_type(stmt, 1) == SQLITE_NULL, true);
+    sqlite3_finalize(stmt);
+
     // Assert sealing logic:
     int sealedCount = 0;
     QVERIFY(db.queryInt("SELECT COUNT(*) FROM artifact_versions WHERE is_sealed = 1", sealedCount));
@@ -1259,7 +1274,7 @@ void TestMigrations::testMigration24To25() {
 
     int unsealedCount = 0;
     QVERIFY(db.queryInt("SELECT COUNT(*) FROM artifact_versions WHERE is_sealed = 0", unsealedCount));
-    QCOMPARE(unsealedCount, 7);  // Total 11 versions. 11 - 4 = 7 unsealed.
+    QCOMPARE(unsealedCount, 8);  // Total 12 versions. 12 - 4 = 8 unsealed.
 
     // PRAGMA checks
     int pragmaCount = 0;
@@ -1279,7 +1294,7 @@ void TestMigrations::testMigration24To25() {
     // Verify idempotency
     QVERIFY(runner25.run(db, &error));
     db.queryInt("SELECT COUNT(*) FROM artifacts", count);
-    QCOMPARE(count, 11);
+    QCOMPARE(count, 12);
 
     // Inject migration failure AFTER some rows are created
     sqlite3* dbHandleFail;
@@ -1318,8 +1333,20 @@ void TestMigrations::testMigration24To25() {
     QCOMPARE(count, artifactsBefore);  // should be rolled back to 0
 
     dbFail.queryInt("SELECT COUNT(*) FROM sqlite_master WHERE name='legacy_document_mapping'", count);
-    QCOMPARE(count, 1);
+    QCOMPARE(count, 1);  // Document mapping table was created in v24
+
+    // Rows should be rolled back to 0
+    dbFail.queryInt("SELECT COUNT(*) FROM legacy_document_mapping", count);
+    QCOMPARE(count, 0);
+    dbFail.queryInt("SELECT COUNT(*) FROM artifact_versions", count);
+    QCOMPARE(count, 0);
+
+    // v25-created mapping tables should be rolled back
     dbFail.queryInt("SELECT COUNT(*) FROM sqlite_master WHERE name='legacy_note_mapping'", count);
+    QCOMPARE(count, 0);
+    dbFail.queryInt("SELECT COUNT(*) FROM sqlite_master WHERE name='legacy_template_mapping'", count);
+    QCOMPARE(count, 0);
+    dbFail.queryInt("SELECT COUNT(*) FROM sqlite_master WHERE name='legacy_draft_mapping'", count);
     QCOMPARE(count, 0);
 
     sqlite3_close(dbHandleFail);
