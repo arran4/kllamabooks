@@ -11,6 +11,7 @@
 #include "../src/QueueManager.h"
 #include "../src/db/Database.h"
 #include "../src/store/ArtifactStore.h"
+#include "../src/store/ChatStore.h"
 #include "../src/store/RunStore.h"
 
 class FakeOllamaClient : public OllamaClient {
@@ -86,6 +87,8 @@ class TestQueueManager : public QObject {
     void testDocumentReplaceDirectAtomicApply();
     void testDocumentReplaceDirectConcurrentEditConflict();
     void testDocumentReplaceDirectWriteFailureRollsBack();
+    void testChatReplyCompletionSuccess();
+    void testChatReplyCompletionFailurePropagates();
 
    private:
     std::shared_ptr<BookDatabase> m_db;
@@ -354,6 +357,92 @@ void TestQueueManager::testDocumentReplaceDirectWriteFailureRollsBack() {
     QCOMPARE(failedApplyRun->state, QStringLiteral("completed"));
     QCOMPARE(failedApplyRun->responseText, QStringLiteral("AI Body Should Rollback"));
     QVERIFY(!failedApplyRun->lastError.isEmpty());
+}
+
+void TestQueueManager::testChatReplyCompletionSuccess() {
+    QueueManager& qm = QueueManager::instance();
+    qm.addDatabase(m_db);
+    qm.setClient(m_client);
+    qm.setMaxConcurrent(2);
+    emit m_client->connectionStatusChanged(true);
+    qm.resumeQueue();
+
+    db::Database rawDb(reinterpret_cast<sqlite3*>(m_db->getDatabaseHandleForTesting()));
+    store::ChatStore chatStore(rawDb);
+    auto chatRes = chatStore.createChat(0, QStringLiteral("Chat"));
+    QVERIFY(chatRes.isSuccess());
+    auto msgRes = chatStore.addMessage(chatRes.value->id, 0, QStringLiteral("user"), QStringLiteral("Hello"));
+    QVERIFY(msgRes.isSuccess());
+    const int userMsgId = *msgRes.value;
+
+    auto enqRes = chatStore.enqueueAssistantReply(userMsgId, QStringLiteral("test_model"), QStringLiteral("Hello"));
+    QVERIFY(enqRes.isSuccess());
+    const int runId = *enqRes.value;
+
+    m_client->onGenerateChat = [](const llm::LlmCallbacks& cb) { cb.onComplete("Assistant Reply Content"); };
+    QSignalSpy finishedSpy(&qm, &QueueManager::processingFinished);
+
+    qm.checkQueue();
+    QTRY_COMPARE(finishedSpy.count(), 1);
+    QCOMPARE(finishedSpy.at(0).at(2).toBool(), true);
+    QCOMPARE(finishedSpy.at(0).at(3).toString(), QStringLiteral("message"));
+
+    store::RunStore runStore(rawDb);
+    auto runOpt = runStore.getRun(runId);
+    QVERIFY(runOpt.has_value());
+    QCOMPARE(runOpt->state, QStringLiteral("applied"));
+    QCOMPARE(runOpt->responseText, QStringLiteral("Assistant Reply Content"));
+
+    auto msgs = chatStore.getMessagesForChat(chatRes.value->id);
+    QCOMPARE(msgs.size(), 2);
+    QCOMPARE(msgs.at(1).role, QStringLiteral("assistant"));
+    QCOMPARE(msgs.at(1).content, QStringLiteral("Assistant Reply Content"));
+}
+
+void TestQueueManager::testChatReplyCompletionFailurePropagates() {
+    QueueManager& qm = QueueManager::instance();
+    qm.addDatabase(m_db);
+    qm.setClient(m_client);
+    qm.setMaxConcurrent(2);
+    emit m_client->connectionStatusChanged(true);
+    qm.resumeQueue();
+
+    db::Database rawDb(reinterpret_cast<sqlite3*>(m_db->getDatabaseHandleForTesting()));
+    store::ChatStore chatStore(rawDb);
+    auto chatRes = chatStore.createChat(0, QStringLiteral("Chat"));
+    QVERIFY(chatRes.isSuccess());
+    auto msgRes = chatStore.addMessage(chatRes.value->id, 0, QStringLiteral("user"), QStringLiteral("Hello"));
+    QVERIFY(msgRes.isSuccess());
+    const int userMsgId = *msgRes.value;
+
+    auto enqRes = chatStore.enqueueAssistantReply(userMsgId, QStringLiteral("test_model"), QStringLiteral("Hello"));
+    QVERIFY(enqRes.isSuccess());
+    const int runId = *enqRes.value;
+
+    QVERIFY(
+        rawDb.execute("CREATE TRIGGER fail_assistant_insert BEFORE INSERT ON messages "
+                      "WHEN NEW.role = 'assistant' "
+                      "BEGIN "
+                      "  SELECT RAISE(ABORT, 'injected_msg_insert_fail'); "
+                      "END;"));
+
+    m_client->onGenerateChat = [](const llm::LlmCallbacks& cb) { cb.onComplete("Unsaved Assistant Content"); };
+    QSignalSpy finishedSpy(&qm, &QueueManager::processingFinished);
+
+    qm.checkQueue();
+    QTRY_COMPARE(finishedSpy.count(), 1);
+    QCOMPARE(finishedSpy.at(0).at(2).toBool(), false);
+    QCOMPARE(finishedSpy.at(0).at(3).toString(), QStringLiteral("message"));
+
+    store::RunStore runStore(rawDb);
+    auto runOpt = runStore.getRun(runId);
+    QVERIFY(runOpt.has_value());
+    QCOMPARE(runOpt->state, QStringLiteral("failed"));
+    QVERIFY(runOpt->lastError.contains(QStringLiteral("injected_msg_insert_fail")));
+
+    auto msgs = chatStore.getMessagesForChat(chatRes.value->id);
+    QCOMPARE(msgs.size(), 1);
+    QCOMPARE(msgs.at(0).role, QStringLiteral("user"));
 }
 
 QTEST_GUILESS_MAIN(TestQueueManager)

@@ -53,6 +53,7 @@ class RunStore {
     std::optional<AiRun> getRun(int id) const;
     QList<AiRun> listRuns(const QString& stateFilter = QString()) const;
     QList<AiRunInput> getRunInputs(int runId) const;
+    QList<AiRunInput> resolveInputsForRerun(int runId, bool exactSnapshot) const;
 
     Result<bool> claimRun(int runId, const QString& workerInstanceId, int leaseSeconds = 300);
     Result<bool> renewLease(int runId, const QString& workerInstanceId, int leaseSeconds = 300);

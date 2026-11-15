@@ -98,6 +98,8 @@ add_executable(kllamabooks
     src/store/PromptStore.h
     src/store/RunStore.cpp
     src/store/RunStore.h
+    src/store/ChatStore.cpp
+    src/store/ChatStore.h
     src/resources.qrc
 )
 
@@ -185,7 +187,7 @@ if(BUILD_TESTING)
     target_include_directories(test_RecoveryStore PRIVATE ${SQLCIPHER_INCLUDE_DIRS})
     add_test(NAME test_RecoveryStore COMMAND test_RecoveryStore)
 
-    add_executable(test_QueueManager tests/test_QueueManager.cpp src/QueueManager.cpp src/BookDatabase.cpp src/store/ArtifactStore.cpp src/store/FolderStore.cpp src/store/PromptStore.cpp src/store/RunStore.cpp src/OllamaClient.cpp src/NotificationDelegate.cpp src/DocumentTemplatesManager.cpp src/AIOperationsManager.cpp src/TemplateParser.cpp src/db/Database.cpp src/db/Migrations.cpp src/db/MigrationFactory.cpp)
+    add_executable(test_QueueManager tests/test_QueueManager.cpp src/QueueManager.cpp src/BookDatabase.cpp src/store/ArtifactStore.cpp src/store/FolderStore.cpp src/store/PromptStore.cpp src/store/RunStore.cpp src/store/ChatStore.cpp src/OllamaClient.cpp src/NotificationDelegate.cpp src/DocumentTemplatesManager.cpp src/AIOperationsManager.cpp src/TemplateParser.cpp src/db/Database.cpp src/db/Migrations.cpp src/db/MigrationFactory.cpp)
     target_link_libraries(test_QueueManager Qt6::Test Qt6::Core Qt6::Widgets Qt6::Network ${SQLCIPHER_LIBRARIES})
     target_include_directories(test_QueueManager PRIVATE ${SQLCIPHER_INCLUDE_DIRS})
     add_test(NAME test_QueueManager COMMAND test_QueueManager)
@@ -230,4 +232,9 @@ if(BUILD_TESTING)
     target_link_libraries(test_RunStore Qt6::Test Qt6::Core Qt6::Gui ${SQLCIPHER_LIBRARIES})
     target_include_directories(test_RunStore PRIVATE ${SQLCIPHER_INCLUDE_DIRS})
     add_test(NAME test_RunStore COMMAND test_RunStore)
+
+    add_executable(test_ChatStore tests/test_ChatStore.cpp src/store/ChatStore.cpp src/store/RunStore.cpp src/store/PromptStore.cpp src/store/ArtifactStore.cpp src/store/RecoveryStore.cpp src/db/Database.cpp src/db/Migrations.cpp src/db/MigrationFactory.cpp)
+    target_link_libraries(test_ChatStore Qt6::Test Qt6::Core ${SQLCIPHER_LIBRARIES})
+    target_include_directories(test_ChatStore PRIVATE ${SQLCIPHER_INCLUDE_DIRS})
+    add_test(NAME test_ChatStore COMMAND test_ChatStore)
 endif()

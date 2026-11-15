@@ -340,7 +340,9 @@ void TestMigrations::testFreshSchemaEquivalence() {
           {"role", "TEXT", "", 0},
           {"content", "TEXT", "", 0},
           {"timestamp", "DATETIME", "CURRENT_TIMESTAMP", 0},
-          {"is_expanded", "BOOLEAN", "0", 0}},
+          {"is_expanded", "BOOLEAN", "0", 0},
+          {"chat_id", "INTEGER", "0", 0},
+          {"run_id", "INTEGER", "0", 0}},
          {}},
         {"documents",
          {{"id", "INTEGER", "", 1},
@@ -540,14 +542,24 @@ void TestMigrations::testFreshSchemaEquivalence() {
           {"artifact_id", "INTEGER", "0", 0},
           {"version_id", "INTEGER", "0", 0},
           {"role", "TEXT", "'source'", 0}},
-         {{true, {"run_id", "ordinal"}}}}};
+         {{true, {"run_id", "ordinal"}}}},
+        {"chat_sessions",
+         {{"id", "INTEGER", "", 1},
+          {"root_message_id", "INTEGER", "0", 0},
+          {"folder_id", "INTEGER", "0", 0},
+          {"title", "TEXT", "''", 0},
+          {"system_prompt", "TEXT", "''", 0},
+          {"model", "TEXT", "''", 0},
+          {"created_at", "DATETIME", "CURRENT_TIMESTAMP", 0},
+          {"updated_at", "DATETIME", "CURRENT_TIMESTAMP", 0}},
+         {{false, {"root_message_id"}}}}};
     QVERIFY2(matchesExpectedSchema(db, expectedTables, error), qPrintable(error));
 
     int version = 0;
     QVERIFY(db.queryInt("PRAGMA user_version;", version));
-    QCOMPARE(version, 29);
+    QCOMPARE(version, 30);
     QVERIFY(db.queryInt("SELECT MAX(version) FROM schema_version;", version));
-    QCOMPARE(version, 29);
+    QCOMPARE(version, 30);
 
     sqlite3_close(dbHandle);
 }
@@ -1486,7 +1498,7 @@ void TestMigrations::testEncryptedFileBackedHistoricalFixtureUpgradeToV25() {
 
     int userVersion = 0;
     QVERIFY(upgradedDb.queryInt("PRAGMA user_version;", userVersion));
-    QCOMPARE(userVersion, 29);
+    QCOMPARE(userVersion, 30);
 
     int artifactCount = 0;
     QVERIFY(upgradedDb.queryInt("SELECT COUNT(*) FROM artifacts;", artifactCount));

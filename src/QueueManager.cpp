@@ -7,6 +7,9 @@
 #include <QRegularExpression>
 #include <QTimer>
 
+#include "db/Database.h"
+#include "store/ChatStore.h"
+
 QueueManager& QueueManager::instance() {
     static QueueManager instance;
     return instance;
@@ -116,6 +119,19 @@ void QueueManager::enqueuePrompt(int messageId, const QString& model, const QStr
         emit queueChanged();
         QTimer::singleShot(0, this, &QueueManager::checkQueue);
     }
+}
+
+int QueueManager::enqueueChatReply(int userMessageId, const QString& model, const QString& prompt, int priority) {
+    if (!m_activeDb || !m_activeDb->isOpen()) return -1;
+    sqlite3* raw = reinterpret_cast<sqlite3*>(m_activeDb->getDatabaseHandleForTesting());
+    if (!raw) return -1;
+    db::Database db(raw);
+    store::ChatStore chatStore(db);
+    const auto res = chatStore.enqueueAssistantReply(userMessageId, model, prompt, priority);
+    if (!res.isSuccess()) return -1;
+    emit queueChanged();
+    QTimer::singleShot(0, this, &QueueManager::checkQueue);
+    return *res.value;
 }
 
 int QueueManager::totalPendingCount() const {
@@ -350,15 +366,20 @@ void QueueManager::processNext() {
             QJsonArray messagesArray;
             QList<MessageNode> allMessages = db->getMessages();
 
-            // Tracing back from the target ai message's parent (which is the user message) to the root
+            // Tracing back from the target node to the root.
+            // For vNext 'chat_reply' runs, item.messageId IS the user message ID (no blank assistant placeholder).
             QList<MessageNode> path;
             int currentId = 0;
 
-            // Find the AI message first to get its parent
-            for (const auto& msg : allMessages) {
-                if (msg.id == item.messageId) {
-                    currentId = msg.parentId;
-                    break;
+            if (item.targetAction == QLatin1String("chat_reply")) {
+                currentId = item.messageId;
+            } else {
+                // Legacy placeholder path: item.messageId is the assistant node, so start at its parent.
+                for (const auto& msg : allMessages) {
+                    if (msg.id == item.messageId) {
+                        currentId = msg.parentId;
+                        break;
+                    }
                 }
             }
 
@@ -395,23 +416,28 @@ void QueueManager::processNext() {
                         auto act = m_activeItems[procId];
                         if (act.db && act.db->isOpen()) {
                             if (act.accumulatedContent.isNull()) {
-                                auto optMsg = act.db->getMessage(act.item.messageId);
-                                if (optMsg) {
-                                    act.accumulatedContent = optMsg->content;
+                                if (act.item.targetAction == QLatin1String("chat_reply")) {
+                                    act.accumulatedContent = QString();
                                 } else {
-                                    m_activeItems.remove(procId);
-                                    if (m_activeNetworkRequests.contains(procId)) {
-                                        m_activeNetworkRequests[procId]->abort();
+                                    auto optMsg = act.db->getMessage(act.item.messageId);
+                                    if (optMsg) {
+                                        act.accumulatedContent = optMsg->content;
+                                    } else {
+                                        m_activeItems.remove(procId);
+                                        if (m_activeNetworkRequests.contains(procId)) {
+                                            m_activeNetworkRequests[procId]->abort();
+                                        }
+                                        return;
                                     }
-                                    return;
                                 }
                             }
                             act.accumulatedContent += chunk;
                             m_activeItems[procId] = act;
 
-                            // Accumulate in memory. Only update DB when message finishes to reduce IO pressure
-                            // Or if we need a periodic sync, can be based on length, e.g. every 50 chunks
-                            if (act.accumulatedContent.length() % 50 == 0) {
+                            // For legacy placeholder runs, keep periodic DB sync; for chat_reply, buffer in memory
+                            // until completion so no blank/partial assistant row exists before completion.
+                            if (act.item.targetAction != QLatin1String("chat_reply") &&
+                                act.accumulatedContent.length() % 50 == 0) {
                                 act.db->updateMessage(act.item.messageId, act.accumulatedContent);
                             }
 
@@ -421,24 +447,61 @@ void QueueManager::processNext() {
                     [this, procId](const QString& response) {
                         if (!m_activeItems.contains(procId)) return;
                         auto act = m_activeItems[procId];
+                        int targetSettingMsgId = act.item.messageId;
+                        bool completedOk = true;
                         if (act.db && act.db->isOpen()) {
-                            act.db->updateMessage(act.item.messageId, response);
-                            act.db->updateQueueItemState(act.item.id, "applied", response);
-                            act.db->addNotification(act.item.messageId, act.item.targetType, "responded_to");
-
-                            act.db->setSetting(act.item.targetType, act.item.messageId, "model", act.item.model);
-
-                            QString sysPrompt = act.db->getInheritedSetting(act.item.messageId, "systemPrompt");
-                            if (sysPrompt.isEmpty()) {
-                                sysPrompt = act.db->getSetting("book", 0, "systemPrompt", "");
+                            if (act.item.targetAction == QLatin1String("chat_reply")) {
+                                sqlite3* raw = reinterpret_cast<sqlite3*>(act.db->getDatabaseHandleForTesting());
+                                if (!raw) {
+                                    completedOk = false;
+                                    act.db->updateQueueError(act.item.id,
+                                                             QStringLiteral("Database handle unavailable"));
+                                    act.db->addNotification(act.item.messageId, act.item.targetType, "error");
+                                } else {
+                                    db::Database database(raw);
+                                    store::ChatStore chatStore(database);
+                                    auto replyRes = chatStore.completeAssistantReply(act.item.id, response);
+                                    if (!replyRes.isSuccess()) {
+                                        completedOk = false;
+                                        const QString errMsg = replyRes.errorMessage.isEmpty()
+                                                                   ? QStringLiteral("Failed to save assistant reply")
+                                                                   : replyRes.errorMessage;
+                                        act.db->updateQueueError(act.item.id, errMsg);
+                                        act.db->addNotification(act.item.messageId, act.item.targetType, "error");
+                                    } else {
+                                        targetSettingMsgId = *replyRes.value;
+                                        if (!act.db->updateQueueItemState(act.item.id, "applied", response)) {
+                                            completedOk = false;
+                                            act.db->updateQueueError(
+                                                act.item.id, QStringLiteral("Failed to mark chat_reply run applied"));
+                                            act.db->addNotification(act.item.messageId, act.item.targetType, "error");
+                                        } else {
+                                            act.db->addNotification(targetSettingMsgId, act.item.targetType,
+                                                                    "responded_to");
+                                        }
+                                    }
+                                }
+                            } else {
+                                act.db->updateMessage(act.item.messageId, response);
+                                act.db->updateQueueItemState(act.item.id, "applied", response);
+                                act.db->addNotification(targetSettingMsgId, act.item.targetType, "responded_to");
                             }
-                            if (sysPrompt.isEmpty()) {
-                                QSettings settings;
-                                sysPrompt = settings.value("globalSystemPrompt", "").toString();
+
+                            if (completedOk) {
+                                act.db->setSetting(act.item.targetType, targetSettingMsgId, "model", act.item.model);
+
+                                QString sysPrompt = act.db->getInheritedSetting(targetSettingMsgId, "systemPrompt");
+                                if (sysPrompt.isEmpty()) {
+                                    sysPrompt = act.db->getSetting("book", 0, "systemPrompt", "");
+                                }
+                                if (sysPrompt.isEmpty()) {
+                                    QSettings settings;
+                                    sysPrompt = settings.value("globalSystemPrompt", "").toString();
+                                }
+                                act.db->setSetting(act.item.targetType, targetSettingMsgId, "systemPrompt", sysPrompt);
                             }
-                            act.db->setSetting(act.item.targetType, act.item.messageId, "systemPrompt", sysPrompt);
                         }
-                        emit processingFinished(act.db, act.item.messageId, true, act.item.targetType);
+                        emit processingFinished(act.db, act.item.messageId, completedOk, act.item.targetType);
                         m_activeItems.remove(procId);
                         m_activeNetworkRequests.remove(procId);
                         emit queueChanged();
