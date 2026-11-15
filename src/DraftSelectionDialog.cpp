@@ -171,9 +171,15 @@ void DraftSelectionDialog::onPreview() {
 
 QString DraftSelectionDialog::getOriginalContent() const {
     if (!m_db || !m_db->isOpen()) return "";
+    int idx = m_draftsList->currentRow();
+    if (idx >= 0 && idx < m_drafts.size()) {
+        QString forked = m_db->getDraftForkedSourceContent(m_drafts[idx].id);
+        if (!forked.isEmpty()) {
+            return forked;
+        }
+    }
     auto history = m_db->getDocumentHistory(m_documentId);
     if (!history.isEmpty()) {
-        // Assume history is ordered by timestamp ASC, so the first is the oldest (original)
         return history.first().content;
     }
     return "";
@@ -182,25 +188,16 @@ QString DraftSelectionDialog::getOriginalContent() const {
 QString DraftSelectionDialog::getCurrentDocumentContent() const {
     if (!m_db || !m_db->isOpen()) return "";
 
-    QList<DocumentNode> docs;
     if (m_targetType == "template" || m_targetType == "templates") {
-        docs = m_db->getTemplates(-1);
-    } else if (m_targetType == "note" || m_targetType == "notes") {
-        auto notes = m_db->getNotes(-1);
-        for (const auto& n : notes) {
-            if (n.id == m_documentId) return n.content;
-        }
-        return "";
-    } else {
-        docs = m_db->getDocuments(-1);
+        auto doc = m_db->getTemplate(m_documentId);
+        return doc ? doc->content : "";
     }
-
-    for (const auto& d : docs) {
-        if (d.id == m_documentId) {
-            return d.content;
-        }
+    if (m_targetType == "note" || m_targetType == "notes") {
+        auto note = m_db->getNote(m_documentId);
+        return note ? note->content : "";
     }
-    return "";
+    auto doc = m_db->getDocument(m_documentId);
+    return doc ? doc->content : "";
 }
 
 void DraftSelectionDialog::onShowDifferences() {

@@ -19,6 +19,7 @@
 
 #include "db/Database.h"
 #include "db/MigrationFactory.h"
+#include "store/ArtifactStore.h"
 
 #ifdef Q_OS_UNIX
 #include <fcntl.h>
@@ -1091,6 +1092,104 @@ QStringList findUnjournaledRollbackFiles(const QString& dbPath) {
     }
     return found;
 }
+
+QString artifactKindString(store::ArtifactKind kind) {
+    switch (kind) {
+        case store::ArtifactKind::Document:
+            return "document";
+        case store::ArtifactKind::Note:
+            return "note";
+        case store::ArtifactKind::Template:
+            return "template";
+        case store::ArtifactKind::Draft:
+            return "draft";
+    }
+    return "document";
+}
+
+std::optional<store::ArtifactKind> parseArtifactKind(const QString& targetType) {
+    if (targetType == "document" || targetType == "documents") return store::ArtifactKind::Document;
+    if (targetType == "note" || targetType == "notes") return store::ArtifactKind::Note;
+    if (targetType == "template" || targetType == "templates") return store::ArtifactKind::Template;
+    if (targetType == "draft" || targetType == "drafts") return store::ArtifactKind::Draft;
+    return std::nullopt;
+}
+
+std::optional<int> resolveArtifactIdForKind(sqlite3* db, store::ArtifactKind kind, int id) {
+    if (!db || id <= 0) return std::nullopt;
+
+    const QString kindStr = artifactKindString(kind);
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, "SELECT id FROM artifacts WHERE id = ? AND kind = ?;", -1, &stmt, nullptr) ==
+        SQLITE_OK) {
+        sqlite3_bind_int(stmt, 1, id);
+        const QByteArray kUtf8 = kindStr.toUtf8();
+        sqlite3_bind_text(stmt, 2, kUtf8.constData(), -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            int foundId = sqlite3_column_int(stmt, 0);
+            sqlite3_finalize(stmt);
+            return foundId;
+        }
+        sqlite3_finalize(stmt);
+    }
+
+    const char* mapSql = nullptr;
+    switch (kind) {
+        case store::ArtifactKind::Document:
+            mapSql = "SELECT artifact_id FROM legacy_document_mapping WHERE document_id = ?;";
+            break;
+        case store::ArtifactKind::Note:
+            mapSql = "SELECT artifact_id FROM legacy_note_mapping WHERE note_id = ?;";
+            break;
+        case store::ArtifactKind::Template:
+            mapSql = "SELECT artifact_id FROM legacy_template_mapping WHERE template_id = ?;";
+            break;
+        case store::ArtifactKind::Draft:
+            mapSql = "SELECT artifact_id FROM legacy_draft_mapping WHERE draft_id = ?;";
+            break;
+    }
+    if (mapSql && sqlite3_prepare_v2(db, mapSql, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_int(stmt, 1, id);
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            int artId = sqlite3_column_int(stmt, 0);
+            sqlite3_finalize(stmt);
+            return artId;
+        }
+        sqlite3_finalize(stmt);
+    }
+    return std::nullopt;
+}
+
+bool updateOrAdvanceArtifact(db::Database& database, int artifactId, const QString& newTitle, const QString& newContent,
+                             const QString& metadata) {
+    store::ArtifactStore store(database);
+    auto curVer = store.getCurrentVersion(artifactId);
+    if (!curVer.has_value()) return false;
+
+    if (!curVer->isSealed) {
+        return store.editVersion(curVer->id, newTitle, newContent, metadata).isSuccess();
+    }
+    return store.createMutableDescendant(curVer->id, newTitle, newContent, metadata).isSuccess();
+}
+
+int findParentDocumentArtifactId(sqlite3* db, int artifactId) {
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db,
+                           "SELECT src.artifact_id FROM artifact_versions v "
+                           "JOIN artifact_versions src ON src.id = v.forked_from_version_id "
+                           "WHERE v.artifact_id = ? AND v.forked_from_version_id IS NOT NULL "
+                           "ORDER BY v.id ASC LIMIT 1;",
+                           -1, &stmt, nullptr) != SQLITE_OK) {
+        return 0;
+    }
+    sqlite3_bind_int(stmt, 1, artifactId);
+    int parentArtId = 0;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        parentArtId = sqlite3_column_int(stmt, 0);
+    }
+    sqlite3_finalize(stmt);
+    return parentArtId;
+}
 }  // namespace
 
 BookDatabase::BookDatabase(const QString& filepath) : m_filepath(filepath), m_db(nullptr), m_isOpen(false) {}
@@ -1812,30 +1911,27 @@ QString BookDatabase::getSetting(const QString& scope, int targetId, const QStri
 bool BookDatabase::moveItem(const QString& table, int id, int newFolderId) {
     if (!m_isOpen) return false;
 
-    const char* sql = nullptr;
     if (table == "messages") {
-        sql = "UPDATE messages SET folder_id = ? WHERE id = ?;";
-    } else if (table == "documents") {
-        sql = "UPDATE documents SET folder_id = ? WHERE id = ?;";
-    } else if (table == "templates") {
-        sql = "UPDATE templates SET folder_id = ? WHERE id = ?;";
-    } else if (table == "drafts") {
-        sql = "UPDATE drafts SET folder_id = ? WHERE id = ?;";
-    } else if (table == "notes") {
-        sql = "UPDATE notes SET folder_id = ? WHERE id = ?;";
-    } else {
-        return false;
+        const char* sql = "UPDATE messages SET folder_id = ? WHERE id = ?;";
+        sqlite3_stmt* stmt = nullptr;
+        if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+        sqlite3_bind_int(stmt, 1, newFolderId);
+        sqlite3_bind_int(stmt, 2, id);
+        int rc = sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+        return (rc == SQLITE_DONE);
     }
 
-    sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    auto kindOpt = parseArtifactKind(table);
+    if (!kindOpt.has_value()) return false;
 
-    sqlite3_bind_int(stmt, 1, newFolderId);
-    sqlite3_bind_int(stmt, 2, id);
+    auto* rawDb = reinterpret_cast<sqlite3*>(m_db);
+    auto artIdOpt = resolveArtifactIdForKind(rawDb, *kindOpt, id);
+    if (!artIdOpt.has_value()) return false;
 
-    int rc = sqlite3_step(stmt);
-    sqlite3_finalize(stmt);
-    return (rc == SQLITE_DONE);
+    db::Database database(rawDb);
+    store::ArtifactStore store(database);
+    return store.moveArtifact(*artIdOpt, newFolderId).isSuccess();
 }
 
 bool BookDatabase::moveFolder(int id, int newParentId) {
@@ -1946,43 +2042,135 @@ bool BookDatabase::addDocumentHistory(int documentId, const QString& actionType,
 int BookDatabase::addDocumentHistoryReturningId(int documentId, const QString& actionType, const QString& content) {
     if (!m_isOpen) return -1;
 
-    const char* sql = "INSERT INTO document_history (document_id, action_type, content) VALUES (?, ?, ?);";
-    sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return -1;
+    auto* rawDb = reinterpret_cast<sqlite3*>(m_db);
+    auto artIdOpt = resolveArtifactIdForKind(rawDb, store::ArtifactKind::Document, documentId);
+    if (!artIdOpt.has_value()) return -1;
 
-    sqlite3_bind_int(stmt, 1, documentId);
-    sqlite3_bind_text(stmt, 2, actionType.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 3, content.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    db::Database database(rawDb);
+    store::ArtifactStore store(database);
+    auto curVer = store.getCurrentVersion(*artIdOpt);
+    if (!curVer.has_value()) return -1;
 
-    int rc = sqlite3_step(stmt);
-    int id = (rc == SQLITE_DONE) ? sqlite3_last_insert_rowid(reinterpret_cast<sqlite3*>(m_db)) : -1;
+    QJsonObject metaObj;
+    metaObj["action_type"] = actionType;
+    const QByteArray metaUtf8 = QJsonDocument(metaObj).toJson(QJsonDocument::Compact);
+
+    const char* sql =
+        "INSERT INTO artifact_versions (artifact_id, parent_id, title, content, metadata, is_sealed) "
+        "VALUES (?, ?, ?, ?, ?, 1) RETURNING id;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(rawDb, sql, -1, &stmt, nullptr) != SQLITE_OK) return -1;
+
+    sqlite3_bind_int(stmt, 1, *artIdOpt);
+    if (curVer->parentId.has_value()) {
+        sqlite3_bind_int(stmt, 2, *curVer->parentId);
+    } else {
+        sqlite3_bind_null(stmt, 2);
+    }
+    const QByteArray titleUtf8 = curVer->title.toUtf8();
+    const QByteArray contentUtf8 = content.toUtf8();
+    sqlite3_bind_text(stmt, 3, titleUtf8.constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 4, contentUtf8.constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 5, metaUtf8.constData(), -1, SQLITE_TRANSIENT);
+
+    int histVersionId = -1;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        histVersionId = sqlite3_column_int(stmt, 0);
+    }
     sqlite3_finalize(stmt);
-    return id;
+
+    if (histVersionId > 0 && !curVer->isSealed) {
+        database.execute(
+            QString("UPDATE artifact_versions SET parent_id = %1 WHERE id = %2;").arg(histVersionId).arg(curVer->id));
+    }
+
+    return histVersionId;
 }
 
 QList<BookDatabase::DocumentHistoryEntry> BookDatabase::getDocumentHistory(int documentId) const {
     QList<DocumentHistoryEntry> items;
     if (!m_isOpen) return items;
 
-    const char* sql =
-        "SELECT id, action_type, content, timestamp FROM document_history WHERE document_id = ? ORDER BY timestamp "
-        "DESC;";
-    sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return items;
+    auto* rawDb = reinterpret_cast<sqlite3*>(m_db);
+    auto artIdOpt = resolveArtifactIdForKind(rawDb, store::ArtifactKind::Document, documentId);
+    if (!artIdOpt.has_value()) return items;
 
-    sqlite3_bind_int(stmt, 1, documentId);
+    db::Database database(rawDb);
+    store::ArtifactStore store(database);
+    auto histRes = store.getVersionHistory(*artIdOpt);
+    if (!histRes.isSuccess()) return items;
 
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
-        DocumentHistoryEntry item;
-        item.id = sqlite3_column_int(stmt, 0);
-        item.actionType = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)));
-        item.content = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)));
-        item.timestamp = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)));
-        items.append(item);
+    for (const auto& ver : *histRes.value) {
+        if (!ver.isSealed) continue;
+        DocumentHistoryEntry entry;
+        entry.id = ver.id;
+        entry.content = ver.content;
+        entry.timestamp = ver.createdAt;
+        entry.actionType = QStringLiteral("sealed_version");
+
+        if (!ver.metadata.isEmpty()) {
+            QJsonParseError parseErr;
+            QJsonDocument doc = QJsonDocument::fromJson(ver.metadata.toUtf8(), &parseErr);
+            if (parseErr.error == QJsonParseError::NoError && doc.isObject()) {
+                const QString act = doc.object().value("action_type").toString();
+                if (!act.isEmpty()) entry.actionType = act;
+            }
+        }
+        items.append(entry);
     }
-
-    sqlite3_finalize(stmt);
     return items;
+}
+
+bool BookDatabase::restoreDocumentHistoryVersion(int documentId, int historyVersionId) {
+    if (!m_isOpen) return false;
+    auto* rawDb = reinterpret_cast<sqlite3*>(m_db);
+    auto artIdOpt = resolveArtifactIdForKind(rawDb, store::ArtifactKind::Document, documentId);
+    if (!artIdOpt.has_value()) return false;
+
+    db::Database database(rawDb);
+    store::ArtifactStore store(database);
+    auto curVer = store.getCurrentVersion(*artIdOpt);
+    if (!curVer.has_value()) return false;
+
+    if (!curVer->isSealed) {
+        if (!store.sealVersion(curVer->id).isSuccess()) return false;
+    }
+    return store.restoreVersion(curVer->id, historyVersionId).isSuccess();
+}
+
+int BookDatabase::getArtifactCurrentVersionId(int id, const QString& targetType) const {
+    if (!m_isOpen) return 0;
+    auto kindOpt = parseArtifactKind(targetType);
+    if (!kindOpt.has_value()) return 0;
+    auto* rawDb = reinterpret_cast<sqlite3*>(m_db);
+    auto artIdOpt = resolveArtifactIdForKind(rawDb, *kindOpt, id);
+    if (!artIdOpt.has_value()) return 0;
+
+    db::Database database(rawDb);
+    store::ArtifactStore store(database);
+    auto art = store.getArtifact(*artIdOpt);
+    return art.has_value() ? art->currentVersionId : 0;
+}
+
+QString BookDatabase::getDraftForkedSourceContent(int draftId) const {
+    if (!m_isOpen) return QString();
+    auto* rawDb = reinterpret_cast<sqlite3*>(m_db);
+    auto draftArtId = resolveArtifactIdForKind(rawDb, store::ArtifactKind::Draft, draftId);
+    if (!draftArtId.has_value()) return QString();
+
+    db::Database database(rawDb);
+    store::ArtifactStore store(database);
+    auto curVer = store.getCurrentVersion(*draftArtId);
+    while (curVer.has_value()) {
+        if (curVer->forkedFromVersionId.has_value()) {
+            auto srcVer = store.getVersion(*curVer->forkedFromVersionId);
+            if (srcVer.has_value()) return srcVer->content;
+            break;
+        }
+        if (!curVer->parentId.has_value()) break;
+        curVer = store.getVersion(*curVer->parentId);
+    }
+    return QString();
 }
 
 bool BookDatabase::updateMessage(int id, const QString& newContent) {
@@ -2155,458 +2343,371 @@ int BookDatabase::addDocument(int folderId, const QString& title, const QString&
                               const QString& metadata) {
     if (!m_isOpen) return -1;
 
-    const char* sql = "INSERT INTO documents (folder_id, title, content, parent_id, metadata) VALUES (?, ?, ?, ?, ?);";
-    sqlite3_stmt* stmt;
-    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr);
-    if (rc != SQLITE_OK) return -1;
+    auto* rawDb = reinterpret_cast<sqlite3*>(m_db);
+    db::Database database(rawDb);
+    store::ArtifactStore store(database);
 
-    sqlite3_bind_int(stmt, 1, folderId);
-    sqlite3_bind_text(stmt, 2, title.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 3, content.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int(stmt, 4, parentId);
-    sqlite3_bind_text(stmt, 5, metadata.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    auto res = store.createArtifact(store::ArtifactKind::Document, folderId, title, content, metadata);
+    if (!res.isSuccess()) return -1;
 
-    rc = sqlite3_step(stmt);
-    if (rc != SQLITE_DONE) {
-        sqlite3_finalize(stmt);
-        return -1;
+    if (parentId > 0) {
+        auto parentArtId = resolveArtifactIdForKind(rawDb, store::ArtifactKind::Document, parentId);
+        if (parentArtId.has_value()) {
+            auto parentVer = store.getCurrentVersion(*parentArtId);
+            if (parentVer.has_value()) {
+                if (!parentVer->isSealed) {
+                    store.sealVersion(parentVer->id);
+                }
+                database.execute(QString("UPDATE artifact_versions SET forked_from_version_id = %1 WHERE id = %2;")
+                                     .arg(parentVer->id)
+                                     .arg(res.value->id));
+            }
+        }
     }
-
-    int id = sqlite3_last_insert_rowid(reinterpret_cast<sqlite3*>(m_db));
-    sqlite3_finalize(stmt);
-    return id;
+    return res.value->artifactId;
 }
 
 bool BookDatabase::updateDocument(int id, const QString& newTitle, const QString& newContent, const QString& metadata) {
     if (!m_isOpen) return false;
 
-    const char* sql = "UPDATE documents SET title = ?, content = ?, metadata = ? WHERE id = ?;";
-    sqlite3_stmt* stmt;
-    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr);
-    if (rc != SQLITE_OK) return false;
+    auto* rawDb = reinterpret_cast<sqlite3*>(m_db);
+    auto artIdOpt = resolveArtifactIdForKind(rawDb, store::ArtifactKind::Document, id);
+    if (!artIdOpt.has_value()) return false;
 
-    sqlite3_bind_text(stmt, 1, newTitle.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 2, newContent.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 3, metadata.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int(stmt, 4, id);
+    db::Database database(rawDb);
+    store::ArtifactStore store(database);
+    auto curVer = store.getCurrentVersion(*artIdOpt);
+    if (!curVer.has_value()) return false;
 
-    rc = sqlite3_step(stmt);
-    sqlite3_finalize(stmt);
-    return rc == SQLITE_DONE;
+    const QString effectiveMeta = metadata.isEmpty() ? curVer->metadata : metadata;
+    return updateOrAdvanceArtifact(database, *artIdOpt, newTitle, newContent, effectiveMeta);
 }
 
 std::optional<DocumentNode> BookDatabase::getDocument(int id) const {
     if (!m_isOpen) return std::nullopt;
 
-    QString sqlStr =
-        "SELECT id, folder_id, title, content, timestamp, parent_id, metadata FROM documents WHERE id = ?;";
-    sqlite3_stmt* stmt;
-    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sqlStr.toUtf8().constData(), -1, &stmt, nullptr);
-    if (rc != SQLITE_OK) return std::nullopt;
+    auto* rawDb = reinterpret_cast<sqlite3*>(m_db);
+    auto artIdOpt = resolveArtifactIdForKind(rawDb, store::ArtifactKind::Document, id);
+    if (!artIdOpt.has_value()) return std::nullopt;
 
-    sqlite3_bind_int(stmt, 1, id);
+    db::Database database(rawDb);
+    store::ArtifactStore store(database);
+    auto art = store.getArtifact(*artIdOpt);
+    auto ver = store.getCurrentVersion(*artIdOpt);
+    if (!art.has_value() || !ver.has_value()) return std::nullopt;
 
-    if (sqlite3_step(stmt) == SQLITE_ROW) {
-        DocumentNode node;
-        node.id = sqlite3_column_int(stmt, 0);
-        node.folderId = sqlite3_column_int(stmt, 1);
-        const char* titleText = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
-        node.title = titleText ? QString::fromUtf8(titleText) : QString();
-        const char* contentText = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
-        node.content = contentText ? QString::fromUtf8(contentText) : QString();
-        const char* tsText = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4));
-        QString ts = tsText ? QString::fromUtf8(tsText) : QString();
-        node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
-        node.parentId = sqlite3_column_int(stmt, 5);
-
-        const char* metadataText = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 6));
-        if (metadataText) {
-            node.metadata = QString::fromUtf8(metadataText);
-        }
-        if (node.metadata.isEmpty()) {
-            node.metadata = getSetting("document", node.id, "metadata");
-        }
-
-        sqlite3_finalize(stmt);
-        return node;
+    DocumentNode node;
+    node.id = art->id;
+    node.folderId = art->folderId;
+    node.title = ver->title;
+    node.content = ver->content;
+    node.timestamp = QDateTime::fromString(ver->createdAt, Qt::ISODate);
+    node.parentId = findParentDocumentArtifactId(rawDb, art->id);
+    node.metadata = ver->metadata;
+    if (node.metadata.isEmpty()) {
+        node.metadata = getSetting("document", node.id, "metadata");
     }
-    sqlite3_finalize(stmt);
-    return std::nullopt;
+    return node;
 }
 
 QList<DocumentNode> BookDatabase::getDocuments(int folderId) const {
     QList<DocumentNode> nodes;
     if (!m_isOpen) return nodes;
 
-    QString sqlStr = "SELECT id, folder_id, title, content, timestamp, parent_id, metadata FROM documents";
-    if (folderId != -1) sqlStr += " WHERE folder_id = ?";
-    sqlStr += " ORDER BY timestamp ASC;";
+    auto* rawDb = reinterpret_cast<sqlite3*>(m_db);
+    db::Database database(rawDb);
+    store::ArtifactStore store(database);
+    auto artsRes =
+        store.getArtifacts(store::ArtifactKind::Document, folderId == -1 ? std::nullopt : std::optional<int>(folderId));
+    if (!artsRes.isSuccess()) return nodes;
 
-    sqlite3_stmt* stmt;
-    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sqlStr.toUtf8().constData(), -1, &stmt, nullptr);
-    if (rc != SQLITE_OK) return nodes;
-
-    if (folderId != -1) sqlite3_bind_int(stmt, 1, folderId);
-
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
+    for (const auto& art : *artsRes.value) {
+        auto ver = store.getVersion(art.currentVersionId);
+        if (!ver.has_value()) continue;
         DocumentNode node;
-        node.id = sqlite3_column_int(stmt, 0);
-        node.folderId = sqlite3_column_int(stmt, 1);
-        const char* titleText = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
-        node.title = titleText ? QString::fromUtf8(titleText) : QString();
-        const char* contentText = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
-        node.content = contentText ? QString::fromUtf8(contentText) : QString();
-        const char* tsText = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4));
-        QString ts = tsText ? QString::fromUtf8(tsText) : QString();
-        node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
-        node.parentId = sqlite3_column_int(stmt, 5);
-
-        const char* metadataText = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 6));
-        if (metadataText) {
-            node.metadata = QString::fromUtf8(metadataText);
-        }
+        node.id = art.id;
+        node.folderId = art.folderId;
+        node.title = ver->title;
+        node.content = ver->content;
+        node.timestamp = QDateTime::fromString(ver->createdAt, Qt::ISODate);
+        node.parentId = findParentDocumentArtifactId(rawDb, art.id);
+        node.metadata = ver->metadata;
         if (node.metadata.isEmpty()) {
             node.metadata = getSetting("document", node.id, "metadata");
         }
-
         nodes.append(node);
     }
-    sqlite3_finalize(stmt);
     return nodes;
 }
 
 bool BookDatabase::deleteDocument(int id) {
     if (!m_isOpen) return false;
-    const char* sql = "DELETE FROM documents WHERE id = ?;";
-    sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
-    sqlite3_bind_int(stmt, 1, id);
-    int rc = sqlite3_step(stmt);
-    sqlite3_finalize(stmt);
-    return rc == SQLITE_DONE;
+    auto* rawDb = reinterpret_cast<sqlite3*>(m_db);
+    auto artIdOpt = resolveArtifactIdForKind(rawDb, store::ArtifactKind::Document, id);
+    if (!artIdOpt.has_value()) return false;
+
+    db::Database database(rawDb);
+    store::ArtifactStore store(database);
+    return store.deleteArtifact(*artIdOpt).isSuccess();
 }
 
 int BookDatabase::addNote(int folderId, const QString& title, const QString& content) {
     if (!m_isOpen) return -1;
-
-    const char* sql = "INSERT INTO notes (folder_id, title, content) VALUES (?, ?, ?);";
-    sqlite3_stmt* stmt;
-    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr);
-    if (rc != SQLITE_OK) return -1;
-
-    sqlite3_bind_int(stmt, 1, folderId);
-    sqlite3_bind_text(stmt, 2, title.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 3, content.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-
-    rc = sqlite3_step(stmt);
-    if (rc != SQLITE_DONE) {
-        sqlite3_finalize(stmt);
-        return -1;
-    }
-
-    int id = sqlite3_last_insert_rowid(reinterpret_cast<sqlite3*>(m_db));
-    sqlite3_finalize(stmt);
-    return id;
+    db::Database database(reinterpret_cast<sqlite3*>(m_db));
+    store::ArtifactStore store(database);
+    auto res = store.createArtifact(store::ArtifactKind::Note, folderId, title, content, QString(""));
+    return res.isSuccess() ? res.value->artifactId : -1;
 }
 
 bool BookDatabase::updateNote(int id, const QString& newTitle, const QString& newContent) {
     if (!m_isOpen) return false;
+    auto* rawDb = reinterpret_cast<sqlite3*>(m_db);
+    auto artIdOpt = resolveArtifactIdForKind(rawDb, store::ArtifactKind::Note, id);
+    if (!artIdOpt.has_value()) return false;
 
-    const char* sql = "UPDATE notes SET title = ?, content = ? WHERE id = ?;";
-    sqlite3_stmt* stmt;
-    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr);
-    if (rc != SQLITE_OK) return false;
-
-    sqlite3_bind_text(stmt, 1, newTitle.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 2, newContent.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int(stmt, 3, id);
-
-    rc = sqlite3_step(stmt);
-    sqlite3_finalize(stmt);
-    return rc == SQLITE_DONE;
+    db::Database database(rawDb);
+    return updateOrAdvanceArtifact(database, *artIdOpt, newTitle, newContent, QString(""));
 }
 
 std::optional<NoteNode> BookDatabase::getNote(int id) const {
     if (!m_isOpen) return std::nullopt;
+    auto* rawDb = reinterpret_cast<sqlite3*>(m_db);
+    auto artIdOpt = resolveArtifactIdForKind(rawDb, store::ArtifactKind::Note, id);
+    if (!artIdOpt.has_value()) return std::nullopt;
 
-    QString sqlStr = "SELECT id, folder_id, title, content, timestamp FROM notes WHERE id = ?;";
-    sqlite3_stmt* stmt;
-    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sqlStr.toUtf8().constData(), -1, &stmt, nullptr);
-    if (rc != SQLITE_OK) return std::nullopt;
+    db::Database database(rawDb);
+    store::ArtifactStore store(database);
+    auto art = store.getArtifact(*artIdOpt);
+    auto ver = store.getCurrentVersion(*artIdOpt);
+    if (!art.has_value() || !ver.has_value()) return std::nullopt;
 
-    sqlite3_bind_int(stmt, 1, id);
-
-    std::optional<NoteNode> result = std::nullopt;
-    if (sqlite3_step(stmt) == SQLITE_ROW) {
-        NoteNode node;
-        node.id = sqlite3_column_int(stmt, 0);
-        node.folderId = sqlite3_column_int(stmt, 1);
-        node.parentId = 0;
-        const char* titleText = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
-        node.title = titleText ? QString::fromUtf8(titleText) : QString();
-        const char* contentText = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
-        node.content = contentText ? QString::fromUtf8(contentText) : QString();
-        const char* tsText = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4));
-        QString ts = tsText ? QString::fromUtf8(tsText) : QString();
-        node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
-        result = node;
-    }
-    sqlite3_finalize(stmt);
-    return result;
+    NoteNode node;
+    node.id = art->id;
+    node.folderId = art->folderId;
+    node.parentId = 0;
+    node.title = ver->title;
+    node.content = ver->content;
+    node.timestamp = QDateTime::fromString(ver->createdAt, Qt::ISODate);
+    return node;
 }
 
 QList<NoteNode> BookDatabase::getNotes(int folderId) const {
     QList<NoteNode> nodes;
     if (!m_isOpen) return nodes;
+    auto* rawDb = reinterpret_cast<sqlite3*>(m_db);
+    db::Database database(rawDb);
+    store::ArtifactStore store(database);
+    auto artsRes =
+        store.getArtifacts(store::ArtifactKind::Note, folderId == -1 ? std::nullopt : std::optional<int>(folderId));
+    if (!artsRes.isSuccess()) return nodes;
 
-    QString sqlStr = "SELECT id, folder_id, title, content, timestamp FROM notes";
-    if (folderId != -1) sqlStr += " WHERE folder_id = ?";
-    sqlStr += " ORDER BY id;";
-
-    sqlite3_stmt* stmt;
-    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sqlStr.toUtf8().constData(), -1, &stmt, nullptr);
-    if (rc != SQLITE_OK) return nodes;
-
-    if (folderId != -1) sqlite3_bind_int(stmt, 1, folderId);
-
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
+    for (const auto& art : *artsRes.value) {
+        auto ver = store.getVersion(art.currentVersionId);
+        if (!ver.has_value()) continue;
         NoteNode node;
-        node.id = sqlite3_column_int(stmt, 0);
-        node.folderId = sqlite3_column_int(stmt, 1);
+        node.id = art.id;
+        node.folderId = art.folderId;
         node.parentId = 0;
-        node.title = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)));
-        node.content = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)));
-        QString ts = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4)));
-        node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
-
+        node.title = ver->title;
+        node.content = ver->content;
+        node.timestamp = QDateTime::fromString(ver->createdAt, Qt::ISODate);
         nodes.append(node);
     }
-    sqlite3_finalize(stmt);
     return nodes;
 }
 
 bool BookDatabase::deleteNote(int id) {
     if (!m_isOpen) return false;
-    const char* sql = "DELETE FROM notes WHERE id = ?;";
-    sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
-    sqlite3_bind_int(stmt, 1, id);
-    int rc = sqlite3_step(stmt);
-    sqlite3_finalize(stmt);
-    return rc == SQLITE_DONE;
+    auto* rawDb = reinterpret_cast<sqlite3*>(m_db);
+    auto artIdOpt = resolveArtifactIdForKind(rawDb, store::ArtifactKind::Note, id);
+    if (!artIdOpt.has_value()) return false;
+
+    db::Database database(rawDb);
+    store::ArtifactStore store(database);
+    return store.deleteArtifact(*artIdOpt).isSuccess();
 }
 
 int BookDatabase::addTemplate(int folderId, const QString& title, const QString& content) {
     if (!m_isOpen) return -1;
-
-    const char* sql = "INSERT INTO templates (folder_id, title, content) VALUES (?, ?, ?);";
-    sqlite3_stmt* stmt;
-    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr);
-    if (rc != SQLITE_OK) return -1;
-
-    sqlite3_bind_int(stmt, 1, folderId);
-    sqlite3_bind_text(stmt, 2, title.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 3, content.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-
-    rc = sqlite3_step(stmt);
-    if (rc != SQLITE_DONE) {
-        sqlite3_finalize(stmt);
-        return -1;
-    }
-
-    int id = sqlite3_last_insert_rowid(reinterpret_cast<sqlite3*>(m_db));
-    sqlite3_finalize(stmt);
-    return id;
+    db::Database database(reinterpret_cast<sqlite3*>(m_db));
+    store::ArtifactStore store(database);
+    auto res = store.createArtifact(store::ArtifactKind::Template, folderId, title, content, QString(""));
+    return res.isSuccess() ? res.value->artifactId : -1;
 }
 
 bool BookDatabase::updateTemplate(int id, const QString& newTitle, const QString& newContent) {
     if (!m_isOpen) return false;
+    auto* rawDb = reinterpret_cast<sqlite3*>(m_db);
+    auto artIdOpt = resolveArtifactIdForKind(rawDb, store::ArtifactKind::Template, id);
+    if (!artIdOpt.has_value()) return false;
 
-    const char* sql = "UPDATE templates SET title = ?, content = ? WHERE id = ?;";
-    sqlite3_stmt* stmt;
-    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr);
-    if (rc != SQLITE_OK) return false;
-
-    sqlite3_bind_text(stmt, 1, newTitle.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 2, newContent.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int(stmt, 3, id);
-
-    rc = sqlite3_step(stmt);
-    sqlite3_finalize(stmt);
-    return rc == SQLITE_DONE;
+    db::Database database(rawDb);
+    return updateOrAdvanceArtifact(database, *artIdOpt, newTitle, newContent, QString(""));
 }
 
 QList<DocumentNode> BookDatabase::getTemplates(int folderId) const {
     QList<DocumentNode> nodes;
     if (!m_isOpen) return nodes;
+    auto* rawDb = reinterpret_cast<sqlite3*>(m_db);
+    db::Database database(rawDb);
+    store::ArtifactStore store(database);
+    auto artsRes =
+        store.getArtifacts(store::ArtifactKind::Template, folderId == -1 ? std::nullopt : std::optional<int>(folderId));
+    if (!artsRes.isSuccess()) return nodes;
 
-    QString sqlStr = "SELECT id, folder_id, title, content, timestamp FROM templates";
-    if (folderId != -1) sqlStr += " WHERE folder_id = ?";
-    sqlStr += " ORDER BY timestamp ASC;";
-
-    sqlite3_stmt* stmt;
-    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sqlStr.toUtf8().constData(), -1, &stmt, nullptr);
-    if (rc != SQLITE_OK) return nodes;
-
-    if (folderId != -1) sqlite3_bind_int(stmt, 1, folderId);
-
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
+    for (const auto& art : *artsRes.value) {
+        auto ver = store.getVersion(art.currentVersionId);
+        if (!ver.has_value()) continue;
         DocumentNode node;
-        node.id = sqlite3_column_int(stmt, 0);
-        node.folderId = sqlite3_column_int(stmt, 1);
-        node.title = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)));
-        node.content = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)));
-        QString ts = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4)));
-        node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
+        node.id = art.id;
+        node.folderId = art.folderId;
+        node.title = ver->title;
+        node.content = ver->content;
+        node.timestamp = QDateTime::fromString(ver->createdAt, Qt::ISODate);
+        node.parentId = 0;
         nodes.append(node);
     }
-    sqlite3_finalize(stmt);
     return nodes;
 }
 
 std::optional<DocumentNode> BookDatabase::getTemplate(int id) const {
     if (!m_isOpen) return std::nullopt;
+    auto* rawDb = reinterpret_cast<sqlite3*>(m_db);
+    auto artIdOpt = resolveArtifactIdForKind(rawDb, store::ArtifactKind::Template, id);
+    if (!artIdOpt.has_value()) return std::nullopt;
 
-    QString sqlStr = "SELECT id, folder_id, title, content, timestamp FROM templates WHERE id = ?;";
-    sqlite3_stmt* stmt;
-    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sqlStr.toUtf8().constData(), -1, &stmt, nullptr);
-    if (rc != SQLITE_OK) return std::nullopt;
+    db::Database database(rawDb);
+    store::ArtifactStore store(database);
+    auto art = store.getArtifact(*artIdOpt);
+    auto ver = store.getCurrentVersion(*artIdOpt);
+    if (!art.has_value() || !ver.has_value()) return std::nullopt;
 
-    sqlite3_bind_int(stmt, 1, id);
-
-    if (sqlite3_step(stmt) == SQLITE_ROW) {
-        DocumentNode node;
-        node.id = sqlite3_column_int(stmt, 0);
-        node.folderId = sqlite3_column_int(stmt, 1);
-        const char* titleText = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
-        node.title = titleText ? QString::fromUtf8(titleText) : QString();
-        const char* contentText = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
-        node.content = contentText ? QString::fromUtf8(contentText) : QString();
-        const char* tsText = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4));
-        QString ts = tsText ? QString::fromUtf8(tsText) : QString();
-        node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
-        node.parentId = 0;  // Initialize unused parentId for templates
-        sqlite3_finalize(stmt);
-        return node;
-    }
-    sqlite3_finalize(stmt);
-    return std::nullopt;
+    DocumentNode node;
+    node.id = art->id;
+    node.folderId = art->folderId;
+    node.title = ver->title;
+    node.content = ver->content;
+    node.timestamp = QDateTime::fromString(ver->createdAt, Qt::ISODate);
+    node.parentId = 0;
+    return node;
 }
 
 int BookDatabase::addDraft(int folderId, const QString& title, const QString& content, int parentId,
                            const QString& targetType) {
     if (!m_isOpen) return -1;
 
-    const char* sql = "INSERT INTO drafts (folder_id, title, content, parent_id, target_type) VALUES (?, ?, ?, ?, ?);";
-    sqlite3_stmt* stmt;
-    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr);
-    if (rc != SQLITE_OK) return -1;
+    auto* rawDb = reinterpret_cast<sqlite3*>(m_db);
+    db::Database database(rawDb);
+    store::ArtifactStore store(database);
 
-    sqlite3_bind_int(stmt, 1, folderId);
-    sqlite3_bind_text(stmt, 2, title.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 3, content.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int(stmt, 4, parentId);
-    sqlite3_bind_text(stmt, 5, targetType.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-
-    rc = sqlite3_step(stmt);
-    if (rc != SQLITE_DONE) {
-        sqlite3_finalize(stmt);
-        return -1;
+    QJsonObject metaObj;
+    metaObj["target_type"] = targetType.isEmpty() ? QStringLiteral("document") : targetType;
+    if (parentId > 0) {
+        metaObj["parent_id"] = parentId;
     }
+    const QString metaJson = QString::fromUtf8(QJsonDocument(metaObj).toJson(QJsonDocument::Compact));
 
-    int id = sqlite3_last_insert_rowid(reinterpret_cast<sqlite3*>(m_db));
-    sqlite3_finalize(stmt);
-    return id;
+    auto res = store.createArtifact(store::ArtifactKind::Draft, folderId, title, content, metaJson);
+    if (!res.isSuccess()) return -1;
+
+    if (parentId > 0) {
+        auto parentKindOpt = parseArtifactKind(targetType);
+        if (parentKindOpt.has_value()) {
+            auto parentArtId = resolveArtifactIdForKind(rawDb, *parentKindOpt, parentId);
+            if (parentArtId.has_value()) {
+                auto parentVer = store.getCurrentVersion(*parentArtId);
+                if (parentVer.has_value()) {
+                    if (!parentVer->isSealed) {
+                        store.sealVersion(parentVer->id);
+                    }
+                    database.execute(QString("UPDATE artifact_versions SET forked_from_version_id = %1 WHERE id = %2;")
+                                         .arg(parentVer->id)
+                                         .arg(res.value->id));
+                }
+            }
+        }
+    }
+    return res.value->artifactId;
 }
 
 bool BookDatabase::updateDraft(int id, const QString& newTitle, const QString& newContent) {
     if (!m_isOpen) return false;
+    auto* rawDb = reinterpret_cast<sqlite3*>(m_db);
+    auto artIdOpt = resolveArtifactIdForKind(rawDb, store::ArtifactKind::Draft, id);
+    if (!artIdOpt.has_value()) return false;
 
-    const char* sql = "UPDATE drafts SET title = ?, content = ? WHERE id = ?;";
-    sqlite3_stmt* stmt;
-    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr);
-    if (rc != SQLITE_OK) return false;
+    db::Database database(rawDb);
+    store::ArtifactStore store(database);
+    auto curVer = store.getCurrentVersion(*artIdOpt);
+    if (!curVer.has_value()) return false;
 
-    sqlite3_bind_text(stmt, 1, newTitle.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 2, newContent.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int(stmt, 3, id);
-
-    rc = sqlite3_step(stmt);
-    sqlite3_finalize(stmt);
-    return rc == SQLITE_DONE;
+    return updateOrAdvanceArtifact(database, *artIdOpt, newTitle, newContent, curVer->metadata);
 }
 
 QList<DocumentNode> BookDatabase::getDrafts(int folderId) const {
     QList<DocumentNode> nodes;
     if (!m_isOpen) return nodes;
+    auto* rawDb = reinterpret_cast<sqlite3*>(m_db);
+    db::Database database(rawDb);
+    store::ArtifactStore store(database);
+    auto artsRes =
+        store.getArtifacts(store::ArtifactKind::Draft, folderId == -1 ? std::nullopt : std::optional<int>(folderId));
+    if (!artsRes.isSuccess()) return nodes;
 
-    QString sqlStr = "SELECT id, folder_id, title, content, timestamp, parent_id, target_type FROM drafts";
-    if (folderId != -1) sqlStr += " WHERE folder_id = ?";
-    sqlStr += " ORDER BY timestamp ASC;";
-
-    sqlite3_stmt* stmt;
-    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sqlStr.toUtf8().constData(), -1, &stmt, nullptr);
-    if (rc != SQLITE_OK) return nodes;
-
-    if (folderId != -1) sqlite3_bind_int(stmt, 1, folderId);
-
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
-        DocumentNode node;
-        node.id = sqlite3_column_int(stmt, 0);
-        node.folderId = sqlite3_column_int(stmt, 1);
-        node.title = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)));
-        node.content = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)));
-        QString ts = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4)));
-        node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
-        node.parentId = sqlite3_column_int(stmt, 5);
-        node.targetType = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 6)));
-        nodes.append(node);
+    for (const auto& art : *artsRes.value) {
+        if (auto dOpt = getDraft(art.id)) {
+            nodes.append(*dOpt);
+        }
     }
-    sqlite3_finalize(stmt);
     return nodes;
 }
 
 std::optional<DocumentNode> BookDatabase::getDraft(int id) const {
     if (!m_isOpen) return std::nullopt;
+    auto* rawDb = reinterpret_cast<sqlite3*>(m_db);
+    auto artIdOpt = resolveArtifactIdForKind(rawDb, store::ArtifactKind::Draft, id);
+    if (!artIdOpt.has_value()) return std::nullopt;
 
-    QString sqlStr =
-        "SELECT id, folder_id, title, content, timestamp, parent_id, target_type FROM drafts WHERE id = ?;";
-    sqlite3_stmt* stmt;
-    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sqlStr.toUtf8().constData(), -1, &stmt, nullptr);
-    if (rc != SQLITE_OK) return std::nullopt;
+    db::Database database(rawDb);
+    store::ArtifactStore store(database);
+    auto art = store.getArtifact(*artIdOpt);
+    auto ver = store.getCurrentVersion(*artIdOpt);
+    if (!art.has_value() || !ver.has_value()) return std::nullopt;
 
-    sqlite3_bind_int(stmt, 1, id);
+    DocumentNode node;
+    node.id = art->id;
+    node.folderId = art->folderId;
+    node.title = ver->title;
+    node.content = ver->content;
+    node.timestamp = QDateTime::fromString(ver->createdAt, Qt::ISODate);
+    node.parentId = 0;
+    node.targetType = QStringLiteral("document");
 
-    if (sqlite3_step(stmt) == SQLITE_ROW) {
-        DocumentNode node;
-        node.id = sqlite3_column_int(stmt, 0);
-        node.folderId = sqlite3_column_int(stmt, 1);
-        const char* titleText = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
-        node.title = titleText ? QString::fromUtf8(titleText) : QString();
-        const char* contentText = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
-        node.content = contentText ? QString::fromUtf8(contentText) : QString();
-        const char* tsText = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4));
-        QString ts = tsText ? QString::fromUtf8(tsText) : QString();
-        node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
-        node.parentId = sqlite3_column_int(stmt, 5);
-        const char* tt = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 6));
-        node.targetType = tt ? QString::fromUtf8(tt) : QString();
-        sqlite3_finalize(stmt);
-        return node;
+    auto srcRes = store.resolveSourceArtifact(art->id);
+    if (srcRes.isSuccess()) {
+        node.parentId = srcRes.value->id;
+        node.targetType = artifactKindString(srcRes.value->kind);
+    } else if (!ver->metadata.isEmpty()) {
+        QJsonParseError parseErr;
+        QJsonDocument doc = QJsonDocument::fromJson(ver->metadata.toUtf8(), &parseErr);
+        if (parseErr.error == QJsonParseError::NoError && doc.isObject()) {
+            const QJsonObject obj = doc.object();
+            if (obj.contains("target_type")) node.targetType = obj.value("target_type").toString("document");
+            if (obj.contains("parent_id")) node.parentId = obj.value("parent_id").toInt(0);
+        }
     }
-    sqlite3_finalize(stmt);
-    return std::nullopt;
+    return node;
 }
 
 bool BookDatabase::deleteDraft(int id) {
     if (!m_isOpen) return false;
-    const char* sql = "DELETE FROM drafts WHERE id = ?;";
-    sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
-    sqlite3_bind_int(stmt, 1, id);
-    int rc = sqlite3_step(stmt);
-    sqlite3_finalize(stmt);
-    return rc == SQLITE_DONE;
+    auto* rawDb = reinterpret_cast<sqlite3*>(m_db);
+    auto artIdOpt = resolveArtifactIdForKind(rawDb, store::ArtifactKind::Draft, id);
+    if (!artIdOpt.has_value()) return false;
+
+    db::Database database(rawDb);
+    store::ArtifactStore store(database);
+    return store.deleteArtifact(*artIdOpt).isSuccess();
 }
 
 int BookDatabase::addFolder(int parentId, const QString& name, const QString& type, bool isExpanded) {
@@ -3272,31 +3373,30 @@ QSet<int> BookDatabase::getAllChatIds() const {
 
 bool BookDatabase::deleteTemplate(int id) {
     if (!m_isOpen) return false;
-    const char* sql = "DELETE FROM templates WHERE id = ?;";
-    sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
-    sqlite3_bind_int(stmt, 1, id);
-    int rc = sqlite3_step(stmt);
-    sqlite3_finalize(stmt);
-    return rc == SQLITE_DONE;
+    auto* rawDb = reinterpret_cast<sqlite3*>(m_db);
+    auto artIdOpt = resolveArtifactIdForKind(rawDb, store::ArtifactKind::Template, id);
+    if (!artIdOpt.has_value()) return false;
+
+    db::Database database(rawDb);
+    store::ArtifactStore store(database);
+    return store.deleteArtifact(*artIdOpt).isSuccess();
 }
 
 bool BookDatabase::updateDocumentTitle(int id, const QString& newTitle, const QString& targetType) {
     if (!m_isOpen) return false;
-    QString table = targetType;
-    if (table != "documents" && table != "templates" && table != "drafts" && table != "notes") {
-        table += "s";
-        if (table != "documents" && table != "templates" && table != "drafts" && table != "notes") return false;
-    }
-    QString sql = QString("UPDATE %1 SET title = ? WHERE id = ?;").arg(table);
-    sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql.toUtf8().constData(), -1, &stmt, nullptr) != SQLITE_OK)
-        return false;
-    sqlite3_bind_text(stmt, 1, newTitle.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int(stmt, 2, id);
-    int rc = sqlite3_step(stmt);
-    sqlite3_finalize(stmt);
-    return rc == SQLITE_DONE;
+    auto kindOpt = parseArtifactKind(targetType);
+    if (!kindOpt.has_value()) return false;
+
+    auto* rawDb = reinterpret_cast<sqlite3*>(m_db);
+    auto artIdOpt = resolveArtifactIdForKind(rawDb, *kindOpt, id);
+    if (!artIdOpt.has_value()) return false;
+
+    db::Database database(rawDb);
+    store::ArtifactStore store(database);
+    auto curVer = store.getCurrentVersion(*artIdOpt);
+    if (!curVer.has_value()) return false;
+
+    return updateOrAdvanceArtifact(database, *artIdOpt, newTitle, curVer->content, curVer->metadata);
 }
 
 QList<BookDatabase::PromptHistoryEntry> BookDatabase::getPromptHistory(int documentId) const {
