@@ -2695,6 +2695,148 @@ MigrationRunner MigrationFactory::createRunner() {
                                  "ON notifications(is_dismissed, created_at DESC);");
                          }});
 
+    // Version 31 -> 32: Encrypted local search index (#236)
+    runner.addMigration(
+        {31, 32, "Encrypted Local Search Index", [](Database& db) -> bool {
+             if (!db.execute("CREATE TABLE IF NOT EXISTS search_index ("
+                             "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                             "item_kind TEXT NOT NULL, "
+                             "item_id INTEGER NOT NULL, "
+                             "folder_id INTEGER DEFAULT 0, "
+                             "title TEXT NOT NULL DEFAULT '', "
+                             "body TEXT NOT NULL DEFAULT '', "
+                             "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, "
+                             "UNIQUE(item_kind, item_id));")) {
+                 return false;
+             }
+
+             if (!db.execute("CREATE INDEX IF NOT EXISTS idx_search_index_kind_id "
+                             "ON search_index(item_kind, item_id);")) {
+                 return false;
+             }
+
+             if (!db.execute("CREATE VIRTUAL TABLE IF NOT EXISTS search_fts "
+                             "USING fts5(title, body, content='search_index', content_rowid='id', "
+                             "tokenize='unicode61');")) {
+                 return false;
+             }
+
+             // External-content FTS5 synchronization triggers
+             const QStringList ftsTriggers = {
+                 "CREATE TRIGGER IF NOT EXISTS search_index_ai AFTER INSERT ON search_index BEGIN "
+                 "  INSERT INTO search_fts(rowid, title, body) VALUES (new.id, new.title, new.body); "
+                 "END;",
+                 "CREATE TRIGGER IF NOT EXISTS search_index_ad AFTER DELETE ON search_index BEGIN "
+                 "  INSERT INTO search_fts(search_fts, rowid, title, body) VALUES('delete', old.id, old.title, "
+                 "old.body); "
+                 "END;",
+                 "CREATE TRIGGER IF NOT EXISTS search_index_au AFTER UPDATE ON search_index BEGIN "
+                 "  INSERT INTO search_fts(search_fts, rowid, title, body) VALUES('delete', old.id, old.title, "
+                 "old.body); "
+                 "  INSERT INTO search_fts(rowid, title, body) VALUES (new.id, new.title, new.body); "
+                 "END;",
+                 // Incremental sync from artifacts & artifact_versions
+                 "CREATE TRIGGER IF NOT EXISTS trg_search_artifact_version_ai AFTER INSERT ON artifact_versions BEGIN "
+                 "  INSERT INTO search_index (item_kind, item_id, folder_id, title, body, updated_at) "
+                 "  SELECT a.kind, a.id, COALESCE(a.folder_id, 0), COALESCE(NEW.title, ''), COALESCE(NEW.content, ''), "
+                 "CURRENT_TIMESTAMP "
+                 "  FROM artifacts a WHERE a.id = NEW.artifact_id AND a.current_version_id = NEW.id "
+                 "  ON CONFLICT(item_kind, item_id) DO UPDATE SET folder_id = excluded.folder_id, "
+                 "    title = excluded.title, body = excluded.body, updated_at = CURRENT_TIMESTAMP; "
+                 "END;",
+                 "CREATE TRIGGER IF NOT EXISTS trg_search_artifact_version_au AFTER UPDATE OF title, content ON "
+                 "artifact_versions BEGIN "
+                 "  INSERT INTO search_index (item_kind, item_id, folder_id, title, body, updated_at) "
+                 "  SELECT a.kind, a.id, COALESCE(a.folder_id, 0), COALESCE(NEW.title, ''), COALESCE(NEW.content, ''), "
+                 "CURRENT_TIMESTAMP "
+                 "  FROM artifacts a WHERE a.id = NEW.artifact_id AND a.current_version_id = NEW.id "
+                 "  ON CONFLICT(item_kind, item_id) DO UPDATE SET folder_id = excluded.folder_id, "
+                 "    title = excluded.title, body = excluded.body, updated_at = CURRENT_TIMESTAMP; "
+                 "END;",
+                 "CREATE TRIGGER IF NOT EXISTS trg_search_artifact_au AFTER UPDATE OF current_version_id, folder_id ON "
+                 "artifacts BEGIN "
+                 "  INSERT INTO search_index (item_kind, item_id, folder_id, title, body, updated_at) "
+                 "  SELECT NEW.kind, NEW.id, COALESCE(NEW.folder_id, 0), COALESCE(v.title, ''), "
+                 "COALESCE(v.content, ''), CURRENT_TIMESTAMP "
+                 "  FROM artifact_versions v WHERE v.id = NEW.current_version_id "
+                 "  ON CONFLICT(item_kind, item_id) DO UPDATE SET folder_id = excluded.folder_id, "
+                 "    title = excluded.title, body = excluded.body, updated_at = CURRENT_TIMESTAMP; "
+                 "END;",
+                 "CREATE TRIGGER IF NOT EXISTS trg_search_artifact_ad AFTER DELETE ON artifacts BEGIN "
+                 "  DELETE FROM search_index WHERE item_kind = OLD.kind AND item_id = OLD.id; "
+                 "END;",
+                 // Incremental sync from chat_sessions & messages
+                 "CREATE TRIGGER IF NOT EXISTS trg_search_chat_session_ai AFTER INSERT ON chat_sessions BEGIN "
+                 "  INSERT INTO search_index (item_kind, item_id, folder_id, title, body, updated_at) "
+                 "  VALUES ('chat_session', NEW.id, COALESCE(NEW.folder_id, 0), COALESCE(NEW.title, ''), "
+                 "    COALESCE((SELECT GROUP_CONCAT(m.content, '\n') FROM messages m WHERE m.chat_id = NEW.id), ''), "
+                 "CURRENT_TIMESTAMP) "
+                 "  ON CONFLICT(item_kind, item_id) DO UPDATE SET folder_id = excluded.folder_id, "
+                 "    title = excluded.title, body = excluded.body, updated_at = CURRENT_TIMESTAMP; "
+                 "END;",
+                 "CREATE TRIGGER IF NOT EXISTS trg_search_chat_session_au AFTER UPDATE OF title, folder_id ON "
+                 "chat_sessions BEGIN "
+                 "  INSERT INTO search_index (item_kind, item_id, folder_id, title, body, updated_at) "
+                 "  VALUES ('chat_session', NEW.id, COALESCE(NEW.folder_id, 0), COALESCE(NEW.title, ''), "
+                 "    COALESCE((SELECT GROUP_CONCAT(m.content, '\n') FROM messages m WHERE m.chat_id = NEW.id), ''), "
+                 "CURRENT_TIMESTAMP) "
+                 "  ON CONFLICT(item_kind, item_id) DO UPDATE SET folder_id = excluded.folder_id, "
+                 "    title = excluded.title, body = excluded.body, updated_at = CURRENT_TIMESTAMP; "
+                 "END;",
+                 "CREATE TRIGGER IF NOT EXISTS trg_search_chat_session_ad AFTER DELETE ON chat_sessions BEGIN "
+                 "  DELETE FROM search_index WHERE item_kind = 'chat_session' AND item_id = OLD.id; "
+                 "END;",
+                 "CREATE TRIGGER IF NOT EXISTS trg_search_message_ai AFTER INSERT ON messages WHEN NEW.chat_id > 0 "
+                 "BEGIN "
+                 "  INSERT INTO search_index (item_kind, item_id, folder_id, title, body, updated_at) "
+                 "  SELECT 'chat_session', c.id, COALESCE(c.folder_id, 0), COALESCE(c.title, ''), "
+                 "    COALESCE((SELECT GROUP_CONCAT(m.content, '\n') FROM messages m WHERE m.chat_id = c.id), ''), "
+                 "CURRENT_TIMESTAMP "
+                 "  FROM chat_sessions c WHERE c.id = NEW.chat_id "
+                 "  ON CONFLICT(item_kind, item_id) DO UPDATE SET folder_id = excluded.folder_id, "
+                 "    title = excluded.title, body = excluded.body, updated_at = CURRENT_TIMESTAMP; "
+                 "END;",
+                 "CREATE TRIGGER IF NOT EXISTS trg_search_message_au AFTER UPDATE OF content, chat_id ON messages WHEN "
+                 "NEW.chat_id > 0 BEGIN "
+                 "  INSERT INTO search_index (item_kind, item_id, folder_id, title, body, updated_at) "
+                 "  SELECT 'chat_session', c.id, COALESCE(c.folder_id, 0), COALESCE(c.title, ''), "
+                 "    COALESCE((SELECT GROUP_CONCAT(m.content, '\n') FROM messages m WHERE m.chat_id = c.id), ''), "
+                 "CURRENT_TIMESTAMP "
+                 "  FROM chat_sessions c WHERE c.id = NEW.chat_id "
+                 "  ON CONFLICT(item_kind, item_id) DO UPDATE SET folder_id = excluded.folder_id, "
+                 "    title = excluded.title, body = excluded.body, updated_at = CURRENT_TIMESTAMP; "
+                 "END;",
+                 "CREATE TRIGGER IF NOT EXISTS trg_search_message_ad AFTER DELETE ON messages WHEN OLD.chat_id > 0 "
+                 "BEGIN "
+                 "  INSERT INTO search_index (item_kind, item_id, folder_id, title, body, updated_at) "
+                 "  SELECT 'chat_session', c.id, COALESCE(c.folder_id, 0), COALESCE(c.title, ''), "
+                 "    COALESCE((SELECT GROUP_CONCAT(m.content, '\n') FROM messages m WHERE m.chat_id = c.id), ''), "
+                 "CURRENT_TIMESTAMP "
+                 "  FROM chat_sessions c WHERE c.id = OLD.chat_id "
+                 "  ON CONFLICT(item_kind, item_id) DO UPDATE SET folder_id = excluded.folder_id, "
+                 "    title = excluded.title, body = excluded.body, updated_at = CURRENT_TIMESTAMP; "
+                 "END;"};
+             for (const QString& trg : ftsTriggers) {
+                 if (!db.execute(trg)) return false;
+             }
+
+             // Backfill active artifacts (documents, notes, templates, drafts)
+             if (!db.execute("INSERT OR IGNORE INTO search_index (item_kind, item_id, folder_id, title, body) "
+                             "SELECT a.kind, a.id, COALESCE(a.folder_id, 0), "
+                             "COALESCE(v.title, ''), COALESCE(v.content, '') "
+                             "FROM artifacts a "
+                             "LEFT JOIN artifact_versions v ON v.id = a.current_version_id;")) {
+                 return false;
+             }
+
+             // Backfill chat sessions
+             return db.execute(
+                 "INSERT OR IGNORE INTO search_index (item_kind, item_id, folder_id, title, body) "
+                 "SELECT 'chat_session', c.id, COALESCE(c.folder_id, 0), COALESCE(c.title, ''), "
+                 "COALESCE((SELECT GROUP_CONCAT(m.content, '\n') FROM messages m WHERE m.chat_id = c.id), '') "
+                 "FROM chat_sessions c;");
+         }});
+
     return runner;
 }
 

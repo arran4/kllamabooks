@@ -36,6 +36,7 @@
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QSettings>
+#include <QShortcut>
 #include <QSpinBox>
 #include <QStandardPaths>
 #include <QStyle>
@@ -67,6 +68,7 @@
 #include "QueueWindow.h"
 #include "RecoveryBrowserDialog.h"
 #include "WalletManager.h"
+#include "controllers/BookTreeController.h"
 #include "db/Database.h"
 #include "store/ActivityStore.h"
 
@@ -251,7 +253,51 @@ void MainWindow::setupUi() {
     bookList->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(bookList, &QWidget::customContextMenuRequested, this, &MainWindow::showBookContextMenu);
 
-    leftSplitter->addWidget(openBooksTree);
+    QWidget* leftBooksPanel = new QWidget(this);
+    QVBoxLayout* leftBooksLayout = new QVBoxLayout(leftBooksPanel);
+    leftBooksLayout->setContentsMargins(0, 0, 0, 0);
+    leftBooksLayout->setSpacing(4);
+
+    QHBoxLayout* searchBarLayout = new QHBoxLayout();
+    searchBarLayout->setContentsMargins(0, 0, 0, 0);
+    searchBarLayout->setSpacing(4);
+
+    bookSearchEdit = new QLineEdit(leftBooksPanel);
+    bookSearchEdit->setPlaceholderText(tr("Search book (Ctrl+K)..."));
+    bookSearchEdit->setClearButtonEnabled(true);
+
+    bookSearchKindCombo = new QComboBox(leftBooksPanel);
+    bookSearchKindCombo->addItem(tr("All"), static_cast<int>(store::ItemKind::Unknown));
+    bookSearchKindCombo->addItem(tr("Chats"), static_cast<int>(store::ItemKind::ChatSession));
+    bookSearchKindCombo->addItem(tr("Docs"), static_cast<int>(store::ItemKind::Document));
+    bookSearchKindCombo->addItem(tr("Notes"), static_cast<int>(store::ItemKind::Note));
+
+    searchBarLayout->addWidget(bookSearchEdit, 1);
+    searchBarLayout->addWidget(bookSearchKindCombo);
+    leftBooksLayout->addLayout(searchBarLayout);
+
+    bookSearchResults = new QListWidget(leftBooksPanel);
+    bookSearchResults->setWordWrap(true);
+    bookSearchResults->setMaximumHeight(220);
+    bookSearchResults->hide();
+    leftBooksLayout->addWidget(bookSearchResults);
+    leftBooksLayout->addWidget(openBooksTree, 1);
+
+    connect(bookSearchEdit, &QLineEdit::textChanged, this, &MainWindow::onBookSearchChanged);
+    connect(bookSearchKindCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+            &MainWindow::onBookSearchChanged);
+    connect(bookSearchResults, &QListWidget::itemActivated, this, &MainWindow::onSearchResultActivated);
+    connect(bookSearchResults, &QListWidget::itemClicked, this, &MainWindow::onSearchResultActivated);
+
+    auto* focusSearchShortcut = new QShortcut(QKeySequence(QStringLiteral("Ctrl+K")), this);
+    connect(focusSearchShortcut, &QShortcut::activated, this, [this]() {
+        if (bookSearchEdit) {
+            bookSearchEdit->setFocus();
+            bookSearchEdit->selectAll();
+        }
+    });
+
+    leftSplitter->addWidget(leftBooksPanel);
     leftSplitter->addWidget(bookList);
 
     // Initial size of left splitter
@@ -5670,22 +5716,141 @@ void MainWindow::onOpenBooksTreeDoubleClicked(const QModelIndex& index) {
     QStandardItem* item = openBooksModel->itemFromIndex(index);
     if (!item || !currentDb) return;
 
-    QString type = item->data(Qt::UserRole + 1).toString();
-    if (type == "document" || type == "template" || type == "draft") {
-        onEditDocument();
-        return;
-    } else if (type == "note") {
-        mainContentStack->setCurrentWidget(noteContainer);
-        noteEditorView->setFocus();
-        return;
+    const store::ItemRef ref = store::itemRefFromStandardItem(item);
+    const auto nav = controllers::BookTreeController::resolveNavigation(currentDb.get(), ref);
+    switch (nav.view) {
+        case controllers::NavigationTargetView::DocumentEditor:
+        case controllers::NavigationTargetView::TemplateView:
+        case controllers::NavigationTargetView::DraftView:
+            onEditDocument();
+            return;
+        case controllers::NavigationTargetView::NoteEditor:
+            mainContentStack->setCurrentWidget(noteContainer);
+            noteEditorView->setFocus();
+            return;
+        case controllers::NavigationTargetView::ChatSession:
+            if (nav.resolvedNodeId > 0) {
+                currentLastNodeId = nav.resolvedNodeId;
+                updateLinearChatView(currentLastNodeId, currentDb->getMessages());
+                mainContentStack->setCurrentWidget(chatWindowView);
+            }
+            return;
+        case controllers::NavigationTargetView::None:
+            break;
     }
 
+    QString type = item->data(Qt::UserRole + 1).toString();
     if (item->data(Qt::UserRole).toInt() > 0 && type != "doc_folder" && type != "templates_folder" &&
         type != "drafts_folder") {
-        // It's a chat node. Single clicking displays the chat.
         currentLastNodeId = item->data(Qt::UserRole).toInt();
         updateLinearChatView(currentLastNodeId, currentDb->getMessages());
         mainContentStack->setCurrentWidget(chatWindowView);
+    }
+}
+
+void MainWindow::onBookSearchChanged() {
+    if (!bookSearchEdit || !bookSearchResults || !bookSearchKindCombo) return;
+    bookSearchResults->clear();
+
+    const QString query = bookSearchEdit->text().trimmed();
+    if (query.isEmpty() || !currentDb || !currentDb->isOpen()) {
+        bookSearchResults->hide();
+        return;
+    }
+
+    std::optional<store::ItemKind> kindFilter;
+    const int kindInt = bookSearchKindCombo->currentData().toInt();
+    if (kindInt != static_cast<int>(store::ItemKind::Unknown)) {
+        kindFilter = static_cast<store::ItemKind>(kindInt);
+    }
+
+    const QList<store::SearchHit> hits =
+        controllers::BookTreeController::searchBook(currentDb.get(), query, kindFilter, 50);
+
+    // Build folder ID -> name map for disambiguation
+    QHash<int, QString> folderNames;
+    for (const FolderNode& fn : currentDb->getFolders()) {
+        folderNames.insert(fn.id, fn.name);
+    }
+
+    for (const store::SearchHit& hit : hits) {
+        QString badge = tr("[Item]");
+        if (hit.item.kind == store::ItemKind::ChatSession)
+            badge = tr("[Chat]");
+        else if (hit.item.kind == store::ItemKind::Document)
+            badge = tr("[Doc]");
+        else if (hit.item.kind == store::ItemKind::Note)
+            badge = tr("[Note]");
+
+        const QString folderCtx =
+            hit.folderId > 0 && folderNames.contains(hit.folderId) ? folderNames.value(hit.folderId) : tr("Root");
+        const QString label = QString("%1 %2 (%3)\n%4")
+                                  .arg(badge, hit.title.isEmpty() ? tr("Untitled") : hit.title, folderCtx, hit.snippet);
+
+        auto* listItem = new QListWidgetItem(label, bookSearchResults);
+        listItem->setData(Qt::UserRole, hit.item.id);
+        listItem->setData(store::kItemRefKindRole, static_cast<int>(hit.item.kind));
+        listItem->setData(store::kItemRefRootTypeRole, hit.item.rootType);
+    }
+
+    if (hits.isEmpty()) {
+        auto* emptyItem = new QListWidgetItem(tr("No matching results."), bookSearchResults);
+        emptyItem->setFlags(Qt::NoItemFlags);
+    }
+    bookSearchResults->show();
+}
+
+void MainWindow::onSearchResultActivated(QListWidgetItem* item) {
+    if (!item || !currentDb || !currentDb->isOpen()) return;
+    const int id = item->data(Qt::UserRole).toInt();
+    const auto kind = static_cast<store::ItemKind>(item->data(store::kItemRefKindRole).toInt());
+    const QString rootType = item->data(store::kItemRefRootTypeRole).toString();
+    if (id <= 0 || kind == store::ItemKind::Unknown) return;
+
+    const store::ItemRef ref{kind, id, rootType};
+    const auto nav = controllers::BookTreeController::resolveNavigation(currentDb.get(), ref);
+
+    QString treeType;
+    if (kind == store::ItemKind::ChatSession)
+        treeType = QStringLiteral("chat_node");
+    else if (kind == store::ItemKind::Document)
+        treeType = QStringLiteral("document");
+    else if (kind == store::ItemKind::Note)
+        treeType = QStringLiteral("note");
+
+    if (nav.resolvedNodeId > 0 && !treeType.isEmpty()) {
+        if (QStandardItem* treeItem = findItemInTree(nav.resolvedNodeId, treeType)) {
+            openBooksTree->setCurrentIndex(treeItem->index());
+            openBooksTree->scrollTo(treeItem->index());
+        }
+    }
+
+    switch (nav.view) {
+        case controllers::NavigationTargetView::ChatSession:
+            if (nav.resolvedNodeId > 0) {
+                currentLastNodeId = nav.resolvedNodeId;
+                updateLinearChatView(currentLastNodeId, currentDb->getMessages());
+                mainContentStack->setCurrentWidget(chatWindowView);
+            }
+            break;
+        case controllers::NavigationTargetView::DocumentEditor:
+            if (auto doc = currentDb->getDocument(nav.resolvedNodeId)) {
+                currentDocumentId = doc->id;
+                documentEditorView->setPlainText(doc->content);
+                mainContentStack->setCurrentWidget(docContainer);
+            }
+            break;
+        case controllers::NavigationTargetView::NoteEditor:
+            if (auto note = currentDb->getNote(nav.resolvedNodeId)) {
+                currentNoteId = note->id;
+                noteEditorView->setPlainText(note->content);
+                mainContentStack->setCurrentWidget(noteContainer);
+            }
+            break;
+        case controllers::NavigationTargetView::TemplateView:
+        case controllers::NavigationTargetView::DraftView:
+        case controllers::NavigationTargetView::None:
+            break;
     }
 }
 
