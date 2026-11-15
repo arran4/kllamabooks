@@ -487,6 +487,37 @@ class TestArtifactStore : public QObject {
         // Cleanup draft so we don't leak
         m_store->deleteArtifact(draftArtifactId);
     }
+
+    void testGetVersionHistory() {
+        auto notFound = m_store->getVersionHistory(999999);
+        QVERIFY(!notFound.isSuccess());
+        QCOMPARE(*notFound.error, store::TransitionError::NotFound);
+
+        auto docRes = m_store->createArtifact(store::ArtifactKind::Document, 1, "Doc V1", "Content V1", "{\"v\":1}");
+        QVERIFY(docRes.isSuccess());
+        int artId = docRes.value->artifactId;
+        int v1Id = docRes.value->id;
+
+        QVERIFY(m_store->sealVersion(v1Id).isSuccess());
+        auto v2Res = m_store->createMutableDescendant(v1Id, "Doc V2", "Content V2", "{\"v\":2}");
+        QVERIFY(v2Res.isSuccess());
+        int v2Id = v2Res.value->id;
+
+        QVERIFY(m_store->sealVersion(v2Id).isSuccess());
+        auto v3Res = m_store->createMutableDescendant(v2Id, "Doc V3", "Content V3", "{\"v\":3}");
+        QVERIFY(v3Res.isSuccess());
+        int v3Id = v3Res.value->id;
+
+        auto histRes = m_store->getVersionHistory(artId);
+        QVERIFY(histRes.isSuccess());
+        QCOMPARE(histRes.value->size(), 3);
+        QCOMPARE(histRes.value->at(0).id, v3Id);
+        QVERIFY(!histRes.value->at(0).isSealed);
+        QCOMPARE(histRes.value->at(1).id, v2Id);
+        QVERIFY(histRes.value->at(1).isSealed);
+        QCOMPARE(histRes.value->at(2).id, v1Id);
+        QVERIFY(histRes.value->at(2).isSealed);
+    }
 };
 
 QTEST_MAIN(TestArtifactStore)
