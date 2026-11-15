@@ -13,6 +13,7 @@
 #include "AiActionDialog.h"  // For AiDynamicInputInfo
 #include "BookDatabase.h"
 #include "OllamaModelInfo.h"
+#include "store/RunStore.h"
 
 class QFormLayout;
 class ModelSelectionDialog;
@@ -39,6 +40,10 @@ class MergeDocumentsDialog : public QDialog {
     void setIsRegenerating(bool isRegenerating);
     int getTargetDocumentId() const;
     QList<int> getDocumentsToDelete() const;
+
+    enum class MergeRerunMode { ExactSnapshot, LatestSources };
+    MergeRerunMode getRerunMode() const;
+    QList<store::AiRunInput> buildMergeRunInputs() const;
 
    public slots:
     void accept() override;
@@ -82,6 +87,7 @@ class MergeDocumentsDialog : public QDialog {
     QComboBox* m_mainActionCombo;
     QComboBox* m_replaceTargetCombo;
     QCheckBox* m_deleteSourcesCheck;
+    QCheckBox* m_exactSnapshotCheck = nullptr;
     bool m_isRegenerating = false;
 };
 
