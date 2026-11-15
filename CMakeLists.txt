@@ -33,6 +33,10 @@ add_executable(kllamabooks
     src/db/Migrations.h
     src/db/MigrationFactory.cpp
     src/db/MigrationFactory.h
+    src/store/ArtifactStore.cpp
+    src/store/ArtifactStore.h
+    src/store/RecoveryStore.cpp
+    src/store/RecoveryStore.h
     src/WalletManager.cpp
     src/WalletManager.h
     src/CredentialStore.cpp
@@ -163,6 +167,11 @@ if(BUILD_TESTING)
     target_link_libraries(test_ArtifactStore Qt6::Test Qt6::Core Qt6::Sql ${SQLCIPHER_LIBRARIES})
     target_include_directories(test_ArtifactStore PRIVATE ${SQLCIPHER_INCLUDE_DIRS})
     add_test(NAME test_ArtifactStore COMMAND test_ArtifactStore)
+
+    add_executable(test_RecoveryStore tests/test_RecoveryStore.cpp src/store/RecoveryStore.cpp src/store/ArtifactStore.cpp src/BookDatabase.cpp src/db/Database.cpp src/db/Migrations.cpp src/db/MigrationFactory.cpp)
+    target_link_libraries(test_RecoveryStore Qt6::Test Qt6::Core ${SQLCIPHER_LIBRARIES})
+    target_include_directories(test_RecoveryStore PRIVATE ${SQLCIPHER_INCLUDE_DIRS})
+    add_test(NAME test_RecoveryStore COMMAND test_RecoveryStore)
 
     add_executable(test_QueueManager tests/test_QueueManager.cpp src/QueueManager.cpp src/BookDatabase.cpp src/OllamaClient.cpp src/NotificationDelegate.cpp src/DocumentTemplatesManager.cpp src/AIOperationsManager.cpp src/TemplateParser.cpp src/db/Database.cpp src/db/Migrations.cpp src/db/MigrationFactory.cpp)
     target_link_libraries(test_QueueManager Qt6::Test Qt6::Core Qt6::Widgets Qt6::Network ${SQLCIPHER_LIBRARIES})

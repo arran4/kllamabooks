@@ -104,6 +104,10 @@ class BookDatabase {
     bool isOpen() const;
     QString filepath() const;
 
+    bool createEncryptedBackup(const QString& backupPath, QString* error = nullptr) const;
+    bool restoreEncryptedBackup(const QString& backupPath, const QString& password, bool upgradeSchema = false,
+                                QString* error = nullptr);
+
     // Database operations
     bool initSchema();
 
@@ -246,6 +250,7 @@ class BookDatabase {
 
    private:
     QString m_filepath;
+    QString m_password;
     void* m_db;  // sqlite3* handle
     bool m_isOpen;
 };
