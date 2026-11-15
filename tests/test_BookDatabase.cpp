@@ -70,7 +70,7 @@ void TestBookDatabase::testInitSchema() {
     QVERIFY(db.open("testpassword"));
 
     QString debugInfo = db.getDatabaseDebugInfo();
-    QVERIFY(debugInfo.contains("Schema Version: 27"));
+    QVERIFY(debugInfo.contains("Schema Version: 28"));
     QVERIFY(debugInfo.contains("- schema_version\n"));
     QVERIFY(debugInfo.contains("- messages\n"));
     QVERIFY(debugInfo.contains("- documents\n"));
@@ -258,7 +258,7 @@ void TestBookDatabase::testArtifactStoreProductionCutoverLifecycle() {
 
     // Rename & move document
     QVERIFY(db.updateDocumentTitle(docId, "Renamed Doc", "document"));
-    QVERIFY(db.moveItem("documents", docId, folder2));
+    QVERIFY(db.moveItem({store::ItemKind::Document, docId, "documents"}, folder2));
     docOpt = db.getDocument(docId);
     QVERIFY(docOpt.has_value());
     QCOMPARE(docOpt->title, QString("Renamed Doc"));

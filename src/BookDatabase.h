@@ -9,6 +9,8 @@
 #include <functional>
 #include <optional>
 
+#include "store/ItemRef.h"
+
 struct MessageNode {
     int id = 0;
     int parentId = 0;  // 0 if root
@@ -213,8 +215,8 @@ class BookDatabase {
     bool updateDocumentTitle(int id, const QString& newTitle, const QString& targetType);
     void setFolderExpanded(int id, bool expanded);
     void setMessageExpanded(int id, bool expanded);
-    QList<FolderNode> getFolders(const QString& type) const;
-    bool moveItem(const QString& table, int id, int newFolderId);
+    QList<FolderNode> getFolders(const QString& type = QString()) const;
+    bool moveItem(const store::ItemRef& item, int newFolderId);
     bool moveFolder(int id, int newParentId);
 
     // Queue
