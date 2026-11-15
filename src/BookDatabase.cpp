@@ -5,42 +5,1147 @@
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QDebug>
+#include <QDir>
 #include <QFile>
+#include <QFileInfo>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QUuid>
 #include <QVariant>
+#include <algorithm>
 #include <cerrno>
+#include <cstring>
+#include <utility>
 
 #include "db/Database.h"
 #include "db/MigrationFactory.h"
 
 #ifdef Q_OS_UNIX
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
 #include <csignal>
 #endif
 
 namespace {
-constexpr int CURRENT_SCHEMA_VERSION = 25;
+constexpr int CURRENT_SCHEMA_VERSION = 26;
+constexpr int kRestoreJournalVersion = 1;
+
+BookDatabase::RestoreFaultHook g_restoreFaultHook;
+
+bool shouldInjectFault(const QString& stage) { return g_restoreFaultHook && g_restoreFaultHook(stage); }
+
+QString escapeSqlLiteral(const QString& input) {
+    QString escaped = input;
+    escaped.replace("'", "''");
+    return escaped;
 }
+
+bool syncParentDirectory(const QString& filePath, QString* error, const QString& faultStage = QString()) {
+    if ((!faultStage.isEmpty() && shouldInjectFault(faultStage)) || shouldInjectFault("sync_parent_dir")) {
+        if (error) {
+            *error = QString("Failed to sync parent directory for %1 (injected fault)").arg(filePath);
+        }
+        return false;
+    }
+#ifdef Q_OS_UNIX
+    const QString dirPath = QFileInfo(filePath).absolutePath();
+    if (dirPath.isEmpty()) {
+        if (error) {
+            *error = QString("Cannot resolve parent directory for %1").arg(filePath);
+        }
+        return false;
+    }
+    const QByteArray dirUtf8 = dirPath.toUtf8();
+    const int dirFd = ::open(dirUtf8.constData(), O_RDONLY | O_DIRECTORY);
+    if (dirFd < 0) {
+        if (error) {
+            *error = QString("Failed to open parent directory %1 for sync: %2")
+                         .arg(dirPath, QString::fromLocal8Bit(std::strerror(errno)));
+        }
+        return false;
+    }
+    int syncRc = 0;
+    do {
+        syncRc = ::fsync(dirFd);
+    } while (syncRc != 0 && errno == EINTR);
+    if (syncRc != 0) {
+        const int savedErrno = errno;
+        ::close(dirFd);
+        if (error) {
+            *error = QString("Failed to fsync parent directory %1: %2")
+                         .arg(dirPath, QString::fromLocal8Bit(std::strerror(savedErrno)));
+        }
+        return false;
+    }
+    if (::close(dirFd) != 0) {
+        if (error) {
+            *error = QString("Failed to close parent directory %1 after sync: %2")
+                         .arg(dirPath, QString::fromLocal8Bit(std::strerror(errno)));
+        }
+        return false;
+    }
+    return true;
+#else
+    Q_UNUSED(filePath);
+    return true;
+#endif
+}
+
+bool removeFileChecked(const QString& path, const QString& faultStage, QString* error) {
+    const QFileInfo info(path);
+    if (!info.exists() && !info.isSymLink()) {
+        return true;
+    }
+    if ((!faultStage.isEmpty() && shouldInjectFault(faultStage)) || !QFile::remove(path)) {
+        if (error) {
+            *error = QString("Failed to remove %1").arg(path);
+        }
+        return false;
+    }
+    return true;
+}
+
+bool sameFilesystemTarget(const QString& pathA, const QString& pathB) {
+    const QFileInfo infoA(pathA);
+    const QFileInfo infoB(pathB);
+    if (QDir::cleanPath(infoA.absoluteFilePath()) == QDir::cleanPath(infoB.absoluteFilePath())) {
+        return true;
+    }
+    const QString canonA = infoA.canonicalFilePath();
+    const QString canonB = infoB.canonicalFilePath();
+    if (!canonA.isEmpty() && !canonB.isEmpty() && canonA == canonB) {
+        return true;
+    }
+    const QString canonDirA = QFileInfo(infoA.absolutePath()).canonicalFilePath();
+    const QString canonDirB = QFileInfo(infoB.absolutePath()).canonicalFilePath();
+    return !canonDirA.isEmpty() && !canonDirB.isEmpty() && canonDirA == canonDirB &&
+           infoA.fileName() == infoB.fileName();
+}
+
+bool writeAllFd(int fd, const char* data, qint64 size, QString* error, const char* context) {
+    qint64 totalWritten = 0;
+    while (totalWritten < size) {
+        const ssize_t n = ::write(fd, data + totalWritten, static_cast<size_t>(size - totalWritten));
+        if (n < 0) {
+            if (errno == EINTR) continue;
+            if (error) *error = QString("%1: %2").arg(context, QString::fromLocal8Bit(std::strerror(errno)));
+            return false;
+        }
+        if (n == 0) {
+            if (error) *error = QString("%1: unexpected zero-byte write").arg(context);
+            return false;
+        }
+        totalWritten += static_cast<qint64>(n);
+    }
+    return true;
+}
+
+bool writeBytesOwnerOnly(const QString& destPath, const QByteArray& bytes, QString* error) {
+#ifdef Q_OS_UNIX
+    const QByteArray destUtf8 = destPath.toUtf8();
+    const int fd = ::open(destUtf8.constData(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, S_IRUSR | S_IWUSR);
+    if (fd < 0) {
+        if (error) {
+            *error = QString("Failed to create owner-only file %1: %2")
+                         .arg(destPath, QString::fromLocal8Bit(std::strerror(errno)));
+        }
+        return false;
+    }
+    if (::fchmod(fd, S_IRUSR | S_IWUSR) != 0) {
+        if (error) {
+            *error = QString("Failed to enforce 0600 permissions on %1: %2")
+                         .arg(destPath, QString::fromLocal8Bit(std::strerror(errno)));
+        }
+        ::close(fd);
+        QFile::remove(destPath);
+        return false;
+    }
+    if (!writeAllFd(fd, bytes.constData(), bytes.size(), error, "Failed writing file")) {
+        ::close(fd);
+        QFile::remove(destPath);
+        return false;
+    }
+    if (::fsync(fd) != 0) {
+        if (error) {
+            *error = QString("Failed to fsync file %1: %2").arg(destPath, QString::fromLocal8Bit(std::strerror(errno)));
+        }
+        ::close(fd);
+        QFile::remove(destPath);
+        return false;
+    }
+    if (::close(fd) != 0) {
+        if (error) {
+            *error = QString("Failed to close file %1: %2").arg(destPath, QString::fromLocal8Bit(std::strerror(errno)));
+        }
+        QFile::remove(destPath);
+        return false;
+    }
+    return true;
+#else
+    QFile dst(destPath);
+    if (!dst.open(QIODevice::WriteOnly | QIODevice::NewOnly)) {
+        if (error) *error = QString("Failed to create destination file: %1").arg(dst.errorString());
+        return false;
+    }
+    if (!dst.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner)) {
+        dst.close();
+        QFile::remove(destPath);
+        if (error) *error = "Failed to restrict destination file permissions";
+        return false;
+    }
+    qint64 totalWritten = 0;
+    while (totalWritten < bytes.size()) {
+        const qint64 n = dst.write(bytes.constData() + totalWritten, bytes.size() - totalWritten);
+        if (n <= 0) {
+            dst.close();
+            QFile::remove(destPath);
+            if (error) *error = QString("Failed to write destination file: %1").arg(dst.errorString());
+            return false;
+        }
+        totalWritten += n;
+    }
+    if (!dst.flush()) {
+        dst.close();
+        QFile::remove(destPath);
+        if (error) *error = QString("Failed to flush destination file: %1").arg(dst.errorString());
+        return false;
+    }
+    dst.close();
+    return true;
+#endif
+}
+
+bool copyFileOwnerOnly(const QString& sourcePath, const QString& destPath, QString* error) {
+    QFile src(sourcePath);
+    if (!src.open(QIODevice::ReadOnly)) {
+        if (error) *error = QString("Failed to open source file for copy: %1").arg(src.errorString());
+        return false;
+    }
+
+#ifdef Q_OS_UNIX
+    const QByteArray destUtf8 = destPath.toUtf8();
+    const int dstFd = ::open(destUtf8.constData(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, S_IRUSR | S_IWUSR);
+    if (dstFd < 0) {
+        if (error) {
+            *error = QString("Failed to create destination file %1: %2")
+                         .arg(destPath, QString::fromLocal8Bit(std::strerror(errno)));
+        }
+        return false;
+    }
+    if (::fchmod(dstFd, S_IRUSR | S_IWUSR) != 0) {
+        if (error) {
+            *error = QString("Failed to enforce 0600 permissions on %1: %2")
+                         .arg(destPath, QString::fromLocal8Bit(std::strerror(errno)));
+        }
+        ::close(dstFd);
+        QFile::remove(destPath);
+        return false;
+    }
+
+    constexpr qint64 kChunkSize = 65536;
+    QByteArray buffer(kChunkSize, Qt::Uninitialized);
+    while (!src.atEnd()) {
+        const qint64 bytesRead = src.read(buffer.data(), kChunkSize);
+        if (bytesRead < 0) {
+            if (error) *error = QString("Failed to read source file during copy: %1").arg(src.errorString());
+            ::close(dstFd);
+            QFile::remove(destPath);
+            return false;
+        }
+        if (bytesRead == 0) continue;
+        if (!writeAllFd(dstFd, buffer.constData(), bytesRead, error, "Failed to write destination file during copy")) {
+            ::close(dstFd);
+            QFile::remove(destPath);
+            return false;
+        }
+    }
+
+    if (::fsync(dstFd) != 0) {
+        if (error) {
+            *error = QString("Failed to fsync destination file %1: %2")
+                         .arg(destPath, QString::fromLocal8Bit(std::strerror(errno)));
+        }
+        ::close(dstFd);
+        QFile::remove(destPath);
+        return false;
+    }
+    if (::close(dstFd) != 0) {
+        if (error) {
+            *error = QString("Failed to close destination file %1: %2")
+                         .arg(destPath, QString::fromLocal8Bit(std::strerror(errno)));
+        }
+        QFile::remove(destPath);
+        return false;
+    }
+    return true;
+#else
+    QFile dst(destPath);
+    if (!dst.open(QIODevice::WriteOnly | QIODevice::NewOnly)) {
+        if (error) *error = QString("Failed to create destination file: %1").arg(dst.errorString());
+        return false;
+    }
+    if (!dst.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner)) {
+        dst.close();
+        QFile::remove(destPath);
+        if (error) *error = "Failed to restrict destination file permissions";
+        return false;
+    }
+
+    constexpr qint64 kChunkSize = 65536;
+    QByteArray buffer(kChunkSize, Qt::Uninitialized);
+    while (!src.atEnd()) {
+        const qint64 bytesRead = src.read(buffer.data(), kChunkSize);
+        if (bytesRead < 0) {
+            dst.close();
+            QFile::remove(destPath);
+            if (error) *error = QString("Failed to read source file during copy: %1").arg(src.errorString());
+            return false;
+        }
+        qint64 totalWritten = 0;
+        while (totalWritten < bytesRead) {
+            const qint64 bytesWritten = dst.write(buffer.constData() + totalWritten, bytesRead - totalWritten);
+            if (bytesWritten <= 0) {
+                dst.close();
+                QFile::remove(destPath);
+                if (error) *error = QString("Failed to write destination file during copy: %1").arg(dst.errorString());
+                return false;
+            }
+            totalWritten += bytesWritten;
+        }
+    }
+
+    if (!dst.flush()) {
+        dst.close();
+        QFile::remove(destPath);
+        if (error) *error = QString("Failed to flush destination file during copy: %1").arg(dst.errorString());
+        return false;
+    }
+    dst.close();
+    return true;
+#endif
+}
+
+bool atomicReplaceFile(const QString& srcPath, const QString& dstPath, QString* error,
+                       const QString& syncFaultStage = QString()) {
+#ifdef Q_OS_UNIX
+    const QByteArray srcUtf8 = srcPath.toUtf8();
+    const QByteArray dstUtf8 = dstPath.toUtf8();
+    if (::rename(srcUtf8.constData(), dstUtf8.constData()) != 0) {
+        if (error) {
+            *error = QString("Failed atomic rename %1 -> %2: %3")
+                         .arg(srcPath, dstPath, QString::fromLocal8Bit(std::strerror(errno)));
+        }
+        return false;
+    }
+    return syncParentDirectory(dstPath, error, syncFaultStage);
+#else
+    const QString prevPath = QString("%1.%2.prev").arg(dstPath, QUuid::createUuid().toString(QUuid::Id128).toLower());
+    const bool hadDst = QFile::exists(dstPath);
+    if (hadDst && !QFile::rename(dstPath, prevPath)) {
+        if (error) *error = QString("Failed to stage existing file %1 for replacement").arg(dstPath);
+        return false;
+    }
+    if (!QFile::rename(srcPath, dstPath)) {
+        if (hadDst) {
+            QFile::rename(prevPath, dstPath);
+        }
+        if (error) *error = QString("Failed to move %1 into place at %2").arg(srcPath, dstPath);
+        return false;
+    }
+    if (!syncParentDirectory(dstPath, error, syncFaultStage)) {
+        return false;
+    }
+    if (hadDst && !QFile::remove(prevPath)) {
+        if (error) *error = QString("Failed to remove temporary previous file %1").arg(prevPath);
+        return false;
+    }
+    return syncParentDirectory(dstPath, error, syncFaultStage);
+#endif
+}
+
+class ExclusiveLockGuard {
+   public:
+    explicit ExclusiveLockGuard(sqlite3* handle) : m_handle(handle), m_active(handle != nullptr) {}
+    ~ExclusiveLockGuard() { release(); }
+    ExclusiveLockGuard(const ExclusiveLockGuard&) = delete;
+    ExclusiveLockGuard& operator=(const ExclusiveLockGuard&) = delete;
+
+    void release() {
+        if (!m_active || !m_handle) {
+            return;
+        }
+        m_active = false;
+        char* errMsg = nullptr;
+        const int rc = sqlite3_exec(m_handle, "ROLLBACK;", nullptr, nullptr, &errMsg);
+        if (rc != SQLITE_OK) {
+            qWarning() << "Failed to release backup snapshot exclusive lock:"
+                       << (errMsg ? QString::fromUtf8(errMsg) : QString::fromUtf8(sqlite3_errmsg(m_handle)));
+            sqlite3_free(errMsg);
+        }
+    }
+
+   private:
+    sqlite3* m_handle = nullptr;
+    bool m_active = false;
+};
+
+struct FileFingerprint {
+    bool exists = false;
+    qint64 size = -1;
+#ifdef Q_OS_UNIX
+    dev_t dev = 0;
+    ino_t ino = 0;
+    qint64 mtimeSec = 0;
+    qint64 mtimeNsec = 0;
+#else
+    qint64 mtimeMs = 0;
+#endif
+    bool operator==(const FileFingerprint& other) const {
+        if (exists != other.exists || size != other.size) {
+            return false;
+        }
+#ifdef Q_OS_UNIX
+        return dev == other.dev && ino == other.ino && mtimeSec == other.mtimeSec && mtimeNsec == other.mtimeNsec;
+#else
+        return mtimeMs == other.mtimeMs;
+#endif
+    }
+    bool operator!=(const FileFingerprint& other) const { return !(*this == other); }
+};
+
+FileFingerprint captureFileFingerprint(const QString& path) {
+    FileFingerprint fp;
+#ifdef Q_OS_UNIX
+    struct stat st{};
+    const QByteArray utf8 = path.toUtf8();
+    if (::stat(utf8.constData(), &st) == 0) {
+        fp.exists = true;
+        fp.size = static_cast<qint64>(st.st_size);
+        fp.dev = st.st_dev;
+        fp.ino = st.st_ino;
+        fp.mtimeSec = static_cast<qint64>(st.st_mtim.tv_sec);
+        fp.mtimeNsec = static_cast<qint64>(st.st_mtim.tv_nsec);
+    }
+#else
+    const QFileInfo info(path);
+    if (info.exists()) {
+        fp.exists = true;
+        fp.size = info.size();
+        fp.mtimeMs = info.lastModified().toMSecsSinceEpoch();
+    }
+#endif
+    return fp;
+}
+
+bool checkpointWalStrict(sqlite3* handle, const char* context, QString* error) {
+    if (!handle) {
+        if (error) *error = QString("Database handle is null before %1 WAL checkpoint").arg(context);
+        return false;
+    }
+    int logFrames = 0;
+    int checkpointedFrames = 0;
+    const int walRc =
+        sqlite3_wal_checkpoint_v2(handle, nullptr, SQLITE_CHECKPOINT_TRUNCATE, &logFrames, &checkpointedFrames);
+    if (walRc != SQLITE_OK || (logFrames > 0 && checkpointedFrames < logFrames)) {
+        if (error) {
+            *error = QString("WAL checkpoint incomplete or busy before %1 (rc=%2, log=%3, checkpointed=%4): %5")
+                         .arg(context)
+                         .arg(walRc)
+                         .arg(logFrames)
+                         .arg(checkpointedFrames)
+                         .arg(QString::fromUtf8(sqlite3_errmsg(handle)));
+        }
+        return false;
+    }
+    return true;
+}
+
+bool verifyEncryptedFileIntegrity(const QString& path, const QString& password, QString* error,
+                                  bool cleanTransientWal = false) {
+    QFile file(path);
+    if (!file.exists()) {
+        if (error) *error = QString("Database file does not exist: %1").arg(path);
+        return false;
+    }
+    if (!file.open(QIODevice::ReadOnly)) {
+        if (error) *error = QString("Failed to open database file for verification: %1").arg(path);
+        return false;
+    }
+    const QByteArray header = file.read(16);
+    file.close();
+    if (header.isEmpty()) {
+        if (error) *error = "Database file is empty";
+        return false;
+    }
+    if (!password.isEmpty() && header.startsWith("SQLite format 3")) {
+        if (error) *error = "Refusing unencrypted plaintext SQLite file";
+        return false;
+    }
+
+    const bool hadWalBefore = QFile::exists(path + "-wal");
+    const bool hadShmBefore = QFile::exists(path + "-shm");
+
+    sqlite3* checkDb = nullptr;
+    if (sqlite3_open(path.toUtf8().constData(), &checkDb) != SQLITE_OK) {
+        if (error) *error = "sqlite3_open failed during verification";
+        if (checkDb) sqlite3_close(checkDb);
+        return false;
+    }
+
+    if (!password.isEmpty()) {
+        const QByteArray keySql = QString("PRAGMA key = '%1';").arg(escapeSqlLiteral(password)).toUtf8();
+        if (sqlite3_exec(checkDb, keySql.constData(), nullptr, nullptr, nullptr) != SQLITE_OK) {
+            if (error) *error = "Failed to set SQLCipher key during verification";
+            sqlite3_close(checkDb);
+            return false;
+        }
+    }
+
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(checkDb, "PRAGMA integrity_check;", -1, &stmt, nullptr) != SQLITE_OK) {
+        if (error) *error = "Invalid password or unreadable SQLCipher database";
+        sqlite3_close(checkDb);
+        return false;
+    }
+    QString integrityResult;
+    const int stepRc = sqlite3_step(stmt);
+    if (stepRc == SQLITE_ROW) {
+        const unsigned char* text = sqlite3_column_text(stmt, 0);
+        if (text) integrityResult = QString::fromUtf8(reinterpret_cast<const char*>(text));
+    }
+    const int doneRc = (stepRc == SQLITE_ROW) ? sqlite3_step(stmt) : stepRc;
+    sqlite3_finalize(stmt);
+    sqlite3_close(checkDb);
+
+    if (cleanTransientWal) {
+        const QString walPath = path + "-wal";
+        const QString shmPath = path + "-shm";
+        if (!hadWalBefore && QFile::exists(walPath) && QFileInfo(walPath).size() == 0) {
+            QFile::remove(walPath);
+        }
+        if (!hadShmBefore && QFile::exists(shmPath)) {
+            QFile::remove(shmPath);
+        }
+    }
+
+    if (stepRc != SQLITE_ROW || doneRc != SQLITE_DONE || integrityResult != "ok") {
+        if (error) {
+            *error = QString("Database integrity check failed: %1")
+                         .arg(integrityResult.isEmpty() ? QString("unreadable") : integrityResult);
+        }
+        return false;
+    }
+    return true;
+}
+
+struct RestoreJournal {
+    int version = kRestoreJournalVersion;
+    QString opId;
+    QString phase;
+    QString targetPath;
+    QString stagedNewPath;
+    QString rollbackDbPath;
+    QString rollbackWalPath;
+    QString rollbackShmPath;
+    bool hadOriginalDb = false;
+    bool hadOriginalWal = false;
+    bool hadOriginalShm = false;
+};
+
+struct RestorePaths {
+    QString journalPath;
+    QString stagedNewPath;
+    QString rollbackDbPath;
+    QString rollbackWalPath;
+    QString rollbackShmPath;
+    QString abortedDbPath;
+    QString abortedWalPath;
+    QString abortedShmPath;
+};
+
+QString restoreJournalPathFor(const QString& dbPath) { return dbPath + ".restore_journal.json"; }
+
+bool isValidOperationId(const QString& opId) {
+    if (opId.size() != 32) {
+        return false;
+    }
+    return std::all_of(opId.cbegin(), opId.cend(), [](const QChar ch) {
+        const ushort code = ch.unicode();
+        return (code >= '0' && code <= '9') || (code >= 'a' && code <= 'f');
+    });
+}
+
+RestorePaths deriveRestorePaths(const QString& dbPath, const QString& opId) {
+    RestorePaths paths;
+    paths.journalPath = restoreJournalPathFor(dbPath);
+    paths.stagedNewPath = QString("%1.restore.%2.new").arg(dbPath, opId);
+    paths.rollbackDbPath = QString("%1.restore.%2.orig").arg(dbPath, opId);
+    paths.rollbackWalPath = paths.rollbackDbPath + "-wal";
+    paths.rollbackShmPath = paths.rollbackDbPath + "-shm";
+    paths.abortedDbPath = QString("%1.restore.%2.aborted").arg(dbPath, opId);
+    paths.abortedWalPath = paths.abortedDbPath + "-wal";
+    paths.abortedShmPath = paths.abortedDbPath + "-shm";
+    return paths;
+}
+
+bool isValidRestorePhase(const QString& phase) {
+    return phase == "staging" || phase == "moving_original" || phase == "placing_replacement" || phase == "verifying" ||
+           phase == "rolling_back";
+}
+
+bool writeRestoreJournal(const RestoreJournal& journal, QString* error) {
+    if (!isValidOperationId(journal.opId) || !isValidRestorePhase(journal.phase) || journal.targetPath.isEmpty()) {
+        if (error) {
+            *error = QStringLiteral("Cannot write restore journal with invalid metadata");
+        }
+        return false;
+    }
+    const QString journalPath = restoreJournalPathFor(journal.targetPath);
+    if (QFileInfo(journalPath).isSymLink()) {
+        if (error) {
+            *error = QString("Refusing to overwrite symlinked restore journal %1").arg(journalPath);
+        }
+        return false;
+    }
+
+    QJsonObject obj;
+    obj["version"] = journal.version;
+    obj["op_id"] = journal.opId;
+    obj["phase"] = journal.phase;
+    obj["target_path"] = journal.targetPath;
+    obj["staged_new_path"] = journal.stagedNewPath;
+    obj["rollback_db_path"] = journal.rollbackDbPath;
+    obj["rollback_wal_path"] = journal.rollbackWalPath;
+    obj["rollback_shm_path"] = journal.rollbackShmPath;
+    obj["had_original_db"] = journal.hadOriginalDb;
+    obj["had_original_wal"] = journal.hadOriginalWal;
+    obj["had_original_shm"] = journal.hadOriginalShm;
+
+    const QString tmpPath = QString("%1.%2.tmp").arg(journalPath, QUuid::createUuid().toString(QUuid::Id128).toLower());
+    const QByteArray bytes = QJsonDocument(obj).toJson(QJsonDocument::Compact);
+
+    if (!writeBytesOwnerOnly(tmpPath, bytes, error)) {
+        return false;
+    }
+    if (!atomicReplaceFile(tmpPath, journalPath, error, "sync_restore_journal")) {
+        QFile::remove(tmpPath);
+        return false;
+    }
+    return true;
+}
+
+bool readRestoreJournal(const QString& dbPath, RestoreJournal* out, QString* error) {
+    if (dbPath.trimmed().isEmpty()) {
+        if (error) {
+            *error = QStringLiteral("Invalid empty database path for restore journal");
+        }
+        return false;
+    }
+
+    const QString walPath = dbPath + "-wal";
+    const QString shmPath = dbPath + "-shm";
+    const QString journalPath = restoreJournalPathFor(dbPath);
+    const QFileInfo dbInfo(dbPath);
+    const QFileInfo walInfo(walPath);
+    const QFileInfo shmInfo(shmPath);
+    const QFileInfo journalInfo(journalPath);
+    if (dbInfo.isSymLink() || walInfo.isSymLink() || shmInfo.isSymLink() || journalInfo.isSymLink()) {
+        if (error) {
+            *error =
+                QString("Refusing restore recovery with symlinked target or journal path under %1").arg(journalPath);
+        }
+        return false;
+    }
+    if (!journalInfo.exists() || !journalInfo.isFile() || journalInfo.size() > 65536) {
+        if (error) {
+            *error = QString("Invalid or unreadable restore journal %1; refusing recovery").arg(journalPath);
+        }
+        return false;
+    }
+
+    QFile file(journalPath);
+    if (!file.open(QIODevice::ReadOnly)) {
+        if (error) {
+            *error = QString("Failed to read restore journal %1: %2").arg(journalPath, file.errorString());
+        }
+        return false;
+    }
+    const QByteArray bytes = file.readAll();
+    file.close();
+
+    QJsonParseError parseError;
+    const QJsonDocument doc = QJsonDocument::fromJson(bytes, &parseError);
+    if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
+        if (error) {
+            *error = QString("Corrupt restore journal %1 (%2); manual inspection required before touching book files")
+                         .arg(journalPath, parseError.errorString());
+        }
+        return false;
+    }
+
+    const QJsonObject obj = doc.object();
+    const QJsonValue versionVal = obj.value("version");
+    const QJsonValue opIdVal = obj.value("op_id");
+    const QJsonValue phaseVal = obj.value("phase");
+    const QJsonValue targetVal = obj.value("target_path");
+    const QJsonValue hadDbVal = obj.value("had_original_db");
+    const QJsonValue hadWalVal = obj.value("had_original_wal");
+    const QJsonValue hadShmVal = obj.value("had_original_shm");
+    if (!versionVal.isDouble() || versionVal.toDouble() != static_cast<double>(kRestoreJournalVersion) ||
+        !opIdVal.isString() || !isValidOperationId(opIdVal.toString()) || !phaseVal.isString() ||
+        !isValidRestorePhase(phaseVal.toString()) || !targetVal.isString() || targetVal.toString() != dbPath ||
+        !hadDbVal.isBool() || !hadWalVal.isBool() || !hadShmVal.isBool()) {
+        if (error) {
+            *error = QString("Invalid or ambiguous restore journal %1; refusing destructive cleanup").arg(journalPath);
+        }
+        return false;
+    }
+
+    const bool hadOriginalDb = hadDbVal.toBool();
+    const bool hadOriginalWal = hadWalVal.toBool();
+    const bool hadOriginalShm = hadShmVal.toBool();
+    if (!hadOriginalDb && (hadOriginalWal || hadOriginalShm)) {
+        if (error) {
+            *error =
+                QString("Inconsistent restore journal %1: sidecar flag set without original database").arg(journalPath);
+        }
+        return false;
+    }
+
+    const QString opId = opIdVal.toString();
+    const RestorePaths expected = deriveRestorePaths(dbPath, opId);
+    const QJsonValue stagedVal = obj.value("staged_new_path");
+    const QJsonValue rollbackDbVal = obj.value("rollback_db_path");
+    const QJsonValue rollbackWalVal = obj.value("rollback_wal_path");
+    const QJsonValue rollbackShmVal = obj.value("rollback_shm_path");
+    if (!stagedVal.isString() || stagedVal.toString() != expected.stagedNewPath || !rollbackDbVal.isString() ||
+        rollbackDbVal.toString() != expected.rollbackDbPath || !rollbackWalVal.isString() ||
+        rollbackWalVal.toString() != expected.rollbackWalPath || !rollbackShmVal.isString() ||
+        rollbackShmVal.toString() != expected.rollbackShmPath) {
+        if (error) {
+            *error = QString("Restore journal %1 contains unexpected or mismatched recovery paths; refusing recovery")
+                         .arg(journalPath);
+        }
+        return false;
+    }
+
+    const QStringList derivedList = {expected.stagedNewPath,   expected.rollbackDbPath, expected.rollbackWalPath,
+                                     expected.rollbackShmPath, expected.abortedDbPath,  expected.abortedWalPath,
+                                     expected.abortedShmPath};
+    for (const QString& derivedPath : derivedList) {
+        const QFileInfo info(derivedPath);
+        if (info.isSymLink() || (info.exists() && !info.isFile())) {
+            if (error) {
+                *error = QString("Restore recovery artifact %1 is a symlink or non-regular file; refusing recovery")
+                             .arg(derivedPath);
+            }
+            return false;
+        }
+    }
+
+    if (out) {
+        out->version = kRestoreJournalVersion;
+        out->opId = opId;
+        out->phase = phaseVal.toString();
+        out->targetPath = dbPath;
+        out->stagedNewPath = expected.stagedNewPath;
+        out->rollbackDbPath = expected.rollbackDbPath;
+        out->rollbackWalPath = expected.rollbackWalPath;
+        out->rollbackShmPath = expected.rollbackShmPath;
+        out->hadOriginalDb = hadOriginalDb;
+        out->hadOriginalWal = hadOriginalWal;
+        out->hadOriginalShm = hadOriginalShm;
+    }
+    return true;
+}
+
+bool enforceOwnerOnlyIfExists(const QString& path, const char* label, QString* error) {
+    if (!QFile::exists(path)) {
+        return true;
+    }
+    if (!QFile::setPermissions(path, QFileDevice::ReadOwner | QFileDevice::WriteOwner)) {
+        if (error) {
+            *error = QString("Failed to enforce owner-only permissions on %1 %2").arg(label, path);
+        }
+        return false;
+    }
+    return true;
+}
+
+bool verifyRecoveredDatabaseFile(const QString& dbPath, const QString& passwordToVerify, const QString& journalPath,
+                                 QString* error) {
+    if (!passwordToVerify.isEmpty()) {
+        return verifyEncryptedFileIntegrity(dbPath, passwordToVerify, error);
+    }
+    if (QFileInfo(dbPath).size() <= 0) {
+        if (error) {
+            *error = QString("Recovered database %1 is empty; retaining journal %2").arg(dbPath, journalPath);
+        }
+        return false;
+    }
+    return true;
+}
+
+bool commitAndCleanRecoveryArtifacts(const QString& dbPath, const QString& journalPath,
+                                     const QList<std::pair<QString, QString>>& cleanupTargets, QString* error) {
+    if (!removeFileChecked(journalPath, "recovery_remove_journal", error)) {
+        return false;
+    }
+    if (!syncParentDirectory(journalPath, error, "sync_recovery_after_journal_remove")) {
+        return false;
+    }
+
+    QStringList cleanupFailures;
+    for (const auto& entry : cleanupTargets) {
+        QString rmErr;
+        if (!removeFileChecked(entry.first, entry.second, &rmErr)) {
+            cleanupFailures.append(rmErr);
+        }
+    }
+    QString finalSyncErr;
+    if (!syncParentDirectory(dbPath, &finalSyncErr, "sync_recovery_cleanup")) {
+        cleanupFailures.append(finalSyncErr);
+    }
+    if (!cleanupFailures.isEmpty()) {
+        if (error) {
+            *error = QString("Recovered database, but post-recovery cleanup or sync failed: %1")
+                         .arg(cleanupFailures.join("; "));
+        }
+        return false;
+    }
+    return true;
+}
+
+bool recoverStagingPhase(const QString& dbPath, const RestoreJournal& journal, const QString& journalPath,
+                         QString* error) {
+    const bool originalMismatch = (journal.hadOriginalDb != QFile::exists(dbPath));
+    if (originalMismatch || QFile::exists(journal.rollbackDbPath) || QFile::exists(journal.rollbackWalPath) ||
+        QFile::exists(journal.rollbackShmPath)) {
+        if (error) {
+            *error = QString(
+                         "Ambiguous staging-phase restore state for %1 (journal %2); "
+                         "refusing automatic cleanup")
+                         .arg(dbPath, journalPath);
+        }
+        return false;
+    }
+    if (!removeFileChecked(journal.stagedNewPath, "recovery_remove_staged", error)) {
+        return false;
+    }
+    if (!syncParentDirectory(dbPath, error, "sync_recovery_staging_staged")) {
+        return false;
+    }
+    if (!removeFileChecked(journalPath, "recovery_remove_journal", error)) {
+        return false;
+    }
+    return syncParentDirectory(journalPath, error, "sync_recovery_staging");
+}
+
+bool recoverMovingOriginalPhase(const QString& dbPath, const RestoreJournal& journal, const QString& journalPath,
+                                const QString& passwordToVerify, QString* error) {
+    const QString walPath = dbPath + "-wal";
+    const QString shmPath = dbPath + "-shm";
+
+    if (!journal.hadOriginalDb && (QFile::exists(journal.rollbackDbPath) || QFile::exists(journal.rollbackWalPath) ||
+                                   QFile::exists(journal.rollbackShmPath))) {
+        if (error) {
+            *error = QString("Ambiguous restore journal %1: unexpected rollback files without original database")
+                         .arg(journalPath);
+        }
+        return false;
+    }
+
+    if ((QFile::exists(dbPath) && QFile::exists(journal.rollbackDbPath)) ||
+        (QFile::exists(walPath) && QFile::exists(journal.rollbackWalPath)) ||
+        (QFile::exists(shmPath) && QFile::exists(journal.rollbackShmPath))) {
+        if (error) {
+            *error = QString(
+                         "Ambiguous interrupted restore state (both live and rollback files exist under %1); "
+                         "manual recovery required")
+                         .arg(journalPath);
+        }
+        return false;
+    }
+
+    if (!QFile::exists(dbPath) && QFile::exists(journal.rollbackDbPath) &&
+        !QFile::rename(journal.rollbackDbPath, dbPath)) {
+        if (error) {
+            *error = QString("Failed to move rollback database %1 back to %2").arg(journal.rollbackDbPath, dbPath);
+        }
+        return false;
+    }
+    if (!QFile::exists(walPath) && QFile::exists(journal.rollbackWalPath) &&
+        !QFile::rename(journal.rollbackWalPath, walPath)) {
+        if (error) {
+            *error = QString("Failed to move rollback WAL sidecar %1 back to %2").arg(journal.rollbackWalPath, walPath);
+        }
+        return false;
+    }
+    if (!QFile::exists(shmPath) && QFile::exists(journal.rollbackShmPath) &&
+        !QFile::rename(journal.rollbackShmPath, shmPath)) {
+        if (error) {
+            *error = QString("Failed to move rollback SHM sidecar %1 back to %2").arg(journal.rollbackShmPath, shmPath);
+        }
+        return false;
+    }
+
+    if (journal.hadOriginalDb && !QFile::exists(dbPath)) {
+        if (error) {
+            *error = QString("Original database missing and no surviving rollback copy found at %1 (journal %2)")
+                         .arg(journal.rollbackDbPath, journalPath);
+        }
+        return false;
+    }
+
+    if (journal.hadOriginalDb) {
+        if (!enforceOwnerOnlyIfExists(dbPath, "recovered database", error) ||
+            !enforceOwnerOnlyIfExists(walPath, "recovered WAL", error) ||
+            !enforceOwnerOnlyIfExists(shmPath, "recovered SHM", error)) {
+            return false;
+        }
+    }
+
+    if (!syncParentDirectory(dbPath, error, "sync_recovery_restore_original")) {
+        return false;
+    }
+    if (journal.hadOriginalDb && !verifyRecoveredDatabaseFile(dbPath, passwordToVerify, journalPath, error)) {
+        return false;
+    }
+
+    return commitAndCleanRecoveryArtifacts(dbPath, journalPath,
+                                           {{journal.stagedNewPath, QStringLiteral("recovery_remove_staged")}}, error);
+}
+
+bool recoverRollbackWithOriginal(const QString& dbPath, const RestoreJournal& journal, const QString& journalPath,
+                                 const QString& passwordToVerify, QString* error) {
+    const QString walPath = dbPath + "-wal";
+    const QString shmPath = dbPath + "-shm";
+    const RestorePaths paths = deriveRestorePaths(dbPath, journal.opId);
+
+    if (!QFile::exists(journal.rollbackDbPath)) {
+        if (journal.phase != "rolling_back" || !QFile::exists(dbPath)) {
+            if (error) {
+                *error = QString(
+                             "Restore journal %1 requires rollback copy %2 which is missing; "
+                             "refusing destructive recovery")
+                             .arg(journalPath, journal.rollbackDbPath);
+            }
+            return false;
+        }
+        if ((QFile::exists(walPath) && QFile::exists(journal.rollbackWalPath)) ||
+            (QFile::exists(shmPath) && QFile::exists(journal.rollbackShmPath))) {
+            if (error) {
+                *error = QString("Ambiguous rollback state (both live and rollback sidecars exist under %1)")
+                             .arg(journalPath);
+            }
+            return false;
+        }
+        if (QFile::exists(journal.rollbackWalPath) && !QFile::rename(journal.rollbackWalPath, walPath)) {
+            if (error) {
+                *error = QString("Failed to restore rollback WAL %1 -> %2").arg(journal.rollbackWalPath, walPath);
+            }
+            return false;
+        }
+        if (QFile::exists(journal.rollbackShmPath) && !QFile::rename(journal.rollbackShmPath, shmPath)) {
+            if (error) {
+                *error = QString("Failed to restore rollback SHM %1 -> %2").arg(journal.rollbackShmPath, shmPath);
+            }
+            return false;
+        }
+    } else {
+        if ((QFile::exists(dbPath) && QFile::exists(paths.abortedDbPath)) ||
+            (QFile::exists(walPath) && QFile::exists(paths.abortedWalPath)) ||
+            (QFile::exists(shmPath) && QFile::exists(paths.abortedShmPath))) {
+            if (error) {
+                *error =
+                    QString("Ambiguous rollback state: aborted target files already exist for %1").arg(journalPath);
+            }
+            return false;
+        }
+
+        RestoreJournal rollingJournal = journal;
+        rollingJournal.phase = QStringLiteral("rolling_back");
+        if (!writeRestoreJournal(rollingJournal, error)) {
+            return false;
+        }
+
+        if (QFile::exists(dbPath) && !QFile::rename(dbPath, paths.abortedDbPath)) {
+            if (error) {
+                *error = QString("Failed to move unverified replacement %1 aside to %2; rollback copy %3 preserved")
+                             .arg(dbPath, paths.abortedDbPath, journal.rollbackDbPath);
+            }
+            return false;
+        }
+        if (QFile::exists(walPath) && !QFile::rename(walPath, paths.abortedWalPath)) {
+            if (error) {
+                *error = QString("Failed to move unverified WAL %1 aside; rollback copy %2 preserved")
+                             .arg(walPath, journal.rollbackDbPath);
+            }
+            return false;
+        }
+        if (QFile::exists(shmPath) && !QFile::rename(shmPath, paths.abortedShmPath)) {
+            if (error) {
+                *error = QString("Failed to move unverified SHM %1 aside; rollback copy %2 preserved")
+                             .arg(shmPath, journal.rollbackDbPath);
+            }
+            return false;
+        }
+        if (!syncParentDirectory(dbPath, error, "sync_recovery_move_aborted")) {
+            return false;
+        }
+
+        if (QFile::exists(dbPath) || QFile::exists(walPath) || QFile::exists(shmPath)) {
+            if (error) {
+                *error = QString("Cannot restore %1 while target or sidecar path is still occupied").arg(dbPath);
+            }
+            return false;
+        }
+        if (!QFile::rename(journal.rollbackDbPath, dbPath)) {
+            if (error) {
+                *error = QString("Failed to restore rollback database %1 -> %2").arg(journal.rollbackDbPath, dbPath);
+            }
+            return false;
+        }
+        if (shouldInjectFault("crash_recovery_after_rollback_db")) {
+            if (error) {
+                *error = QStringLiteral("Simulated crash during recovery after restoring rollback database");
+            }
+            return false;
+        }
+        if (QFile::exists(journal.rollbackWalPath) && !QFile::rename(journal.rollbackWalPath, walPath)) {
+            if (error) {
+                *error = QString("Failed to restore rollback WAL %1 -> %2").arg(journal.rollbackWalPath, walPath);
+            }
+            return false;
+        }
+        if (QFile::exists(journal.rollbackShmPath) && !QFile::rename(journal.rollbackShmPath, shmPath)) {
+            if (error) {
+                *error = QString("Failed to restore rollback SHM %1 -> %2").arg(journal.rollbackShmPath, shmPath);
+            }
+            return false;
+        }
+    }
+
+    if (!enforceOwnerOnlyIfExists(dbPath, "recovered database", error) ||
+        !enforceOwnerOnlyIfExists(walPath, "recovered WAL", error) ||
+        !enforceOwnerOnlyIfExists(shmPath, "recovered SHM", error)) {
+        return false;
+    }
+    if (!syncParentDirectory(dbPath, error, "sync_recovery_restore_original")) {
+        return false;
+    }
+    if (!verifyRecoveredDatabaseFile(dbPath, passwordToVerify, journalPath, error)) {
+        return false;
+    }
+
+    return commitAndCleanRecoveryArtifacts(dbPath, journalPath,
+                                           {{paths.abortedDbPath, QStringLiteral("recovery_remove_aborted")},
+                                            {paths.abortedWalPath, QStringLiteral("recovery_remove_aborted")},
+                                            {paths.abortedShmPath, QStringLiteral("recovery_remove_aborted")},
+                                            {journal.stagedNewPath, QStringLiteral("recovery_remove_staged")}},
+                                           error);
+}
+
+bool recoverNoOriginalTarget(const QString& dbPath, const RestoreJournal& journal, const QString& journalPath,
+                             QString* error) {
+    if (QFile::exists(journal.rollbackDbPath) || QFile::exists(journal.rollbackWalPath) ||
+        QFile::exists(journal.rollbackShmPath)) {
+        if (error) {
+            *error = QString("Ambiguous restore journal %1: rollback copy exists when had_original_db is false")
+                         .arg(journalPath);
+        }
+        return false;
+    }
+
+    const QString walPath = dbPath + "-wal";
+    const QString shmPath = dbPath + "-shm";
+    if (!removeFileChecked(dbPath, "recovery_remove_unverified_db", error) ||
+        !removeFileChecked(walPath, "recovery_remove_unverified_wal", error) ||
+        !removeFileChecked(shmPath, "recovery_remove_unverified_shm", error)) {
+        return false;
+    }
+    if (!syncParentDirectory(dbPath, error, "sync_recovery_no_original_cleanup")) {
+        return false;
+    }
+
+    return commitAndCleanRecoveryArtifacts(dbPath, journalPath,
+                                           {{journal.stagedNewPath, QStringLiteral("recovery_remove_staged")}}, error);
+}
+
+QStringList findUnjournaledRollbackFiles(const QString& dbPath) {
+    QStringList found;
+    const QString legacyPreRestore = dbPath + ".pre_restore.bak";
+    if (QFile::exists(legacyPreRestore)) {
+        found.append(legacyPreRestore);
+    }
+    const QFileInfo dbInfo(dbPath);
+    const QDir dir(dbInfo.absolutePath());
+    if (dir.exists()) {
+        const QStringList entries =
+            dir.entryList({dbInfo.fileName() + ".restore.*.orig"}, QDir::Files | QDir::Hidden | QDir::System);
+        for (const QString& entry : entries) {
+            found.append(dir.filePath(entry));
+        }
+    }
+    return found;
+}
+}  // namespace
 
 BookDatabase::BookDatabase(const QString& filepath) : m_filepath(filepath), m_db(nullptr), m_isOpen(false) {}
 
 BookDatabase::~BookDatabase() { close(); }
 
-bool BookDatabase::open(const QString& password) {
+void BookDatabase::setRestoreFaultHookForTesting(RestoreFaultHook hook) { g_restoreFaultHook = std::move(hook); }
+
+bool BookDatabase::openExactSchema(const QString& password, QString* error) {
     if (m_isOpen) return true;
+
+    bool createdNewFile = false;
+    if (!m_filepath.isEmpty() && m_filepath != ":memory:" && !QFile::exists(m_filepath)) {
+#ifdef Q_OS_UNIX
+        const QByteArray dbUtf8 = m_filepath.toUtf8();
+        const int newFd = ::open(dbUtf8.constData(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, S_IRUSR | S_IWUSR);
+        if (newFd >= 0) {
+            ::fchmod(newFd, S_IRUSR | S_IWUSR);
+            ::close(newFd);
+            createdNewFile = true;
+        }
+#endif
+    }
+    auto removeIfCreatedNew = [&]() {
+        if (createdNewFile) {
+            QFile::remove(m_filepath);
+        }
+    };
 
     int rc = sqlite3_open(m_filepath.toUtf8().constData(), reinterpret_cast<sqlite3**>(&m_db));
     if (rc != SQLITE_OK) {
-        qWarning() << "Cannot open database: " << sqlite3_errmsg(reinterpret_cast<sqlite3*>(m_db));
+        const QString msg = QString("Cannot open database: %1")
+                                .arg(m_db ? QString::fromUtf8(sqlite3_errmsg(reinterpret_cast<sqlite3*>(m_db)))
+                                          : QStringLiteral("sqlite3_open failed"));
+        qWarning() << msg;
+        if (error) *error = msg;
+        if (m_db) {
+            sqlite3_close(reinterpret_cast<sqlite3*>(m_db));
+            m_db = nullptr;
+        }
+        removeIfCreatedNew();
         return false;
     }
 
     if (!password.isEmpty()) {
-        QString keyPragma = QString("PRAGMA key = '%1';").arg(password);
+        QString keyPragma = QString("PRAGMA key = '%1';").arg(escapeSqlLiteral(password));
         char* errMsg = nullptr;
         rc = sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), keyPragma.toUtf8().constData(), nullptr, nullptr, &errMsg);
         if (rc != SQLITE_OK) {
-            qWarning() << "Failed to set key: " << errMsg;
+            const QString msg = QString("Failed to set key: %1").arg(errMsg ? QString::fromUtf8(errMsg) : QString());
+            qWarning() << msg;
+            if (error) *error = msg;
             sqlite3_free(errMsg);
             close();
+            removeIfCreatedNew();
             return false;
         }
     }
@@ -50,37 +1155,98 @@ bool BookDatabase::open(const QString& password) {
     rc = sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "SELECT count(*) FROM sqlite_master;", nullptr, nullptr,
                       &errMsg);
     if (rc != SQLITE_OK) {
-        qWarning() << "Invalid password or corrupted database: " << errMsg;
+        const QString msg =
+            QString("Invalid password or corrupted database: %1").arg(errMsg ? QString::fromUtf8(errMsg) : QString());
+        qWarning() << msg;
+        if (error) *error = msg;
         sqlite3_free(errMsg);
         close();
+        removeIfCreatedNew();
         return false;
     }
 
     db::Database database(reinterpret_cast<sqlite3*>(m_db));
     QString databaseError;
     if (!database.execute("PRAGMA foreign_keys = ON;", &databaseError)) {
-        qWarning() << "Failed to enable foreign keys";
+        const QString msg = QString("Failed to enable foreign keys: %1").arg(databaseError);
+        qWarning() << msg;
+        if (error) *error = msg;
         close();
+        removeIfCreatedNew();
         return false;
     }
 
     int foreignKeysEnabled = 0;
     if (!database.queryInt("PRAGMA foreign_keys;", foreignKeysEnabled, &databaseError) || foreignKeysEnabled != 1) {
-        qWarning() << "Failed to verify foreign keys are enabled";
+        const QString msg = QStringLiteral("Failed to verify foreign keys are enabled");
+        qWarning() << msg;
+        if (error) *error = msg;
         close();
+        removeIfCreatedNew();
         return false;
     }
 
+    if (!m_filepath.isEmpty() && m_filepath != ":memory:") {
+        QFile::setPermissions(m_filepath, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+    }
+
+    m_password = password;
     m_isOpen = true;
+    return true;
+}
+
+bool BookDatabase::openInternal(const QString& password, bool runStartupRecovery, QString* error) {
+    if (m_isOpen) return true;
+    m_lastError.clear();
+
+    if (runStartupRecovery && !m_filepath.isEmpty() && m_filepath != ":memory:") {
+        const QString journalPath = restoreJournalPathFor(m_filepath);
+        const QFileInfo journalInfo(journalPath);
+        if (journalInfo.exists() || journalInfo.isSymLink()) {
+            QString recoveryError;
+            if (!recoverInterruptedRestoreInternal(password, &recoveryError)) {
+                m_lastError = recoveryError;
+                if (error) *error = recoveryError;
+                qWarning() << "Interrupted restore recovery failed on open:" << recoveryError;
+                return false;
+            }
+        }
+        if (!QFile::exists(m_filepath)) {
+            const QStringList orphanedRollbackFiles = findUnjournaledRollbackFiles(m_filepath);
+            if (!orphanedRollbackFiles.isEmpty()) {
+                const QString msg = QString(
+                                        "Book database file is missing while recovery rollback files exist (%1); "
+                                        "refusing to initialize an empty book over surviving recovery state")
+                                        .arg(orphanedRollbackFiles.join(", "));
+                m_lastError = msg;
+                if (error) *error = msg;
+                qWarning() << msg;
+                return false;
+            }
+        }
+    }
+
+    QString openErr;
+    if (!openExactSchema(password, &openErr)) {
+        m_lastError = openErr;
+        if (error) *error = openErr;
+        return false;
+    }
+
     if (!initSchema()) {
+        if (m_lastError.isEmpty()) {
+            m_lastError = QStringLiteral("Database schema initialization/migration failed");
+        }
+        if (error) *error = m_lastError;
         close();
         return false;
     }
 
     cleanupDeadProcessingItems();
-
     return true;
 }
+
+bool BookDatabase::open(const QString& password) { return openInternal(password, true, nullptr); }
 
 void BookDatabase::cleanupDeadProcessingItems() {
     if (!m_isOpen) return;
@@ -99,30 +1265,30 @@ void BookDatabase::cleanupDeadProcessingItems() {
             int id = sqlite3_column_int(stmt, 0);
             int pid = sqlite3_column_int(stmt, 1);
             const unsigned char* errText = sqlite3_column_text(stmt, 2);
-            QString lastError = errText ? QString::fromUtf8(reinterpret_cast<const char*>(errText)) : QString();
+            QString itemError = errText ? QString::fromUtf8(reinterpret_cast<const char*>(errText)) : QString();
 
             if (pid <= 0) {
-                itemsToReset.append({id, lastError});
+                itemsToReset.append({id, itemError});
             } else {
 #ifdef Q_OS_UNIX
                 if (kill(pid, 0) != 0 && errno == ESRCH) {
-                    itemsToReset.append({id, lastError});
+                    itemsToReset.append({id, itemError});
                 } else {
                     // Process exists, check if it's kllamabooks
                     QFile commFile(QString("/proc/%1/comm").arg(pid));
                     if (commFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
                         QString comm = QString(commFile.readAll()).trimmed();
                         if (!comm.contains("kllamabooks", Qt::CaseInsensitive)) {
-                            itemsToReset.append({id, lastError});
+                            itemsToReset.append({id, itemError});
                         }
                     } else {
                         // Could not read comm file, assume dead
-                        itemsToReset.append({id, lastError});
+                        itemsToReset.append({id, itemError});
                     }
                 }
 #else
                 // Simple fallback for non-Unix if needed, though KllamaBooks is KDE/Linux targeted.
-                itemsToReset.append({id, lastError});
+                itemsToReset.append({id, itemError});
 #endif
             }
         }
@@ -145,19 +1311,458 @@ void BookDatabase::close() {
         m_db = nullptr;
         m_isOpen = false;
     }
+    m_password.clear();
 }
 
 bool BookDatabase::isOpen() const { return m_isOpen; }
 
 QString BookDatabase::filepath() const { return m_filepath; }
 
+bool BookDatabase::createEncryptedBackup(const QString& backupPath, QString* error) const {
+    if (!m_isOpen || !m_db) {
+        if (error) *error = "Database is not open";
+        return false;
+    }
+    if (m_filepath.isEmpty() || m_filepath == ":memory:") {
+        if (error) *error = "Cannot create file backup of an in-memory database";
+        return false;
+    }
+    const QFileInfo backupInfo(backupPath);
+    if (backupPath.trimmed().isEmpty() || sameFilesystemTarget(backupPath, m_filepath) || backupInfo.isDir() ||
+        backupInfo.isSymLink()) {
+        if (error) *error = "Invalid backup path";
+        return false;
+    }
+
+    sqlite3* rawDb = reinterpret_cast<sqlite3*>(m_db);
+    if (sqlite3_get_autocommit(rawDb) == 0) {
+        if (error) *error = "Cannot create encrypted backup while an uncommitted transaction is active";
+        return false;
+    }
+
+    const QString opId = QUuid::createUuid().toString(QUuid::Id128).toLower();
+    const QString tempPath = QString("%1.%2.tmp").arg(backupPath, opId);
+    const QString walPath = m_filepath + "-wal";
+
+    constexpr int kMaxSnapshotAttempts = 3;
+    bool snapshotCaptured = false;
+    QString snapshotError;
+
+    for (int attempt = 0; attempt < kMaxSnapshotAttempts; ++attempt) {
+        if (!checkpointWalStrict(rawDb, "backup", &snapshotError)) {
+            if (error) *error = snapshotError;
+            return false;
+        }
+
+        (void)shouldInjectFault("after_backup_checkpoint_before_lock");
+
+        char* lockErr = nullptr;
+        const int lockRc = sqlite3_exec(rawDb, "BEGIN EXCLUSIVE;", nullptr, nullptr, &lockErr);
+        if (lockRc != SQLITE_OK) {
+            const QString sqlErr = lockErr ? QString::fromUtf8(lockErr) : QString::fromUtf8(sqlite3_errmsg(rawDb));
+            sqlite3_free(lockErr);
+            if (error) {
+                *error = QString(
+                             "Database is busy under competing access; cannot acquire exclusive snapshot lock for "
+                             "backup: %1")
+                             .arg(sqlErr);
+            }
+            return false;
+        }
+
+        ExclusiveLockGuard lockGuard(rawDb);
+        const QFileInfo walInfo(walPath);
+        if (walInfo.isSymLink()) {
+            if (error) *error = "Refusing backup snapshot when WAL sidecar is a symlink";
+            return false;
+        }
+        if (walInfo.exists() && walInfo.size() > 0) {
+            snapshotError = QStringLiteral("Concurrent writes modified WAL during backup snapshot; retry when idle");
+            lockGuard.release();
+            continue;
+        }
+
+        const FileFingerprint beforeStat = captureFileFingerprint(m_filepath);
+        QString copyErr;
+        if (!copyFileOwnerOnly(m_filepath, tempPath, &copyErr)) {
+            QFile::remove(tempPath);
+            if (error) *error = copyErr;
+            return false;
+        }
+        const FileFingerprint afterStat = captureFileFingerprint(m_filepath);
+        const QFileInfo postWalInfo(walPath);
+        if (!beforeStat.exists || beforeStat != afterStat || (postWalInfo.exists() && postWalInfo.size() > 0)) {
+            QFile::remove(tempPath);
+            snapshotError = QStringLiteral("Source database changed unexpectedly during backup snapshot copy");
+            lockGuard.release();
+            continue;
+        }
+
+        lockGuard.release();
+        snapshotCaptured = true;
+        break;
+    }
+
+    if (!snapshotCaptured) {
+        QFile::remove(tempPath);
+        if (error) {
+            *error = snapshotError.isEmpty() ? QStringLiteral("Failed to capture consistent encrypted backup snapshot")
+                                             : snapshotError;
+        }
+        return false;
+    }
+
+    if (!verifyEncryptedFileIntegrity(tempPath, m_password, error, true)) {
+        QFile::remove(tempPath);
+        return false;
+    }
+
+    if (!atomicReplaceFile(tempPath, backupPath, error, "sync_backup_dir")) {
+        QFile::remove(tempPath);
+        return false;
+    }
+    if (!QFile::setPermissions(backupPath, QFileDevice::ReadOwner | QFileDevice::WriteOwner)) {
+        if (error) *error = "Failed to restrict encrypted backup permissions";
+        return false;
+    }
+    return true;
+}
+
+bool BookDatabase::recoverInterruptedRestore(const QString& password, QString* error) {
+    if (m_filepath.isEmpty() || m_filepath == ":memory:") {
+        if (error) *error = "Cannot recover restore state for an in-memory database";
+        return false;
+    }
+    if (m_isOpen) {
+        if (error) *error = "Close the database handle before running interrupted restore recovery";
+        return false;
+    }
+    return recoverInterruptedRestoreInternal(password, error);
+}
+
+bool BookDatabase::recoverInterruptedRestoreInternal(const QString& passwordToVerify, QString* error) {
+    const QString journalPath = restoreJournalPathFor(m_filepath);
+    const QFileInfo journalInfo(journalPath);
+    if (!journalInfo.exists() && !journalInfo.isSymLink()) {
+        return true;
+    }
+
+    RestoreJournal journal;
+    if (!readRestoreJournal(m_filepath, &journal, error)) {
+        return false;
+    }
+
+    if (journal.phase == "staging") {
+        return recoverStagingPhase(m_filepath, journal, journalPath, error);
+    }
+    if (journal.phase == "moving_original") {
+        return recoverMovingOriginalPhase(m_filepath, journal, journalPath, passwordToVerify, error);
+    }
+    if (journal.hadOriginalDb) {
+        return recoverRollbackWithOriginal(m_filepath, journal, journalPath, passwordToVerify, error);
+    }
+    return recoverNoOriginalTarget(m_filepath, journal, journalPath, error);
+}
+
+bool BookDatabase::restoreEncryptedBackup(const QString& backupPath, const QString& password, bool upgradeSchema,
+                                          QString* error) {
+    m_lastError.clear();
+    auto failWithError = [&](const QString& msg) {
+        m_lastError = msg;
+        if (error) *error = msg;
+        return false;
+    };
+
+    if (m_filepath.isEmpty() || m_filepath == ":memory:") {
+        return failWithError("Cannot restore file backup into an in-memory database");
+    }
+    if (QFileInfo(m_filepath).isSymLink()) {
+        return failWithError("Refusing to restore over a symlinked database path");
+    }
+    if (backupPath.trimmed().isEmpty() || sameFilesystemTarget(backupPath, m_filepath)) {
+        return failWithError("Invalid backup source path");
+    }
+
+    const QString journalPath = restoreJournalPathFor(m_filepath);
+    const QFileInfo journalInfo(journalPath);
+    if (journalInfo.exists() || journalInfo.isSymLink()) {
+        if (m_isOpen) {
+            return failWithError(
+                QString("Refusing restore while unresolved restore journal %1 exists").arg(journalPath));
+        }
+        QString recErr;
+        if (!recoverInterruptedRestoreInternal(QString(), &recErr)) {
+            return failWithError(recErr);
+        }
+    }
+
+    QString verifyErr;
+    if (!verifyEncryptedFileIntegrity(backupPath, password, &verifyErr)) {
+        return failWithError(verifyErr);
+    }
+
+    if (m_isOpen && m_db) {
+        QString walErr;
+        if (!checkpointWalStrict(reinterpret_cast<sqlite3*>(m_db), "restore", &walErr)) {
+            return failWithError(walErr);
+        }
+    }
+
+    const QString opId = QUuid::createUuid().toString(QUuid::Id128).toLower();
+    const RestorePaths paths = deriveRestorePaths(m_filepath, opId);
+    const QString walPath = m_filepath + "-wal";
+    const QString shmPath = m_filepath + "-shm";
+
+    RestoreJournal journal;
+    journal.opId = opId;
+    journal.phase = QStringLiteral("staging");
+    journal.targetPath = m_filepath;
+    journal.stagedNewPath = paths.stagedNewPath;
+    journal.rollbackDbPath = paths.rollbackDbPath;
+    journal.rollbackWalPath = paths.rollbackWalPath;
+    journal.rollbackShmPath = paths.rollbackShmPath;
+    journal.hadOriginalDb = QFile::exists(m_filepath);
+    journal.hadOriginalWal = QFile::exists(walPath);
+    journal.hadOriginalShm = QFile::exists(shmPath);
+
+    QString journalErr;
+    if (!writeRestoreJournal(journal, &journalErr)) {
+        return failWithError(journalErr);
+    }
+
+    auto cleanupStagingFailure = [&](const QString& failureMessage) {
+        QStringList cleanupErrors;
+        QString rmErr;
+        if (!removeFileChecked(paths.stagedNewPath, "cleanup_staged_new_on_abort", &rmErr)) {
+            cleanupErrors.append(rmErr);
+        }
+        if (!removeFileChecked(journalPath, "cleanup_journal_on_abort", &rmErr)) {
+            cleanupErrors.append(rmErr);
+        }
+        QString syncErr;
+        if (!syncParentDirectory(m_filepath, &syncErr, "sync_staging_abort_cleanup")) {
+            cleanupErrors.append(syncErr);
+        }
+        if (!cleanupErrors.isEmpty()) {
+            close();
+            return failWithError(QString("%1 (cleanup issues: %2)").arg(failureMessage, cleanupErrors.join("; ")));
+        }
+        return failWithError(failureMessage);
+    };
+
+    if (shouldInjectFault("before_stage_backup")) {
+        return cleanupStagingFailure("Injected failure before backup staging");
+    }
+
+    QString copyErr;
+    if (shouldInjectFault("stage_backup") || !copyFileOwnerOnly(backupPath, paths.stagedNewPath, &copyErr)) {
+        return cleanupStagingFailure(copyErr.isEmpty() ? QStringLiteral("Failed to stage backup file for restore")
+                                                       : copyErr);
+    }
+
+    QString stagedSyncErr;
+    if (!syncParentDirectory(paths.stagedNewPath, &stagedSyncErr, "sync_staged_backup")) {
+        return cleanupStagingFailure(stagedSyncErr);
+    }
+
+    if (!verifyEncryptedFileIntegrity(paths.stagedNewPath, password, &verifyErr, true)) {
+        return cleanupStagingFailure(verifyErr);
+    }
+
+    const QString previousPassword = m_password;
+    const bool wasOpen = m_isOpen;
+    close();
+
+    auto rollbackAndReopen = [&](const QString& failureMessage) {
+        close();
+        QString rbErr;
+        if (!recoverInterruptedRestoreInternal(wasOpen ? previousPassword : QString(), &rbErr)) {
+            return failWithError(QString("%1; rollback failed: %2").arg(failureMessage, rbErr));
+        }
+        if (wasOpen) {
+            QString reopenErr;
+            if (!openExactSchema(previousPassword, &reopenErr)) {
+                return failWithError(QString("%1; reopen failed: %2").arg(failureMessage, reopenErr));
+            }
+        }
+        return failWithError(failureMessage);
+    };
+
+    // Update journal using exact post-close existence of original DB and sidecars
+    journal.phase = QStringLiteral("moving_original");
+    journal.hadOriginalDb = QFile::exists(m_filepath);
+    journal.hadOriginalWal = QFile::exists(walPath);
+    journal.hadOriginalShm = QFile::exists(shmPath);
+    if (!writeRestoreJournal(journal, &journalErr)) {
+        return rollbackAndReopen(journalErr);
+    }
+
+    if (journal.hadOriginalDb) {
+        if (shouldInjectFault("move_original_db") || !QFile::rename(m_filepath, paths.rollbackDbPath)) {
+            return rollbackAndReopen("Failed to move existing database aside during restore");
+        }
+        QString permErr;
+        if (!enforceOwnerOnlyIfExists(paths.rollbackDbPath, "rollback database", &permErr)) {
+            return rollbackAndReopen(permErr);
+        }
+        QString syncErr;
+        if (!syncParentDirectory(m_filepath, &syncErr, "sync_after_move_original_db")) {
+            return rollbackAndReopen(syncErr);
+        }
+        if (shouldInjectFault("crash_after_move_original_db")) {
+            return failWithError("Simulated crash after moving original database aside");
+        }
+    }
+
+    if (journal.hadOriginalWal) {
+        if (shouldInjectFault("move_original_wal") || !QFile::rename(walPath, paths.rollbackWalPath)) {
+            return rollbackAndReopen("Failed to move existing WAL sidecar aside during restore");
+        }
+        QString permErr;
+        if (!enforceOwnerOnlyIfExists(paths.rollbackWalPath, "rollback WAL sidecar", &permErr)) {
+            return rollbackAndReopen(permErr);
+        }
+    }
+
+    if (journal.hadOriginalShm) {
+        if (shouldInjectFault("move_original_shm") || !QFile::rename(shmPath, paths.rollbackShmPath)) {
+            return rollbackAndReopen("Failed to move existing SHM sidecar aside during restore");
+        }
+        QString permErr;
+        if (!enforceOwnerOnlyIfExists(paths.rollbackShmPath, "rollback SHM sidecar", &permErr)) {
+            return rollbackAndReopen(permErr);
+        }
+    }
+
+    if (journal.hadOriginalWal || journal.hadOriginalShm) {
+        QString sidecarSyncErr;
+        if (!syncParentDirectory(m_filepath, &sidecarSyncErr, "sync_after_move_original_sidecars")) {
+            return rollbackAndReopen(sidecarSyncErr);
+        }
+    }
+
+    journal.phase = QStringLiteral("placing_replacement");
+    if (!writeRestoreJournal(journal, &journalErr)) {
+        return rollbackAndReopen(journalErr);
+    }
+    if (shouldInjectFault("crash_before_place_replacement")) {
+        return failWithError("Simulated crash before placing replacement database");
+    }
+
+    if (shouldInjectFault("place_replacement") || !QFile::rename(paths.stagedNewPath, m_filepath)) {
+        return rollbackAndReopen("Failed to replace database file with backup");
+    }
+    QString placeSyncErr;
+    if (!syncParentDirectory(m_filepath, &placeSyncErr, "sync_after_place_replacement")) {
+        return rollbackAndReopen(placeSyncErr);
+    }
+
+    if (shouldInjectFault("set_restored_permissions") ||
+        !QFile::setPermissions(m_filepath, QFileDevice::ReadOwner | QFileDevice::WriteOwner)) {
+        return rollbackAndReopen("Failed to restrict restored database permissions");
+    }
+
+    journal.phase = QStringLiteral("verifying");
+    if (!writeRestoreJournal(journal, &journalErr)) {
+        return rollbackAndReopen(journalErr);
+    }
+    if (shouldInjectFault("crash_during_verifying")) {
+        return failWithError("Simulated crash during restored database verification");
+    }
+
+    if (upgradeSchema) {
+        QString upgradeErr;
+        if (!openInternal(password, false, &upgradeErr)) {
+            return rollbackAndReopen(upgradeErr.isEmpty()
+                                         ? QStringLiteral("Failed to open and upgrade restored backup")
+                                         : QString("Failed to open and upgrade restored backup: %1").arg(upgradeErr));
+        }
+    } else {
+        QString openErr;
+        if (!openExactSchema(password, &openErr)) {
+            return rollbackAndReopen(openErr);
+        }
+    }
+
+    QString commitErr;
+    if (!removeFileChecked(journalPath, "remove_restore_journal", &commitErr)) {
+        close();
+        return failWithError(
+            QString(
+                "Restored database opened, but failed to remove restore journal (%1); rollback files retained at %2")
+                .arg(commitErr, paths.rollbackDbPath));
+    }
+    if (!syncParentDirectory(journalPath, &commitErr, "sync_after_journal_remove")) {
+        close();
+        return failWithError(QString("Restored database committed, but directory durability barrier failed (%1); "
+                                     "rollback files retained at %2")
+                                 .arg(commitErr, paths.rollbackDbPath));
+    }
+
+    QStringList cleanupFailures;
+    for (const auto& entry :
+         {std::pair<QString, QString>{paths.rollbackDbPath, QStringLiteral("cleanup_rollback_db")},
+          std::pair<QString, QString>{paths.rollbackWalPath, QStringLiteral("cleanup_rollback_wal")},
+          std::pair<QString, QString>{paths.rollbackShmPath, QStringLiteral("cleanup_rollback_shm")},
+          std::pair<QString, QString>{paths.stagedNewPath, QStringLiteral("cleanup_staged_new")}}) {
+        QString rmErr;
+        if (!removeFileChecked(entry.first, entry.second, &rmErr)) {
+            cleanupFailures.append(rmErr);
+        }
+    }
+    QString finalSyncErr;
+    if (!syncParentDirectory(m_filepath, &finalSyncErr, "sync_after_restore_cleanup")) {
+        cleanupFailures.append(finalSyncErr);
+    }
+    if (!cleanupFailures.isEmpty()) {
+        close();
+        return failWithError(QString("Restored database committed, but post-commit cleanup or sync failed (%1); "
+                                     "remaining recovery files preserved")
+                                 .arg(cleanupFailures.join("; ")));
+    }
+    return true;
+}
+
 bool BookDatabase::initSchema() {
     if (!m_isOpen) return false;
 
     db::Database database(reinterpret_cast<sqlite3*>(m_db));
     db::MigrationRunner runner = db::MigrationFactory::createRunner();
+
+    // Enforce a recoverable encrypted backup before migrating any existing file-backed user book
+    if (!m_filepath.isEmpty() && m_filepath != ":memory:") {
+        const auto& migrations = runner.getMigrations();
+        const int targetVersion = migrations.empty() ? 0 : migrations.back().toVersion;
+
+        int userVersion = 0;
+        database.queryInt("PRAGMA user_version;", userVersion);
+
+        int tableCount = 0;
+        database.queryInt("SELECT COUNT(*) FROM sqlite_master;", tableCount);
+
+        int schemaTableVersion = 0;
+        int hasSchemaTable = 0;
+        database.queryInt("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='schema_version';",
+                          hasSchemaTable);
+        if (hasSchemaTable > 0) {
+            database.queryInt("SELECT COALESCE(MAX(version), 0) FROM schema_version;", schemaTableVersion);
+        }
+
+        const int currentVersion = qMax(userVersion, schemaTableVersion);
+        if (targetVersion > 0 && currentVersion < targetVersion && (currentVersion > 0 || tableCount > 0)) {
+            const QString backupPath = QString("%1.pre_v%2.bak").arg(m_filepath).arg(targetVersion);
+            QString backupError;
+            if (!createEncryptedBackup(backupPath, &backupError)) {
+                m_lastError = backupError;
+                qWarning() << "Pre-migration encrypted backup failed:" << backupError;
+                return false;
+            }
+        }
+    }
+
     QString error;
     if (!runner.run(database, &error)) {
+        m_lastError = error;
         qWarning() << "Migration failed:" << error;
         return false;
     }

@@ -6,6 +6,7 @@
 #include <QList>
 #include <QSet>
 #include <QString>
+#include <functional>
 #include <optional>
 
 struct MessageNode {
@@ -103,6 +104,15 @@ class BookDatabase {
     void close();
     bool isOpen() const;
     QString filepath() const;
+
+    bool createEncryptedBackup(const QString& backupPath, QString* error = nullptr) const;
+    bool restoreEncryptedBackup(const QString& backupPath, const QString& password, bool upgradeSchema = false,
+                                QString* error = nullptr);
+    bool recoverInterruptedRestore(const QString& password, QString* error = nullptr);
+    QString lastError() const { return m_lastError; }
+
+    using RestoreFaultHook = std::function<bool(const QString& stage)>;
+    static void setRestoreFaultHookForTesting(RestoreFaultHook hook);
 
     // Database operations
     bool initSchema();
@@ -245,7 +255,13 @@ class BookDatabase {
     void* getDatabaseHandleForTesting() const { return m_db; }
 
    private:
+    bool openInternal(const QString& password, bool runStartupRecovery, QString* error = nullptr);
+    bool openExactSchema(const QString& password, QString* error = nullptr);
+    bool recoverInterruptedRestoreInternal(const QString& passwordToVerify, QString* error = nullptr);
+
     QString m_filepath;
+    QString m_password;
+    mutable QString m_lastError;
     void* m_db;  // sqlite3* handle
     bool m_isOpen;
 };
