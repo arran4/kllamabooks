@@ -382,7 +382,7 @@ void TestMigrations::testFreshSchemaEquivalence() {
           {"timestamp", "DATETIME", "CURRENT_TIMESTAMP", 0},
           {"position", "INTEGER", "0", 0},
           {"is_expanded", "BOOLEAN", "0", 0}},
-         {}},
+         {{false, {"parent_id", "type"}}}},
         {"settings",
          {{"scope", "TEXT", "", 1}, {"target_id", "INTEGER", "", 2}, {"key", "TEXT", "", 3}, {"value", "TEXT", "", 0}},
          {{true, {"scope", "target_id", "key"}}}},
@@ -505,9 +505,9 @@ void TestMigrations::testFreshSchemaEquivalence() {
 
     int version = 0;
     QVERIFY(db.queryInt("PRAGMA user_version;", version));
-    QCOMPARE(version, 27);
+    QCOMPARE(version, 28);
     QVERIFY(db.queryInt("SELECT MAX(version) FROM schema_version;", version));
-    QCOMPARE(version, 27);
+    QCOMPARE(version, 28);
 
     sqlite3_close(dbHandle);
 }
@@ -1446,7 +1446,7 @@ void TestMigrations::testEncryptedFileBackedHistoricalFixtureUpgradeToV25() {
 
     int userVersion = 0;
     QVERIFY(upgradedDb.queryInt("PRAGMA user_version;", userVersion));
-    QCOMPARE(userVersion, 27);
+    QCOMPARE(userVersion, 28);
 
     int artifactCount = 0;
     QVERIFY(upgradedDb.queryInt("SELECT COUNT(*) FROM artifacts;", artifactCount));

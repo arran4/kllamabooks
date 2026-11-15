@@ -2,8 +2,10 @@
 
 #include <sqlcipher/sqlite3.h>
 
+#include <QHash>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QSet>
 
 namespace db {
 
@@ -1859,6 +1861,183 @@ MigrationRunner MigrationFactory::createRunner() {
              }
 
              return true;
+         }});
+
+    runner.addMigration(
+        {27, 28, "Unified Folders Normalization, Cycle Recovery, and Index", [](Database& db) {
+             sqlite3* handle = db.handle();
+             if (!handle) return false;
+
+             // 1. Normalize folder types into canonical root-kind values
+             if (!db.execute(
+                     "UPDATE folders SET type = 'documents' WHERE type IS NULL OR TRIM(type) = '' OR LOWER(TRIM(type)) "
+                     "IN ('folder', 'document', 'documents', 'docs_folder', 'doc_folder');"
+                     "UPDATE folders SET type = 'notes' WHERE LOWER(TRIM(type)) IN ('note', 'notes', 'notes_folder');"
+                     "UPDATE folders SET type = 'templates' WHERE LOWER(TRIM(type)) IN ('template', 'templates', "
+                     "'templates_folder');"
+                     "UPDATE folders SET type = 'drafts' WHERE LOWER(TRIM(type)) IN ('draft', 'drafts', "
+                     "'drafts_folder');"
+                     "UPDATE folders SET type = 'chats' WHERE LOWER(TRIM(type)) IN ('chat', 'chats', 'chats_folder', "
+                     "'messages');")) {
+                 return false;
+             }
+
+             auto insertQuarantineIfMissing = [&](const QString& sourceTable, sqlite3_int64 legacyId,
+                                                  const QString& targetType, std::optional<sqlite3_int64> targetId,
+                                                  const QString& title, const QString& content,
+                                                  const QString& payloadJson, const QString& reason) -> bool {
+                 const char* checkSql =
+                     "SELECT id FROM quarantined_records WHERE source_table = ? AND legacy_id = ? AND reason = ? "
+                     "LIMIT 1;";
+                 sqlite3_stmt* checkStmt = nullptr;
+                 if (sqlite3_prepare_v2(handle, checkSql, -1, &checkStmt, nullptr) != SQLITE_OK) return false;
+                 const QByteArray srcUtf8 = sourceTable.toUtf8();
+                 const QByteArray reasonUtf8 = reason.toUtf8();
+                 sqlite3_bind_text(checkStmt, 1, srcUtf8.constData(), -1, SQLITE_TRANSIENT);
+                 sqlite3_bind_int64(checkStmt, 2, legacyId);
+                 sqlite3_bind_text(checkStmt, 3, reasonUtf8.constData(), -1, SQLITE_TRANSIENT);
+                 bool exists = (sqlite3_step(checkStmt) == SQLITE_ROW);
+                 sqlite3_finalize(checkStmt);
+                 if (exists) return true;
+
+                 const char* insSql =
+                     "INSERT INTO quarantined_records (source_table, legacy_id, target_type, parent_reference, title, "
+                     "content, raw_payload_json, reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?);";
+                 sqlite3_stmt* insStmt = nullptr;
+                 if (sqlite3_prepare_v2(handle, insSql, -1, &insStmt, nullptr) != SQLITE_OK) return false;
+                 const QByteArray targetTypeUtf8 = targetType.toUtf8();
+                 const QByteArray titleUtf8 = title.toUtf8();
+                 const QByteArray contentUtf8 = content.toUtf8();
+                 const QByteArray payloadUtf8 = payloadJson.toUtf8();
+                 sqlite3_bind_text(insStmt, 1, srcUtf8.constData(), -1, SQLITE_TRANSIENT);
+                 sqlite3_bind_int64(insStmt, 2, legacyId);
+                 sqlite3_bind_text(insStmt, 3, targetTypeUtf8.constData(), -1, SQLITE_TRANSIENT);
+                 if (targetId.has_value()) {
+                     sqlite3_bind_int64(insStmt, 4, *targetId);
+                 } else {
+                     sqlite3_bind_null(insStmt, 4);
+                 }
+                 sqlite3_bind_text(insStmt, 5, titleUtf8.constData(), -1, SQLITE_TRANSIENT);
+                 sqlite3_bind_text(insStmt, 6, contentUtf8.constData(), -1, SQLITE_TRANSIENT);
+                 sqlite3_bind_text(insStmt, 7, payloadUtf8.constData(), -1, SQLITE_TRANSIENT);
+                 sqlite3_bind_text(insStmt, 8, reasonUtf8.constData(), -1, SQLITE_TRANSIENT);
+                 bool ok = (sqlite3_step(insStmt) == SQLITE_DONE);
+                 sqlite3_finalize(insStmt);
+                 return ok;
+             };
+
+             struct RawFolder {
+                 int id = 0;
+                 int parentId = 0;
+                 QString name;
+                 QString type;
+             };
+             QHash<int, RawFolder> folderMap;
+             {
+                 sqlite3_stmt* stmt = nullptr;
+                 if (sqlite3_prepare_v2(handle, "SELECT id, parent_id, name, type FROM folders ORDER BY id ASC;", -1,
+                                        &stmt, nullptr) != SQLITE_OK) {
+                     return false;
+                 }
+                 int rc = SQLITE_OK;
+                 while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+                     RawFolder rf;
+                     rf.id = sqlite3_column_int(stmt, 0);
+                     rf.parentId = sqlite3_column_int(stmt, 1);
+                     const char* n = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
+                     const char* t = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
+                     rf.name = n ? QString::fromUtf8(n) : QString();
+                     rf.type = t ? QString::fromUtf8(t) : QStringLiteral("documents");
+                     folderMap.insert(rf.id, rf);
+                 }
+                 sqlite3_finalize(stmt);
+                 if (rc != SQLITE_DONE) return false;
+             }
+
+             // 2. Detect orphaned or cyclic folders and recover them to root (parent_id = 0) while quarantining
+             for (auto it = folderMap.begin(); it != folderMap.end(); ++it) {
+                 const RawFolder rf = it.value();
+                 if (rf.parentId <= 0) continue;
+
+                 QString quarantineReason;
+                 if (!folderMap.contains(rf.parentId)) {
+                     quarantineReason = QStringLiteral("orphaned_parent_folder");
+                 } else {
+                     QSet<int> visited;
+                     visited.insert(rf.id);
+                     int curr = rf.parentId;
+                     while (curr > 0 && folderMap.contains(curr)) {
+                         if (visited.contains(curr)) {
+                             quarantineReason = QStringLiteral("cyclic_folder_hierarchy");
+                             break;
+                         }
+                         visited.insert(curr);
+                         curr = folderMap.value(curr).parentId;
+                     }
+                 }
+
+                 if (!quarantineReason.isEmpty()) {
+                     QJsonObject rawObj;
+                     rawObj["id"] = rf.id;
+                     rawObj["parent_id"] = rf.parentId;
+                     rawObj["name"] = rf.name;
+                     rawObj["type"] = rf.type;
+                     const QString payloadJson =
+                         QString::fromUtf8(QJsonDocument(rawObj).toJson(QJsonDocument::Compact));
+                     if (!insertQuarantineIfMissing("folders", rf.id, "folder", rf.parentId, rf.name, QString(),
+                                                    payloadJson, quarantineReason)) {
+                         return false;
+                     }
+                     if (!db.execute(QString("UPDATE folders SET parent_id = 0 WHERE id = %1;").arg(rf.id))) {
+                         return false;
+                     }
+                     it.value().parentId = 0;
+                 }
+             }
+
+             // 3. Recover artifacts pointing to nonexistent folders so they remain visible at root
+             {
+                 sqlite3_stmt* stmt = nullptr;
+                 if (sqlite3_prepare_v2(handle,
+                                        "SELECT a.id, a.kind, a.folder_id, v.title FROM artifacts a "
+                                        "LEFT JOIN artifact_versions v ON v.id = a.current_version_id "
+                                        "WHERE a.folder_id > 0 AND NOT EXISTS (SELECT 1 FROM folders f WHERE f.id = "
+                                        "a.folder_id);",
+                                        -1, &stmt, nullptr) != SQLITE_OK) {
+                     return false;
+                 }
+                 int rc = SQLITE_OK;
+                 while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+                     const int artId = sqlite3_column_int(stmt, 0);
+                     const char* k = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+                     const int badFolderId = sqlite3_column_int(stmt, 2);
+                     const char* ttl = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
+                     const QString kindStr = k ? QString::fromUtf8(k) : QStringLiteral("document");
+                     const QString titleStr = ttl ? QString::fromUtf8(ttl) : QString();
+
+                     QJsonObject rawObj;
+                     rawObj["artifact_id"] = artId;
+                     rawObj["kind"] = kindStr;
+                     rawObj["folder_id"] = badFolderId;
+                     rawObj["title"] = titleStr;
+                     const QString payloadJson =
+                         QString::fromUtf8(QJsonDocument(rawObj).toJson(QJsonDocument::Compact));
+                     if (!insertQuarantineIfMissing("artifacts", artId, "folder", badFolderId, titleStr, QString(),
+                                                    payloadJson, "orphaned_item_folder")) {
+                         sqlite3_finalize(stmt);
+                         return false;
+                     }
+                 }
+                 sqlite3_finalize(stmt);
+                 if (rc != SQLITE_DONE) return false;
+
+                 if (!db.execute("UPDATE artifacts SET folder_id = 0 WHERE folder_id > 0 AND NOT EXISTS (SELECT 1 FROM "
+                                 "folders f WHERE f.id = artifacts.folder_id);")) {
+                     return false;
+                 }
+             }
+
+             return db.execute("CREATE INDEX IF NOT EXISTS idx_folders_parent_type ON folders(parent_id, type);");
          }});
 
     return runner;
