@@ -2,6 +2,9 @@
 
 #include <sqlcipher/sqlite3.h>
 
+#include <QJsonDocument>
+#include <QJsonObject>
+
 namespace db {
 
 MigrationRunner MigrationFactory::createRunner() {
@@ -996,6 +999,865 @@ MigrationRunner MigrationFactory::createRunner() {
                      "CREATE INDEX idx_quarantined_records_source ON quarantined_records(source_table, legacy_id);")) {
                  return false;
              }
+             return true;
+         }});
+
+    runner.addMigration(
+        {26, 27, "Catch-Up Legacy Artifacts, Migrate Document History, and Quarantine Orphans", [](Database& db) {
+             sqlite3* handle = db.handle();
+
+             if (!db.execute("CREATE TABLE IF NOT EXISTS legacy_document_history_mapping ("
+                             "history_id INTEGER PRIMARY KEY, "
+                             "artifact_version_id INTEGER NOT NULL UNIQUE REFERENCES artifact_versions(id) ON DELETE "
+                             "CASCADE"
+                             ");")) {
+                 return false;
+             }
+
+             auto colText = [](sqlite3_stmt* s, int idx) -> QString {
+                 if (sqlite3_column_type(s, idx) == SQLITE_NULL) return QString();
+                 const unsigned char* t = sqlite3_column_text(s, idx);
+                 return t ? QString::fromUtf8(reinterpret_cast<const char*>(t)) : QString();
+             };
+
+             auto insertArtifactAndVersion = [&](const QString& kind, std::optional<sqlite3_int64> folderId,
+                                                 const QString& title, const QString& content, const QString& metadata,
+                                                 const QString& timestamp, sqlite3_int64& outArtifactId) -> bool {
+                 sqlite3_stmt* artStmt = nullptr;
+                 if (sqlite3_prepare_v2(handle,
+                                        "INSERT INTO artifacts (kind, folder_id, created_at) VALUES (?, ?, ?) "
+                                        "RETURNING id;",
+                                        -1, &artStmt, nullptr) != SQLITE_OK) {
+                     return false;
+                 }
+                 const QByteArray kindUtf8 = kind.toUtf8();
+                 sqlite3_bind_text(artStmt, 1, kindUtf8.constData(), -1, SQLITE_TRANSIENT);
+                 if (folderId.has_value()) {
+                     sqlite3_bind_int64(artStmt, 2, *folderId);
+                 } else {
+                     sqlite3_bind_null(artStmt, 2);
+                 }
+                 if (!timestamp.isNull()) {
+                     const QByteArray tsUtf8 = timestamp.toUtf8();
+                     sqlite3_bind_text(artStmt, 3, tsUtf8.constData(), -1, SQLITE_TRANSIENT);
+                 } else {
+                     sqlite3_bind_null(artStmt, 3);
+                 }
+                 if (sqlite3_step(artStmt) != SQLITE_ROW) {
+                     sqlite3_finalize(artStmt);
+                     return false;
+                 }
+                 outArtifactId = sqlite3_column_int64(artStmt, 0);
+                 sqlite3_finalize(artStmt);
+
+                 sqlite3_stmt* verStmt = nullptr;
+                 if (sqlite3_prepare_v2(handle,
+                                        "INSERT INTO artifact_versions (artifact_id, title, content, metadata, "
+                                        "created_at) VALUES (?, ?, ?, ?, ?) RETURNING id;",
+                                        -1, &verStmt, nullptr) != SQLITE_OK) {
+                     return false;
+                 }
+                 sqlite3_bind_int64(verStmt, 1, outArtifactId);
+                 if (!title.isNull()) {
+                     const QByteArray titleUtf8 = title.toUtf8();
+                     sqlite3_bind_text(verStmt, 2, titleUtf8.constData(), -1, SQLITE_TRANSIENT);
+                 } else {
+                     sqlite3_bind_null(verStmt, 2);
+                 }
+                 if (!content.isNull()) {
+                     const QByteArray contentUtf8 = content.toUtf8();
+                     sqlite3_bind_text(verStmt, 3, contentUtf8.constData(), -1, SQLITE_TRANSIENT);
+                 } else {
+                     sqlite3_bind_null(verStmt, 3);
+                 }
+                 if (!metadata.isNull()) {
+                     const QByteArray metaUtf8 = metadata.toUtf8();
+                     sqlite3_bind_text(verStmt, 4, metaUtf8.constData(), -1, SQLITE_TRANSIENT);
+                 } else {
+                     sqlite3_bind_null(verStmt, 4);
+                 }
+                 if (!timestamp.isNull()) {
+                     const QByteArray tsUtf8 = timestamp.toUtf8();
+                     sqlite3_bind_text(verStmt, 5, tsUtf8.constData(), -1, SQLITE_TRANSIENT);
+                 } else {
+                     sqlite3_bind_null(verStmt, 5);
+                 }
+                 if (sqlite3_step(verStmt) != SQLITE_ROW) {
+                     sqlite3_finalize(verStmt);
+                     return false;
+                 }
+                 sqlite3_int64 verId = sqlite3_column_int64(verStmt, 0);
+                 sqlite3_finalize(verStmt);
+
+                 sqlite3_stmt* updStmt = nullptr;
+                 if (sqlite3_prepare_v2(handle, "UPDATE artifacts SET current_version_id = ? WHERE id = ?;", -1,
+                                        &updStmt, nullptr) != SQLITE_OK) {
+                     return false;
+                 }
+                 sqlite3_bind_int64(updStmt, 1, verId);
+                 sqlite3_bind_int64(updStmt, 2, outArtifactId);
+                 bool ok = sqlite3_step(updStmt) == SQLITE_DONE;
+                 sqlite3_finalize(updStmt);
+                 return ok;
+             };
+
+             auto syncMappedArtifact = [&](sqlite3_int64 artifactId, std::optional<sqlite3_int64> folderId,
+                                           const QString& title, const QString& content, const QString& metadata,
+                                           const QString& timestamp) -> bool {
+                 sqlite3_stmt* curStmt = nullptr;
+                 if (sqlite3_prepare_v2(handle,
+                                        "SELECT a.folder_id, v.id, v.title, v.content, v.metadata, v.is_sealed "
+                                        "FROM artifacts a JOIN artifact_versions v ON v.id = a.current_version_id "
+                                        "WHERE a.id = ?;",
+                                        -1, &curStmt, nullptr) != SQLITE_OK) {
+                     return false;
+                 }
+                 sqlite3_bind_int64(curStmt, 1, artifactId);
+                 if (sqlite3_step(curStmt) != SQLITE_ROW) {
+                     sqlite3_finalize(curStmt);
+                     return false;
+                 }
+                 std::optional<sqlite3_int64> curFolderId;
+                 if (sqlite3_column_type(curStmt, 0) != SQLITE_NULL) {
+                     curFolderId = sqlite3_column_int64(curStmt, 0);
+                 }
+                 sqlite3_int64 curVerId = sqlite3_column_int64(curStmt, 1);
+                 QString curTitle = colText(curStmt, 2);
+                 QString curContent = colText(curStmt, 3);
+                 QString curMetadata = colText(curStmt, 4);
+                 bool isSealed = sqlite3_column_int(curStmt, 5) != 0;
+                 sqlite3_finalize(curStmt);
+
+                 if (curFolderId != folderId) {
+                     sqlite3_stmt* fStmt = nullptr;
+                     if (sqlite3_prepare_v2(handle, "UPDATE artifacts SET folder_id = ? WHERE id = ?;", -1, &fStmt,
+                                            nullptr) != SQLITE_OK) {
+                         return false;
+                     }
+                     if (folderId.has_value()) {
+                         sqlite3_bind_int64(fStmt, 1, *folderId);
+                     } else {
+                         sqlite3_bind_null(fStmt, 1);
+                     }
+                     sqlite3_bind_int64(fStmt, 2, artifactId);
+                     bool ok = sqlite3_step(fStmt) == SQLITE_DONE;
+                     sqlite3_finalize(fStmt);
+                     if (!ok) return false;
+                 }
+
+                 const QString normMeta = metadata.isNull() ? QString("") : metadata;
+                 const QString normCurMeta = curMetadata.isNull() ? QString("") : curMetadata;
+                 const bool titleChanged =
+                     (title.isNull() != curTitle.isNull()) || (!title.isNull() && title != curTitle);
+                 const bool contentChanged =
+                     (content.isNull() != curContent.isNull()) || (!content.isNull() && content != curContent);
+                 const bool metaChanged = normMeta != normCurMeta;
+
+                 if (!titleChanged && !contentChanged && !metaChanged) {
+                     return true;
+                 }
+
+                 if (!isSealed) {
+                     sqlite3_stmt* uStmt = nullptr;
+                     if (sqlite3_prepare_v2(
+                             handle, "UPDATE artifact_versions SET title = ?, content = ?, metadata = ? WHERE id = ?;",
+                             -1, &uStmt, nullptr) != SQLITE_OK) {
+                         return false;
+                     }
+                     if (!title.isNull()) {
+                         const QByteArray tUtf8 = title.toUtf8();
+                         sqlite3_bind_text(uStmt, 1, tUtf8.constData(), -1, SQLITE_TRANSIENT);
+                     } else {
+                         sqlite3_bind_null(uStmt, 1);
+                     }
+                     if (!content.isNull()) {
+                         const QByteArray cUtf8 = content.toUtf8();
+                         sqlite3_bind_text(uStmt, 2, cUtf8.constData(), -1, SQLITE_TRANSIENT);
+                     } else {
+                         sqlite3_bind_null(uStmt, 2);
+                     }
+                     const QByteArray mUtf8 = normMeta.toUtf8();
+                     sqlite3_bind_text(uStmt, 3, mUtf8.constData(), -1, SQLITE_TRANSIENT);
+                     sqlite3_bind_int64(uStmt, 4, curVerId);
+                     bool ok = sqlite3_step(uStmt) == SQLITE_DONE;
+                     sqlite3_finalize(uStmt);
+                     return ok;
+                 }
+
+                 sqlite3_stmt* nStmt = nullptr;
+                 if (sqlite3_prepare_v2(handle,
+                                        "INSERT INTO artifact_versions (artifact_id, parent_id, title, content, "
+                                        "metadata, is_sealed, created_at) VALUES (?, ?, ?, ?, ?, 0, ?) RETURNING id;",
+                                        -1, &nStmt, nullptr) != SQLITE_OK) {
+                     return false;
+                 }
+                 sqlite3_bind_int64(nStmt, 1, artifactId);
+                 sqlite3_bind_int64(nStmt, 2, curVerId);
+                 if (!title.isNull()) {
+                     const QByteArray tUtf8 = title.toUtf8();
+                     sqlite3_bind_text(nStmt, 3, tUtf8.constData(), -1, SQLITE_TRANSIENT);
+                 } else {
+                     sqlite3_bind_null(nStmt, 3);
+                 }
+                 if (!content.isNull()) {
+                     const QByteArray cUtf8 = content.toUtf8();
+                     sqlite3_bind_text(nStmt, 4, cUtf8.constData(), -1, SQLITE_TRANSIENT);
+                 } else {
+                     sqlite3_bind_null(nStmt, 4);
+                 }
+                 const QByteArray mUtf8 = normMeta.toUtf8();
+                 sqlite3_bind_text(nStmt, 5, mUtf8.constData(), -1, SQLITE_TRANSIENT);
+                 if (!timestamp.isNull()) {
+                     const QByteArray tsUtf8 = timestamp.toUtf8();
+                     sqlite3_bind_text(nStmt, 6, tsUtf8.constData(), -1, SQLITE_TRANSIENT);
+                 } else {
+                     sqlite3_bind_null(nStmt, 6);
+                 }
+                 if (sqlite3_step(nStmt) != SQLITE_ROW) {
+                     sqlite3_finalize(nStmt);
+                     return false;
+                 }
+                 sqlite3_int64 newVerId = sqlite3_column_int64(nStmt, 0);
+                 sqlite3_finalize(nStmt);
+
+                 sqlite3_stmt* aStmt = nullptr;
+                 if (sqlite3_prepare_v2(handle, "UPDATE artifacts SET current_version_id = ? WHERE id = ?;", -1, &aStmt,
+                                        nullptr) != SQLITE_OK) {
+                     return false;
+                 }
+                 sqlite3_bind_int64(aStmt, 1, newVerId);
+                 sqlite3_bind_int64(aStmt, 2, artifactId);
+                 bool ok = sqlite3_step(aStmt) == SQLITE_DONE;
+                 sqlite3_finalize(aStmt);
+                 return ok;
+             };
+
+             auto insertQuarantineIfMissing = [&](const QString& sourceTable, std::optional<sqlite3_int64> legacyId,
+                                                  const QString& targetType, std::optional<sqlite3_int64> parentRef,
+                                                  const QString& title, const QString& content,
+                                                  const QString& rawPayloadJson, const QString& reason) -> bool {
+                 if (legacyId.has_value()) {
+                     sqlite3_stmt* chkStmt = nullptr;
+                     if (sqlite3_prepare_v2(
+                             handle, "SELECT 1 FROM quarantined_records WHERE source_table = ? AND legacy_id = ?;", -1,
+                             &chkStmt, nullptr) != SQLITE_OK) {
+                         return false;
+                     }
+                     const QByteArray sUtf8 = sourceTable.toUtf8();
+                     sqlite3_bind_text(chkStmt, 1, sUtf8.constData(), -1, SQLITE_TRANSIENT);
+                     sqlite3_bind_int64(chkStmt, 2, *legacyId);
+                     int chkRc = sqlite3_step(chkStmt);
+                     sqlite3_finalize(chkStmt);
+                     if (chkRc == SQLITE_ROW) return true;
+                     if (chkRc != SQLITE_DONE) return false;
+                 }
+
+                 sqlite3_stmt* qStmt = nullptr;
+                 if (sqlite3_prepare_v2(
+                         handle,
+                         "INSERT INTO quarantined_records (source_table, legacy_id, target_type, parent_reference, "
+                         "title, content, raw_payload_json, reason, status) "
+                         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'quarantined');",
+                         -1, &qStmt, nullptr) != SQLITE_OK) {
+                     return false;
+                 }
+                 const QByteArray sUtf8 = sourceTable.toUtf8();
+                 const QByteArray tUtf8 = targetType.toUtf8();
+                 const QByteArray pUtf8 = rawPayloadJson.toUtf8();
+                 const QByteArray rUtf8 = reason.toUtf8();
+                 sqlite3_bind_text(qStmt, 1, sUtf8.constData(), -1, SQLITE_TRANSIENT);
+                 if (legacyId.has_value()) {
+                     sqlite3_bind_int64(qStmt, 2, *legacyId);
+                 } else {
+                     sqlite3_bind_null(qStmt, 2);
+                 }
+                 sqlite3_bind_text(qStmt, 3, tUtf8.constData(), -1, SQLITE_TRANSIENT);
+                 if (parentRef.has_value()) {
+                     sqlite3_bind_int64(qStmt, 4, *parentRef);
+                 } else {
+                     sqlite3_bind_null(qStmt, 4);
+                 }
+                 if (!title.isNull()) {
+                     const QByteArray titleUtf8 = title.toUtf8();
+                     sqlite3_bind_text(qStmt, 5, titleUtf8.constData(), -1, SQLITE_TRANSIENT);
+                 } else {
+                     sqlite3_bind_null(qStmt, 5);
+                 }
+                 if (!content.isNull()) {
+                     const QByteArray contentUtf8 = content.toUtf8();
+                     sqlite3_bind_text(qStmt, 6, contentUtf8.constData(), -1, SQLITE_TRANSIENT);
+                 } else {
+                     sqlite3_bind_null(qStmt, 6);
+                 }
+                 sqlite3_bind_text(qStmt, 7, pUtf8.constData(), -1, SQLITE_TRANSIENT);
+                 sqlite3_bind_text(qStmt, 8, rUtf8.constData(), -1, SQLITE_TRANSIENT);
+
+                 bool ok = sqlite3_step(qStmt) == SQLITE_DONE;
+                 sqlite3_finalize(qStmt);
+                 return ok;
+             };
+
+             // 1. Catch-up documents (unmapped + modified)
+             {
+                 sqlite3_stmt* stmt = nullptr;
+                 if (sqlite3_prepare_v2(handle,
+                                        "SELECT d.id, d.folder_id, d.title, d.content, d.metadata, d.timestamp, "
+                                        "m.artifact_id FROM documents d "
+                                        "LEFT JOIN legacy_document_mapping m ON m.document_id = d.id ORDER BY d.id "
+                                        "ASC;",
+                                        -1, &stmt, nullptr) != SQLITE_OK) {
+                     return false;
+                 }
+                 int rc = SQLITE_OK;
+                 while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+                     sqlite3_int64 docId = sqlite3_column_int64(stmt, 0);
+                     std::optional<sqlite3_int64> folderId;
+                     if (sqlite3_column_type(stmt, 1) != SQLITE_NULL) folderId = sqlite3_column_int64(stmt, 1);
+                     QString title = colText(stmt, 2);
+                     QString content = colText(stmt, 3);
+                     QString metadata = colText(stmt, 4);
+                     QString timestamp = colText(stmt, 5);
+
+                     if (sqlite3_column_type(stmt, 6) == SQLITE_NULL) {
+                         sqlite3_int64 artId = 0;
+                         if (!insertArtifactAndVersion("document", folderId, title, content, metadata, timestamp,
+                                                       artId)) {
+                             sqlite3_finalize(stmt);
+                             return false;
+                         }
+                         if (!db.execute(QString("INSERT INTO legacy_document_mapping (document_id, artifact_id) "
+                                                 "VALUES (%1, %2);")
+                                             .arg(docId)
+                                             .arg(artId))) {
+                             sqlite3_finalize(stmt);
+                             return false;
+                         }
+                     } else {
+                         sqlite3_int64 artId = sqlite3_column_int64(stmt, 6);
+                         if (!syncMappedArtifact(artId, folderId, title, content, metadata, timestamp)) {
+                             sqlite3_finalize(stmt);
+                             return false;
+                         }
+                     }
+                 }
+                 sqlite3_finalize(stmt);
+                 if (rc != SQLITE_DONE) return false;
+             }
+
+             // 2. Catch-up notes (unmapped + modified)
+             {
+                 sqlite3_stmt* stmt = nullptr;
+                 if (sqlite3_prepare_v2(handle,
+                                        "SELECT n.id, n.folder_id, n.title, n.content, n.timestamp, m.artifact_id "
+                                        "FROM notes n LEFT JOIN legacy_note_mapping m ON m.note_id = n.id ORDER BY "
+                                        "n.id ASC;",
+                                        -1, &stmt, nullptr) != SQLITE_OK) {
+                     return false;
+                 }
+                 int rc = SQLITE_OK;
+                 while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+                     sqlite3_int64 noteId = sqlite3_column_int64(stmt, 0);
+                     std::optional<sqlite3_int64> folderId;
+                     if (sqlite3_column_type(stmt, 1) != SQLITE_NULL) folderId = sqlite3_column_int64(stmt, 1);
+                     QString title = colText(stmt, 2);
+                     QString content = colText(stmt, 3);
+                     QString timestamp = colText(stmt, 4);
+
+                     if (sqlite3_column_type(stmt, 5) == SQLITE_NULL) {
+                         sqlite3_int64 artId = 0;
+                         if (!insertArtifactAndVersion("note", folderId, title, content, QString(), timestamp, artId)) {
+                             sqlite3_finalize(stmt);
+                             return false;
+                         }
+                         if (!db.execute(
+                                 QString("INSERT INTO legacy_note_mapping (note_id, artifact_id) VALUES (%1, %2);")
+                                     .arg(noteId)
+                                     .arg(artId))) {
+                             sqlite3_finalize(stmt);
+                             return false;
+                         }
+                     } else {
+                         sqlite3_int64 artId = sqlite3_column_int64(stmt, 5);
+                         if (!syncMappedArtifact(artId, folderId, title, content, QString(""), timestamp)) {
+                             sqlite3_finalize(stmt);
+                             return false;
+                         }
+                     }
+                 }
+                 sqlite3_finalize(stmt);
+                 if (rc != SQLITE_DONE) return false;
+             }
+
+             // 3. Catch-up templates (unmapped + modified)
+             {
+                 sqlite3_stmt* stmt = nullptr;
+                 if (sqlite3_prepare_v2(handle,
+                                        "SELECT t.id, t.folder_id, t.title, t.content, t.timestamp, m.artifact_id "
+                                        "FROM templates t LEFT JOIN legacy_template_mapping m ON m.template_id = t.id "
+                                        "ORDER BY t.id ASC;",
+                                        -1, &stmt, nullptr) != SQLITE_OK) {
+                     return false;
+                 }
+                 int rc = SQLITE_OK;
+                 while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+                     sqlite3_int64 tmplId = sqlite3_column_int64(stmt, 0);
+                     std::optional<sqlite3_int64> folderId;
+                     if (sqlite3_column_type(stmt, 1) != SQLITE_NULL) folderId = sqlite3_column_int64(stmt, 1);
+                     QString title = colText(stmt, 2);
+                     QString content = colText(stmt, 3);
+                     QString timestamp = colText(stmt, 4);
+
+                     if (sqlite3_column_type(stmt, 5) == SQLITE_NULL) {
+                         sqlite3_int64 artId = 0;
+                         if (!insertArtifactAndVersion("template", folderId, title, content, QString(), timestamp,
+                                                       artId)) {
+                             sqlite3_finalize(stmt);
+                             return false;
+                         }
+                         if (!db.execute(QString("INSERT INTO legacy_template_mapping (template_id, artifact_id) "
+                                                 "VALUES (%1, %2);")
+                                             .arg(tmplId)
+                                             .arg(artId))) {
+                             sqlite3_finalize(stmt);
+                             return false;
+                         }
+                     } else {
+                         sqlite3_int64 artId = sqlite3_column_int64(stmt, 5);
+                         if (!syncMappedArtifact(artId, folderId, title, content, QString(""), timestamp)) {
+                             sqlite3_finalize(stmt);
+                             return false;
+                         }
+                     }
+                 }
+                 sqlite3_finalize(stmt);
+                 if (rc != SQLITE_DONE) return false;
+             }
+
+             // 4. Catch-up drafts (unmapped + modified) and quarantine broken draft parent references
+             {
+                 sqlite3_stmt* stmt = nullptr;
+                 if (sqlite3_prepare_v2(handle,
+                                        "SELECT d.id, d.folder_id, d.title, d.content, d.parent_id, d.target_type, "
+                                        "d.timestamp, m.artifact_id FROM drafts d "
+                                        "LEFT JOIN legacy_draft_mapping m ON m.draft_id = d.id ORDER BY d.id ASC;",
+                                        -1, &stmt, nullptr) != SQLITE_OK) {
+                     return false;
+                 }
+                 int rc = SQLITE_OK;
+                 while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+                     sqlite3_int64 draftId = sqlite3_column_int64(stmt, 0);
+                     std::optional<sqlite3_int64> folderId;
+                     if (sqlite3_column_type(stmt, 1) != SQLITE_NULL) folderId = sqlite3_column_int64(stmt, 1);
+                     QString title = colText(stmt, 2);
+                     QString content = colText(stmt, 3);
+                     std::optional<sqlite3_int64> parentId;
+                     if (sqlite3_column_type(stmt, 4) != SQLITE_NULL) parentId = sqlite3_column_int64(stmt, 4);
+                     QString targetType = colText(stmt, 5);
+                     QString timestamp = colText(stmt, 6);
+
+                     if (sqlite3_column_type(stmt, 7) == SQLITE_NULL) {
+                         sqlite3_int64 artId = 0;
+                         if (!insertArtifactAndVersion("draft", folderId, title, content, QString(), timestamp,
+                                                       artId)) {
+                             sqlite3_finalize(stmt);
+                             return false;
+                         }
+                         sqlite3_stmt* dmStmt = nullptr;
+                         if (sqlite3_prepare_v2(handle,
+                                                "INSERT INTO legacy_draft_mapping (draft_id, artifact_id, "
+                                                "legacy_parent_id, legacy_target_type) VALUES (?, ?, ?, ?);",
+                                                -1, &dmStmt, nullptr) != SQLITE_OK) {
+                             sqlite3_finalize(stmt);
+                             return false;
+                         }
+                         sqlite3_bind_int64(dmStmt, 1, draftId);
+                         sqlite3_bind_int64(dmStmt, 2, artId);
+                         if (parentId.has_value()) {
+                             sqlite3_bind_int64(dmStmt, 3, *parentId);
+                         } else {
+                             sqlite3_bind_null(dmStmt, 3);
+                         }
+                         if (!targetType.isNull()) {
+                             const QByteArray ttUtf8 = targetType.toUtf8();
+                             sqlite3_bind_text(dmStmt, 4, ttUtf8.constData(), -1, SQLITE_TRANSIENT);
+                         } else {
+                             sqlite3_bind_null(dmStmt, 4);
+                         }
+                         bool dmOk = sqlite3_step(dmStmt) == SQLITE_DONE;
+                         sqlite3_finalize(dmStmt);
+                         if (!dmOk) {
+                             sqlite3_finalize(stmt);
+                             return false;
+                         }
+                     } else {
+                         sqlite3_int64 artId = sqlite3_column_int64(stmt, 7);
+                         if (!syncMappedArtifact(artId, folderId, title, content, QString(""), timestamp)) {
+                             sqlite3_finalize(stmt);
+                             return false;
+                         }
+                     }
+                 }
+                 sqlite3_finalize(stmt);
+                 if (rc != SQLITE_DONE) return false;
+             }
+
+             // Resolve draft lineage for any unlinked drafts and quarantine drafts with missing non-zero parent_id
+             {
+                 sqlite3_stmt* stmt = nullptr;
+                 if (sqlite3_prepare_v2(
+                         handle,
+                         "SELECT d.id, d.folder_id, d.title, d.content, d.parent_id, d.target_type, d.timestamp, "
+                         "m.artifact_id, v.id, v.forked_from_version_id, v.is_sealed "
+                         "FROM drafts d JOIN legacy_draft_mapping m ON m.draft_id = d.id "
+                         "JOIN artifacts a ON a.id = m.artifact_id "
+                         "JOIN artifact_versions v ON v.id = a.current_version_id ORDER BY d.id ASC;",
+                         -1, &stmt, nullptr) != SQLITE_OK) {
+                     return false;
+                 }
+                 int rc = SQLITE_OK;
+                 while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+                     sqlite3_int64 draftId = sqlite3_column_int64(stmt, 0);
+                     std::optional<sqlite3_int64> folderId;
+                     if (sqlite3_column_type(stmt, 1) != SQLITE_NULL) folderId = sqlite3_column_int64(stmt, 1);
+                     QString title = colText(stmt, 2);
+                     QString content = colText(stmt, 3);
+                     std::optional<sqlite3_int64> parentId;
+                     if (sqlite3_column_type(stmt, 4) != SQLITE_NULL) parentId = sqlite3_column_int64(stmt, 4);
+                     QString targetType = colText(stmt, 5);
+                     QString timestamp = colText(stmt, 6);
+                     sqlite3_int64 draftVerId = sqlite3_column_int64(stmt, 8);
+                     bool hasForkedFrom = sqlite3_column_type(stmt, 9) != SQLITE_NULL;
+                     bool draftVerSealed = sqlite3_column_int(stmt, 10) != 0;
+
+                     if (!parentId.has_value() || *parentId <= 0 || hasForkedFrom) {
+                         continue;
+                     }
+
+                     QString lookupSql;
+                     if (targetType == "document") {
+                         lookupSql =
+                             "SELECT a.current_version_id FROM legacy_document_mapping m JOIN artifacts a ON a.id = "
+                             "m.artifact_id WHERE m.document_id = ?;";
+                     } else if (targetType == "note") {
+                         lookupSql =
+                             "SELECT a.current_version_id FROM legacy_note_mapping m JOIN artifacts a ON a.id = "
+                             "m.artifact_id WHERE m.note_id = ?;";
+                     } else if (targetType == "template") {
+                         lookupSql =
+                             "SELECT a.current_version_id FROM legacy_template_mapping m JOIN artifacts a ON a.id = "
+                             "m.artifact_id WHERE m.template_id = ?;";
+                     } else if (targetType == "draft") {
+                         lookupSql =
+                             "SELECT a.current_version_id FROM legacy_draft_mapping m JOIN artifacts a ON a.id = "
+                             "m.artifact_id WHERE m.draft_id = ?;";
+                     }
+
+                     std::optional<sqlite3_int64> resolvedParentVerId;
+                     if (!lookupSql.isEmpty()) {
+                         sqlite3_stmt* lStmt = nullptr;
+                         if (sqlite3_prepare_v2(handle, lookupSql.toUtf8().constData(), -1, &lStmt, nullptr) !=
+                             SQLITE_OK) {
+                             sqlite3_finalize(stmt);
+                             return false;
+                         }
+                         sqlite3_bind_int64(lStmt, 1, *parentId);
+                         if (sqlite3_step(lStmt) == SQLITE_ROW) {
+                             resolvedParentVerId = sqlite3_column_int64(lStmt, 0);
+                         }
+                         sqlite3_finalize(lStmt);
+                     }
+
+                     if (resolvedParentVerId.has_value() && !draftVerSealed) {
+                         if (!db.execute(QString("UPDATE artifact_versions SET is_sealed = 1 WHERE id = %1;")
+                                             .arg(*resolvedParentVerId))) {
+                             sqlite3_finalize(stmt);
+                             return false;
+                         }
+                         if (!db.execute(
+                                 QString("UPDATE artifact_versions SET forked_from_version_id = %1 WHERE id = %2;")
+                                     .arg(*resolvedParentVerId)
+                                     .arg(draftVerId))) {
+                             sqlite3_finalize(stmt);
+                             return false;
+                         }
+                     } else if (!resolvedParentVerId.has_value()) {
+                         QJsonObject rawObj;
+                         rawObj["id"] = static_cast<qint64>(draftId);
+                         rawObj["folder_id"] =
+                             folderId.has_value() ? QJsonValue(static_cast<qint64>(*folderId)) : QJsonValue::Null;
+                         rawObj["title"] = title.isNull() ? QJsonValue::Null : QJsonValue(title);
+                         rawObj["content"] = content.isNull() ? QJsonValue::Null : QJsonValue(content);
+                         rawObj["parent_id"] = static_cast<qint64>(*parentId);
+                         rawObj["target_type"] = targetType.isNull() ? QJsonValue::Null : QJsonValue(targetType);
+                         rawObj["timestamp"] = timestamp.isNull() ? QJsonValue::Null : QJsonValue(timestamp);
+                         const QString payloadJson =
+                             QString::fromUtf8(QJsonDocument(rawObj).toJson(QJsonDocument::Compact));
+                         if (!insertQuarantineIfMissing("drafts", draftId,
+                                                        targetType.isNull() ? QString("") : targetType, parentId, title,
+                                                        content, payloadJson, "missing_parent_artifact")) {
+                             sqlite3_finalize(stmt);
+                             return false;
+                         }
+                     }
+                 }
+                 sqlite3_finalize(stmt);
+                 if (rc != SQLITE_DONE) return false;
+             }
+
+             // 5. Migrate document_history rows to sealed artifact_versions (or quarantine orphans)
+             {
+                 sqlite3_stmt* stmt = nullptr;
+                 if (sqlite3_prepare_v2(handle,
+                                        "SELECT h.id, h.document_id, h.action_type, h.content, h.timestamp, "
+                                        "m.artifact_id "
+                                        "FROM document_history h "
+                                        "LEFT JOIN legacy_document_mapping m ON m.document_id = h.document_id "
+                                        "WHERE h.id NOT IN (SELECT history_id FROM legacy_document_history_mapping) "
+                                        "ORDER BY h.document_id ASC, h.timestamp ASC, h.id ASC;",
+                                        -1, &stmt, nullptr) != SQLITE_OK) {
+                     return false;
+                 }
+
+                 int rc = SQLITE_OK;
+                 std::optional<sqlite3_int64> currentArtId;
+                 std::optional<sqlite3_int64> lastHistoryVerId;
+                 QString currentArtTitle;
+
+                 auto linkRootVersionIfMutable = [&](sqlite3_int64 artId, sqlite3_int64 tailHistoryVerId) -> bool {
+                     sqlite3_stmt* rootStmt = nullptr;
+                     if (sqlite3_prepare_v2(
+                             handle,
+                             "SELECT id, is_sealed FROM artifact_versions "
+                             "WHERE artifact_id = ? AND parent_id IS NULL "
+                             "AND id NOT IN (SELECT artifact_version_id FROM legacy_document_history_mapping) "
+                             "ORDER BY id ASC LIMIT 1;",
+                             -1, &rootStmt, nullptr) != SQLITE_OK) {
+                         return false;
+                     }
+                     sqlite3_bind_int64(rootStmt, 1, artId);
+                     int rootRc = sqlite3_step(rootStmt);
+                     if (rootRc == SQLITE_ROW) {
+                         sqlite3_int64 rootVerId = sqlite3_column_int64(rootStmt, 0);
+                         bool rootSealed = sqlite3_column_int(rootStmt, 1) != 0;
+                         sqlite3_finalize(rootStmt);
+                         if (!rootSealed && rootVerId != tailHistoryVerId) {
+                             if (!db.execute(QString("UPDATE artifact_versions SET parent_id = %1 WHERE id = %2;")
+                                                 .arg(tailHistoryVerId)
+                                                 .arg(rootVerId))) {
+                                 return false;
+                             }
+                         }
+                         return true;
+                     }
+                     sqlite3_finalize(rootStmt);
+                     return rootRc == SQLITE_DONE;
+                 };
+
+                 while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+                     sqlite3_int64 histId = sqlite3_column_int64(stmt, 0);
+                     std::optional<sqlite3_int64> docId;
+                     if (sqlite3_column_type(stmt, 1) != SQLITE_NULL) docId = sqlite3_column_int64(stmt, 1);
+                     QString actionType = colText(stmt, 2);
+                     QString content = colText(stmt, 3);
+                     QString timestamp = colText(stmt, 4);
+
+                     if (sqlite3_column_type(stmt, 5) == SQLITE_NULL) {
+                         QJsonObject rawObj;
+                         rawObj["id"] = static_cast<qint64>(histId);
+                         rawObj["document_id"] =
+                             docId.has_value() ? QJsonValue(static_cast<qint64>(*docId)) : QJsonValue::Null;
+                         rawObj["action_type"] = actionType.isNull() ? QJsonValue::Null : QJsonValue(actionType);
+                         rawObj["content"] = content.isNull() ? QJsonValue::Null : QJsonValue(content);
+                         rawObj["timestamp"] = timestamp.isNull() ? QJsonValue::Null : QJsonValue(timestamp);
+                         const QString payloadJson =
+                             QString::fromUtf8(QJsonDocument(rawObj).toJson(QJsonDocument::Compact));
+                         if (!insertQuarantineIfMissing("document_history", histId, "document", docId, actionType,
+                                                        content, payloadJson, "missing_parent_document")) {
+                             sqlite3_finalize(stmt);
+                             return false;
+                         }
+                         continue;
+                     }
+
+                     sqlite3_int64 artId = sqlite3_column_int64(stmt, 5);
+                     if (!currentArtId.has_value() || *currentArtId != artId) {
+                         if (currentArtId.has_value() && lastHistoryVerId.has_value()) {
+                             if (!linkRootVersionIfMutable(*currentArtId, *lastHistoryVerId)) {
+                                 sqlite3_finalize(stmt);
+                                 return false;
+                             }
+                         }
+                         currentArtId = artId;
+                         lastHistoryVerId.reset();
+                         currentArtTitle = QString();
+
+                         sqlite3_stmt* tStmt = nullptr;
+                         if (sqlite3_prepare_v2(handle,
+                                                "SELECT v.title FROM artifacts a JOIN artifact_versions v ON v.id = "
+                                                "a.current_version_id WHERE a.id = ?;",
+                                                -1, &tStmt, nullptr) != SQLITE_OK) {
+                             sqlite3_finalize(stmt);
+                             return false;
+                         }
+                         sqlite3_bind_int64(tStmt, 1, artId);
+                         if (sqlite3_step(tStmt) == SQLITE_ROW) {
+                             currentArtTitle = colText(tStmt, 0);
+                         }
+                         sqlite3_finalize(tStmt);
+
+                         sqlite3_stmt* prevStmt = nullptr;
+                         if (sqlite3_prepare_v2(handle,
+                                                "SELECT v.id FROM legacy_document_history_mapping hm "
+                                                "JOIN artifact_versions v ON v.id = hm.artifact_version_id "
+                                                "WHERE v.artifact_id = ? ORDER BY hm.history_id DESC LIMIT 1;",
+                                                -1, &prevStmt, nullptr) != SQLITE_OK) {
+                             sqlite3_finalize(stmt);
+                             return false;
+                         }
+                         sqlite3_bind_int64(prevStmt, 1, artId);
+                         if (sqlite3_step(prevStmt) == SQLITE_ROW) {
+                             lastHistoryVerId = sqlite3_column_int64(prevStmt, 0);
+                         }
+                         sqlite3_finalize(prevStmt);
+                     }
+
+                     QJsonObject metaObj;
+                     metaObj["action_type"] = actionType.isNull() ? QString("") : actionType;
+                     metaObj["legacy_history_id"] = static_cast<qint64>(histId);
+                     const QByteArray metaUtf8 = QJsonDocument(metaObj).toJson(QJsonDocument::Compact);
+
+                     sqlite3_stmt* insVerStmt = nullptr;
+                     if (sqlite3_prepare_v2(
+                             handle,
+                             "INSERT INTO artifact_versions (artifact_id, parent_id, title, content, metadata, "
+                             "is_sealed, created_at) VALUES (?, ?, ?, ?, ?, 1, ?) RETURNING id;",
+                             -1, &insVerStmt, nullptr) != SQLITE_OK) {
+                         sqlite3_finalize(stmt);
+                         return false;
+                     }
+                     sqlite3_bind_int64(insVerStmt, 1, artId);
+                     if (lastHistoryVerId.has_value()) {
+                         sqlite3_bind_int64(insVerStmt, 2, *lastHistoryVerId);
+                     } else {
+                         sqlite3_bind_null(insVerStmt, 2);
+                     }
+                     if (!currentArtTitle.isNull()) {
+                         const QByteArray tUtf8 = currentArtTitle.toUtf8();
+                         sqlite3_bind_text(insVerStmt, 3, tUtf8.constData(), -1, SQLITE_TRANSIENT);
+                     } else {
+                         sqlite3_bind_null(insVerStmt, 3);
+                     }
+                     if (!content.isNull()) {
+                         const QByteArray cUtf8 = content.toUtf8();
+                         sqlite3_bind_text(insVerStmt, 4, cUtf8.constData(), -1, SQLITE_TRANSIENT);
+                     } else {
+                         sqlite3_bind_null(insVerStmt, 4);
+                     }
+                     sqlite3_bind_text(insVerStmt, 5, metaUtf8.constData(), -1, SQLITE_TRANSIENT);
+                     if (!timestamp.isNull()) {
+                         const QByteArray tsUtf8 = timestamp.toUtf8();
+                         sqlite3_bind_text(insVerStmt, 6, tsUtf8.constData(), -1, SQLITE_TRANSIENT);
+                     } else {
+                         sqlite3_bind_null(insVerStmt, 6);
+                     }
+
+                     if (sqlite3_step(insVerStmt) != SQLITE_ROW) {
+                         sqlite3_finalize(insVerStmt);
+                         sqlite3_finalize(stmt);
+                         return false;
+                     }
+                     sqlite3_int64 newHistVerId = sqlite3_column_int64(insVerStmt, 0);
+                     sqlite3_finalize(insVerStmt);
+
+                     if (!db.execute(QString("INSERT INTO legacy_document_history_mapping (history_id, "
+                                             "artifact_version_id) VALUES (%1, %2);")
+                                         .arg(histId)
+                                         .arg(newHistVerId))) {
+                         sqlite3_finalize(stmt);
+                         return false;
+                     }
+                     lastHistoryVerId = newHistVerId;
+                 }
+                 sqlite3_finalize(stmt);
+                 if (rc != SQLITE_DONE) return false;
+
+                 if (currentArtId.has_value() && lastHistoryVerId.has_value()) {
+                     if (!linkRootVersionIfMutable(*currentArtId, *lastHistoryVerId)) {
+                         return false;
+                     }
+                 }
+             }
+
+             // 6. Quarantine orphaned comments whose target entity does not exist
+             {
+                 sqlite3_stmt* stmt = nullptr;
+                 if (sqlite3_prepare_v2(handle,
+                                        "SELECT id, entity_type, entity_id, content, created_at FROM comments "
+                                        "ORDER BY id ASC;",
+                                        -1, &stmt, nullptr) != SQLITE_OK) {
+                     return false;
+                 }
+                 int rc = SQLITE_OK;
+                 while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+                     sqlite3_int64 commentId = sqlite3_column_int64(stmt, 0);
+                     QString entityType = colText(stmt, 1);
+                     std::optional<sqlite3_int64> entityId;
+                     if (sqlite3_column_type(stmt, 2) != SQLITE_NULL) entityId = sqlite3_column_int64(stmt, 2);
+                     QString content = colText(stmt, 3);
+                     QString createdAt = colText(stmt, 4);
+
+                     bool exists = false;
+                     if (entityId.has_value() && *entityId > 0) {
+                         QString checkSql;
+                         if (entityType == "document") {
+                             checkSql = QString("SELECT COUNT(*) FROM legacy_document_mapping WHERE document_id = %1;")
+                                            .arg(*entityId);
+                         } else if (entityType == "note") {
+                             checkSql =
+                                 QString("SELECT COUNT(*) FROM legacy_note_mapping WHERE note_id = %1;").arg(*entityId);
+                         } else if (entityType == "template") {
+                             checkSql = QString("SELECT COUNT(*) FROM legacy_template_mapping WHERE template_id = %1;")
+                                            .arg(*entityId);
+                         } else if (entityType == "draft") {
+                             checkSql = QString("SELECT COUNT(*) FROM legacy_draft_mapping WHERE draft_id = %1;")
+                                            .arg(*entityId);
+                         } else if (entityType == "message") {
+                             checkSql = QString("SELECT COUNT(*) FROM messages WHERE id = %1;").arg(*entityId);
+                         } else if (entityType == "folder") {
+                             checkSql = QString("SELECT COUNT(*) FROM folders WHERE id = %1;").arg(*entityId);
+                         }
+                         if (!checkSql.isEmpty()) {
+                             int cnt = 0;
+                             if (!db.queryInt(checkSql, cnt)) {
+                                 sqlite3_finalize(stmt);
+                                 return false;
+                             }
+                             exists = cnt > 0;
+                         }
+                     }
+
+                     if (!exists) {
+                         QJsonObject rawObj;
+                         rawObj["id"] = static_cast<qint64>(commentId);
+                         rawObj["entity_type"] = entityType.isNull() ? QJsonValue::Null : QJsonValue(entityType);
+                         rawObj["entity_id"] =
+                             entityId.has_value() ? QJsonValue(static_cast<qint64>(*entityId)) : QJsonValue::Null;
+                         rawObj["content"] = content.isNull() ? QJsonValue::Null : QJsonValue(content);
+                         rawObj["created_at"] = createdAt.isNull() ? QJsonValue::Null : QJsonValue(createdAt);
+                         const QString payloadJson =
+                             QString::fromUtf8(QJsonDocument(rawObj).toJson(QJsonDocument::Compact));
+                         if (!insertQuarantineIfMissing("comments", commentId,
+                                                        entityType.isNull() ? QString("") : entityType, entityId,
+                                                        QString(), content, payloadJson, "missing_target_entity")) {
+                             sqlite3_finalize(stmt);
+                             return false;
+                         }
+                     }
+                 }
+                 sqlite3_finalize(stmt);
+                 if (rc != SQLITE_DONE) return false;
+             }
+
              return true;
          }});
 

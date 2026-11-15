@@ -140,6 +140,64 @@ std::optional<ArtifactVersion> ArtifactStore::getCurrentVersion(int artifactId) 
     return getVersion(artifact->currentVersionId);
 }
 
+Result<QList<ArtifactVersion>> ArtifactStore::getVersionHistory(int artifactId) const {
+    auto artRes = getArtifactResult(artifactId);
+    if (!artRes.isSuccess()) {
+        return Result<QList<ArtifactVersion>>::fail(artRes.error.value_or(TransitionError::NotFound),
+                                                    artRes.errorMessage);
+    }
+
+    const char* sql =
+        "SELECT id, artifact_id, parent_id, forked_from_version_id, title, content, metadata, is_sealed, created_at "
+        "FROM artifact_versions WHERE artifact_id = ? ORDER BY created_at DESC, id DESC;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(m_db.handle(), sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        return Result<QList<ArtifactVersion>>::fail(TransitionError::DatabaseError,
+                                                    "Failed to prepare getVersionHistory query");
+    }
+
+    sqlite3_bind_int(stmt, 1, artifactId);
+
+    QList<ArtifactVersion> history;
+    int rc = SQLITE_OK;
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+        ArtifactVersion version;
+        version.id = sqlite3_column_int(stmt, 0);
+        version.artifactId = sqlite3_column_int(stmt, 1);
+
+        if (sqlite3_column_type(stmt, 2) != SQLITE_NULL) {
+            version.parentId = sqlite3_column_int(stmt, 2);
+        }
+        if (sqlite3_column_type(stmt, 3) != SQLITE_NULL) {
+            version.forkedFromVersionId = sqlite3_column_int(stmt, 3);
+        }
+
+        const char* title = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4));
+        if (title) version.title = QString::fromUtf8(title);
+
+        const char* content = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 5));
+        if (content) version.content = QString::fromUtf8(content);
+
+        const char* metadata = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 6));
+        if (metadata) version.metadata = QString::fromUtf8(metadata);
+
+        version.isSealed = sqlite3_column_int(stmt, 7) != 0;
+
+        const char* createdAt = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 8));
+        if (createdAt) version.createdAt = QString::fromUtf8(createdAt);
+
+        history.append(version);
+    }
+    sqlite3_finalize(stmt);
+
+    if (rc != SQLITE_DONE) {
+        return Result<QList<ArtifactVersion>>::fail(TransitionError::DatabaseError,
+                                                    "Failed to execute getVersionHistory query");
+    }
+
+    return Result<QList<ArtifactVersion>>::success(history);
+}
+
 Result<ArtifactVersion> ArtifactStore::createArtifact(ArtifactKind kind, int folderId, const QString& title,
                                                       const QString& content, const QString& metadata) {
     db::Transaction tx(m_db);
