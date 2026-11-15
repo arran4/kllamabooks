@@ -31,7 +31,8 @@ else
 
     echo "Extracting rootfs..."
     mkdir -p "${ROOTFS_DIR}"
-    sudo tar --use-compress-program=zstd -xf "${ARCHIVE_PATH}" -C "${ROOTFS_DIR}" --numeric-owner
+    sudo tar --use-compress-program=zstd --exclude='./dev/*' -xf "${ARCHIVE_PATH}" -C "${ROOTFS_DIR}" --numeric-owner
+    sudo chmod -R u+rwX,go+rX "${ROOTFS_DIR}"
 
     touch "${MARKER_FILE}"
     echo "Rootfs bootstrap complete."

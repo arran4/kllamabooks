@@ -19,8 +19,8 @@ TARGET_DIR="/workspace"
 setup_mounts() {
     sudo mount -t proc proc "${ROOTFS_DIR}/proc"
     sudo mount -t sysfs sys "${ROOTFS_DIR}/sys"
-    sudo mount --bind /dev "${ROOTFS_DIR}/dev"
-    sudo mount --bind /dev/pts "${ROOTFS_DIR}/dev/pts"
+    sudo mount --rbind /dev "${ROOTFS_DIR}/dev"
+    sudo mount --make-rslave "${ROOTFS_DIR}/dev" 2>/dev/null || true
     sudo mount --bind /etc/resolv.conf "${ROOTFS_DIR}/etc/resolv.conf"
 
     sudo mkdir -p "${ROOTFS_DIR}${TARGET_DIR}"
@@ -30,8 +30,7 @@ setup_mounts() {
 cleanup_mounts() {
     sudo umount "${ROOTFS_DIR}${TARGET_DIR}" || true
     sudo umount "${ROOTFS_DIR}/etc/resolv.conf" || true
-    sudo umount "${ROOTFS_DIR}/dev/pts" || true
-    sudo umount "${ROOTFS_DIR}/dev" || true
+    sudo umount -R "${ROOTFS_DIR}/dev" 2>/dev/null || sudo umount -l "${ROOTFS_DIR}/dev" || true
     sudo umount "${ROOTFS_DIR}/sys" || true
     sudo umount "${ROOTFS_DIR}/proc" || true
 }
