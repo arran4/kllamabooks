@@ -21,17 +21,17 @@
 #include "db/MigrationFactory.h"
 #include "store/ArtifactStore.h"
 #include "store/FolderStore.h"
+#include "store/PromptStore.h"
+#include "store/RunStore.h"
 
 #ifdef Q_OS_UNIX
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
-
-#include <csignal>
 #endif
 
 namespace {
-constexpr int CURRENT_SCHEMA_VERSION = 28;
+constexpr int CURRENT_SCHEMA_VERSION = 29;
 constexpr int kRestoreJournalVersion = 1;
 
 BookDatabase::RestoreFaultHook g_restoreFaultHook;
@@ -1348,62 +1348,20 @@ bool BookDatabase::openInternal(const QString& password, bool runStartupRecovery
 
 bool BookDatabase::open(const QString& password) { return openInternal(password, true, nullptr); }
 
-void BookDatabase::cleanupDeadProcessingItems() {
-    if (!m_isOpen) return;
-
-    sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db),
-                           "SELECT id, processing_id, last_error FROM queue WHERE processing_id > 0 OR state = "
-                           "'processing' OR (last_error IS NOT NULL AND last_error != '' AND state != 'error');",
-                           -1, &stmt, nullptr) == SQLITE_OK) {
-        struct ItemToReset {
-            int id = 0;
-            QString error;
-        };
-        QList<ItemToReset> itemsToReset;
-        while (sqlite3_step(stmt) == SQLITE_ROW) {
-            int id = sqlite3_column_int(stmt, 0);
-            int pid = sqlite3_column_int(stmt, 1);
-            const unsigned char* errText = sqlite3_column_text(stmt, 2);
-            QString itemError = errText ? QString::fromUtf8(reinterpret_cast<const char*>(errText)) : QString();
-
-            if (pid <= 0) {
-                itemsToReset.append({id, itemError});
-            } else {
-#ifdef Q_OS_UNIX
-                if (kill(pid, 0) != 0 && errno == ESRCH) {
-                    itemsToReset.append({id, itemError});
-                } else {
-                    // Process exists, check if it's kllamabooks
-                    QFile commFile(QString("/proc/%1/comm").arg(pid));
-                    if (commFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
-                        QString comm = QString(commFile.readAll()).trimmed();
-                        if (!comm.contains("kllamabooks", Qt::CaseInsensitive)) {
-                            itemsToReset.append({id, itemError});
-                        }
-                    } else {
-                        // Could not read comm file, assume dead
-                        itemsToReset.append({id, itemError});
-                    }
-                }
-#else
-                // Simple fallback for non-Unix if needed, though KllamaBooks is KDE/Linux targeted.
-                itemsToReset.append({id, itemError});
-#endif
-            }
-        }
-        sqlite3_finalize(stmt);
-
-        for (const auto& item : itemsToReset) {
-            if (!item.error.isEmpty()) {
-                updateQueueError(item.id, item.error);
-            } else {
-                updateQueueProcessingId(item.id, 0);
-                updateQueueItemState(item.id, "pending");
-            }
-        }
-    }
+QString BookDatabase::workerInstanceId() {
+    static const QString id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    return id;
 }
+
+int BookDatabase::recoverStaleRuns(const QString& workerId) {
+    if (!m_isOpen) return 0;
+    db::Database db(reinterpret_cast<sqlite3*>(m_db));
+    store::RunStore runStore(db);
+    auto res = runStore.recoverStaleRuns(workerId);
+    return res.isSuccess() ? *res.value : 0;
+}
+
+void BookDatabase::cleanupDeadProcessingItems() { recoverStaleRuns(workerInstanceId()); }
 
 void BookDatabase::close() {
     if (m_db) {
@@ -2752,90 +2710,146 @@ int BookDatabase::enqueuePrompt(int messageId, const QString& model, const QStri
                                 const QString& targetType, int parentId, const QString& targetAction) {
     if (!m_isOpen) return -1;
 
-    const char* sql =
-        "INSERT INTO queue (message_id, model, prompt, priority, target_type, state, parent_id, target_action) VALUES "
-        "(?, ?, ?, ?, ?, 'pending', ?, ?);";
-    sqlite3_stmt* stmt;
-    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr);
-    if (rc != SQLITE_OK) return -1;
-
-    sqlite3_bind_int(stmt, 1, messageId);
-    sqlite3_bind_text(stmt, 2, model.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 3, prompt.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int(stmt, 4, priority);
-    sqlite3_bind_text(stmt, 5, targetType.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int(stmt, 6, parentId);
-    sqlite3_bind_text(stmt, 7, targetAction.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-
-    rc = sqlite3_step(stmt);
-    if (rc != SQLITE_DONE) {
-        sqlite3_finalize(stmt);
-        return -1;
-    }
-
-    int id = sqlite3_last_insert_rowid(reinterpret_cast<sqlite3*>(m_db));
-    sqlite3_finalize(stmt);
-    if (targetType == "document") {
-        const char* ph_sql = "INSERT INTO prompt_history (document_id, prompt, model, queue_id) VALUES (?, ?, ?, ?);";
-        sqlite3_stmt* ph_stmt;
-        if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), ph_sql, -1, &ph_stmt, nullptr) == SQLITE_OK) {
-            sqlite3_bind_int(ph_stmt, 1, messageId);
-            sqlite3_bind_text(ph_stmt, 2, prompt.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-            sqlite3_bind_text(ph_stmt, 3, model.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-            sqlite3_bind_int(ph_stmt, 4, id);
-            sqlite3_step(ph_stmt);
-            sqlite3_finalize(ph_stmt);
+    db::Database db(reinterpret_cast<sqlite3*>(m_db));
+    int baseVersionId = 0;
+    if (targetType == QLatin1String("document") || targetType == QLatin1String("note")) {
+        const auto docOpt = getDocument(messageId);
+        if (docOpt.has_value()) {
+            // Look up current_version_id from artifacts for optimistic apply
+            sqlite3_stmt* vStmt = nullptr;
+            const char* vSql =
+                "SELECT COALESCE((SELECT a.current_version_id FROM legacy_document_mapping m JOIN artifacts a ON "
+                "a.id = m.artifact_id WHERE m.document_id = ?), "
+                "(SELECT current_version_id FROM artifacts WHERE id = ?), 0);";
+            if (sqlite3_prepare_v2(db.handle(), vSql, -1, &vStmt, nullptr) == SQLITE_OK) {
+                sqlite3_bind_int(vStmt, 1, messageId);
+                sqlite3_bind_int(vStmt, 2, messageId);
+                if (sqlite3_step(vStmt) == SQLITE_ROW) {
+                    baseVersionId = sqlite3_column_int(vStmt, 0);
+                }
+                sqlite3_finalize(vStmt);
+            }
         }
     }
-    return id;
+
+    if (baseVersionId > 0) {
+        store::ArtifactStore artifactStore(db);
+        if (!artifactStore.sealVersion(baseVersionId).isSuccess()) return -1;
+    }
+
+    store::PromptStore promptStore(db);
+    auto revRes = promptStore.createRevision("user", "", targetType, messageId, "", prompt, model, true);
+    if (!revRes.isSuccess()) return -1;
+
+    store::RunStore runStore(db);
+    auto runRes = runStore.enqueueRun(revRes.value->id, targetType, messageId, baseVersionId, targetAction, model,
+                                      priority, parentId > 0 ? std::optional<int>(parentId) : std::nullopt);
+    if (!runRes.isSuccess()) return -1;
+    return runRes.value->id;
 }
 
 bool BookDatabase::updateQueueItemState(int id, const QString& state, const QString& response) {
     if (!m_isOpen) return false;
+    db::Database db(reinterpret_cast<sqlite3*>(m_db));
+    store::RunStore runStore(db);
 
-    // If response is empty, maybe don't overwrite an existing response unless explicitly asked?
-    // Wait, the prompt said response has a default of "". When we just update state to 'processing',
-    // it will overwrite response with "". This is fine because when it starts processing, response is empty anyway.
-    QString sqlStr = "UPDATE queue SET state = ?, response = ?";
-    if (state != "error") {
-        sqlStr += ", last_error = ''";
+    if (state == QLatin1String("completed")) {
+        return runStore.completeRun(id, response).isSuccess();
     }
-    sqlStr += " WHERE id = ?;";
+    if (state == QLatin1String("applied")) {
+        auto runOpt = runStore.getRun(id);
+        if (runOpt.has_value() && runOpt->state != QLatin1String("completed")) {
+            runStore.completeRun(id, response);
+        }
+        const char* sql =
+            "UPDATE ai_runs SET state = 'applied', response_text = COALESCE(NULLIF(?, ''), response_text), "
+            "last_error = '', finished_at = COALESCE(finished_at, CURRENT_TIMESTAMP) WHERE id = ?;";
+        sqlite3_stmt* stmt = nullptr;
+        if (sqlite3_prepare_v2(db.handle(), sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+        const QByteArray respUtf8 = response.toUtf8();
+        sqlite3_bind_text(stmt, 1, respUtf8.constData(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int(stmt, 2, id);
+        const bool ok = (sqlite3_step(stmt) == SQLITE_DONE && sqlite3_changes(db.handle()) > 0);
+        sqlite3_finalize(stmt);
+        return ok;
+    }
+    if (state == QLatin1String("cancelled")) {
+        return runStore.cancelRun(id).isSuccess();
+    }
+    if (state == QLatin1String("archived")) {
+        return runStore.archiveRun(id).isSuccess();
+    }
+    if (state == QLatin1String("error") || state == QLatin1String("failed")) {
+        return runStore.failRun(id, response).isSuccess();
+    }
+    if (state == QLatin1String("processing") || state == QLatin1String("running")) {
+        return runStore.claimRun(id, workerInstanceId()).isSuccess();
+    }
 
-    sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sqlStr.toUtf8().constData(), -1, &stmt, nullptr) !=
-        SQLITE_OK)
-        return false;
-
-    sqlite3_bind_text(stmt, 1, state.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 2, response.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int(stmt, 3, id);
-
-    int rc = sqlite3_step(stmt);
+    // Reset to pending
+    const char* sql =
+        "UPDATE ai_runs SET state = 'pending', worker_instance_id = '', lease_expires_at = NULL, "
+        "response_text = ?, last_error = '' WHERE id = ?;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db.handle(), sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    const QByteArray respUtf8 = response.toUtf8();
+    sqlite3_bind_text(stmt, 1, respUtf8.constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 2, id);
+    const bool ok = (sqlite3_step(stmt) == SQLITE_DONE);
     sqlite3_finalize(stmt);
-    return rc == SQLITE_DONE;
+    return ok;
+}
+
+bool BookDatabase::applyRunOutput(int runId, const QString& response, const QString& title, const QString& metadata) {
+    if (!m_isOpen) return false;
+    db::Database db(reinterpret_cast<sqlite3*>(m_db));
+    store::RunStore runStore(db);
+
+    auto compRes = runStore.completeRun(runId, response);
+    if (!compRes.isSuccess()) {
+        runStore.failRun(runId, compRes.errorMessage);
+        return false;
+    }
+
+    auto applyRes = runStore.applyRunOutput(runId, title, metadata);
+    if (!applyRes.isSuccess()) {
+        if (applyRes.error != store::TransitionError::Conflict) {
+            sqlite3_stmt* stmt = nullptr;
+            const char* errSql = "UPDATE ai_runs SET last_error = ? WHERE id = ? AND state = 'completed';";
+            if (sqlite3_prepare_v2(db.handle(), errSql, -1, &stmt, nullptr) == SQLITE_OK) {
+                const QByteArray errUtf8 = applyRes.errorMessage.toUtf8();
+                sqlite3_bind_text(stmt, 1, errUtf8.constData(), -1, SQLITE_TRANSIENT);
+                sqlite3_bind_int(stmt, 2, runId);
+                sqlite3_step(stmt);
+                sqlite3_finalize(stmt);
+            }
+        }
+        return false;
+    }
+    return true;
 }
 
 BookDatabase::QueueStats BookDatabase::getQueueStats() const {
     QueueStats stats;
     if (!m_isOpen) return stats;
 
-    const char* sql = "SELECT state, COUNT(*) FROM queue GROUP BY state;";
-    sqlite3_stmt* stmt;
+    const char* sql = "SELECT state, COUNT(*) FROM ai_runs GROUP BY state;";
+    sqlite3_stmt* stmt = nullptr;
     if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return stats;
 
     while (sqlite3_step(stmt) == SQLITE_ROW) {
-        QString state = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0)));
-        int count = sqlite3_column_int(stmt, 1);
+        const char* st = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+        const QString state = st ? QString::fromUtf8(st) : QString();
+        const int count = sqlite3_column_int(stmt, 1);
 
-        if (state == "pending") {
-            stats.pending = count;
-        } else if (state == "processing") {
-            stats.processing = count;
-        } else if (state == "completed") {
-            stats.completed = count;
-        } else if (state == "error") {
-            stats.error = count;
+        if (state == QLatin1String("pending")) {
+            stats.pending += count;
+        } else if (state == QLatin1String("running")) {
+            stats.processing += count;
+        } else if (state == QLatin1String("completed")) {
+            stats.completed += count;
+        } else if (state == QLatin1String("failed") || state == QLatin1String("conflict")) {
+            stats.error += count;
         }
     }
 
@@ -2846,22 +2860,20 @@ BookDatabase::QueueStats BookDatabase::getQueueStats() const {
 bool BookDatabase::isGenerating(int targetId, const QString& targetType, const QString& targetAction) const {
     if (!m_isOpen) return false;
 
-    sqlite3_stmt* stmt;
-
+    sqlite3_stmt* stmt = nullptr;
     if (targetAction.isNull() || targetAction.isEmpty()) {
         const char* sql =
-            "SELECT COUNT(*) FROM queue WHERE message_id = ? AND target_type = ? AND state IN "
-            "('pending', 'processing');";
+            "SELECT COUNT(*) FROM ai_runs WHERE target_id = ? AND target_kind = ? AND state IN "
+            "('pending', 'running');";
         if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
-
         sqlite3_bind_int(stmt, 1, targetId);
         sqlite3_bind_text(stmt, 2, targetType.toUtf8().constData(), -1, SQLITE_TRANSIENT);
     } else {
         const char* sql =
-            "SELECT COUNT(*) FROM queue WHERE message_id = ? AND target_type = ? AND target_action = ? AND state IN "
-            "('pending', 'processing');";
+            "SELECT COUNT(*) FROM ai_runs WHERE target_id = ? AND target_kind = ? AND target_action = ? AND state "
+            "IN "
+            "('pending', 'running');";
         if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
-
         sqlite3_bind_int(stmt, 1, targetId);
         sqlite3_bind_text(stmt, 2, targetType.toUtf8().constData(), -1, SQLITE_TRANSIENT);
         sqlite3_bind_text(stmt, 3, targetAction.toUtf8().constData(), -1, SQLITE_TRANSIENT);
@@ -2875,41 +2887,63 @@ bool BookDatabase::isGenerating(int targetId, const QString& targetType, const Q
     return result;
 }
 
+namespace {
+
+QueueItem mapRunRowToQueueItem(sqlite3_stmt* stmt) {
+    QueueItem item;
+    item.id = sqlite3_column_int(stmt, 0);
+    item.messageId = sqlite3_column_int(stmt, 1);
+    const char* mod = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
+    const char* prm = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
+    const char* err = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4));
+    const char* ts = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 6));
+    const char* tk = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 7));
+    const char* st = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 8));
+    const char* resp = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 9));
+    const char* act = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 11));
+
+    item.model = mod ? QString::fromUtf8(mod) : QString();
+    item.prompt = prm ? QString::fromUtf8(prm) : QString();
+    item.lastError = err ? QString::fromUtf8(err) : QString();
+    item.priority = sqlite3_column_int(stmt, 5);
+    item.timestamp = QDateTime::fromString(ts ? QString::fromUtf8(ts) : QString(), Qt::ISODate);
+    item.targetType = tk && *tk ? QString::fromUtf8(tk) : QStringLiteral("message");
+    const QString runState = st ? QString::fromUtf8(st) : QStringLiteral("pending");
+    if (runState == QLatin1String("running")) {
+        item.state = QStringLiteral("processing");
+        item.processingId = item.id;
+    } else if (runState == QLatin1String("failed") || runState == QLatin1String("conflict")) {
+        item.state = QStringLiteral("error");
+        item.processingId = 0;
+    } else if (runState == QLatin1String("applied")) {
+        item.state = QStringLiteral("completed");
+        item.processingId = 0;
+    } else {
+        item.state = runState;
+        item.processingId = 0;
+    }
+    item.response = resp ? QString::fromUtf8(resp) : QString();
+    item.parentId = sqlite3_column_int(stmt, 10);
+    item.targetAction = act ? QString::fromUtf8(act) : QString();
+    return item;
+}
+
+}  // namespace
+
 QList<QueueItem> BookDatabase::getQueue() const {
     QList<QueueItem> items;
     if (!m_isOpen) return items;
 
     const char* sql =
-        "SELECT id, message_id, model, prompt, processing_id, last_error, priority, created_at, target_type, state, "
-        "response, parent_id, target_action FROM queue ORDER BY priority "
-        "DESC, "
-        "created_at DESC;";
-    sqlite3_stmt* stmt;
+        "SELECT r.id, r.target_id, r.model, COALESCE(p.prompt_text, ''), r.last_error, r.priority, r.created_at, "
+        "r.target_kind, r.state, r.response_text, COALESCE(r.parent_run_id, 0), r.target_action "
+        "FROM ai_runs r LEFT JOIN prompt_revisions p ON p.id = r.prompt_revision_id "
+        "WHERE r.state NOT IN ('cancelled', 'applied', 'archived') ORDER BY r.priority DESC, r.created_at DESC;";
+    sqlite3_stmt* stmt = nullptr;
     if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return items;
 
     while (sqlite3_step(stmt) == SQLITE_ROW) {
-        QueueItem item;
-        item.id = sqlite3_column_int(stmt, 0);
-        item.messageId = sqlite3_column_int(stmt, 1);
-        item.model = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)));
-        item.prompt = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)));
-        item.processingId = sqlite3_column_int(stmt, 4);
-        const unsigned char* errorText = sqlite3_column_text(stmt, 5);
-        if (errorText) item.lastError = QString::fromUtf8(reinterpret_cast<const char*>(errorText));
-        item.priority = sqlite3_column_int(stmt, 6);
-        item.timestamp = QDateTime::fromString(
-            QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 7))), Qt::ISODate);
-        item.targetType = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 8)));
-        if (item.targetType.isEmpty()) item.targetType = "message";
-        const unsigned char* stateText = sqlite3_column_text(stmt, 9);
-        if (stateText) item.state = QString::fromUtf8(reinterpret_cast<const char*>(stateText));
-        const unsigned char* responseText = sqlite3_column_text(stmt, 10);
-        if (responseText) item.response = QString::fromUtf8(reinterpret_cast<const char*>(responseText));
-        item.parentId = sqlite3_column_int(stmt, 11);
-        const unsigned char* actionText = sqlite3_column_text(stmt, 12);
-        if (actionText) item.targetAction = QString::fromUtf8(reinterpret_cast<const char*>(actionText));
-
-        items.append(item);
+        items.append(mapRunRowToQueueItem(stmt));
     }
 
     sqlite3_finalize(stmt);
@@ -2920,38 +2954,17 @@ std::optional<QueueItem> BookDatabase::getQueueItem(int id) const {
     if (!m_isOpen) return std::nullopt;
 
     const char* sql =
-        "SELECT id, message_id, model, prompt, processing_id, last_error, priority, created_at, target_type, state, "
-        "response, parent_id, target_action FROM queue WHERE id = ?;";
-    sqlite3_stmt* stmt;
+        "SELECT r.id, r.target_id, r.model, COALESCE(p.prompt_text, ''), r.last_error, r.priority, r.created_at, "
+        "r.target_kind, r.state, r.response_text, COALESCE(r.parent_run_id, 0), r.target_action "
+        "FROM ai_runs r LEFT JOIN prompt_revisions p ON p.id = r.prompt_revision_id "
+        "WHERE r.id = ?;";
+    sqlite3_stmt* stmt = nullptr;
     if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return std::nullopt;
 
     sqlite3_bind_int(stmt, 1, id);
-
     std::optional<QueueItem> result = std::nullopt;
-
     if (sqlite3_step(stmt) == SQLITE_ROW) {
-        QueueItem item;
-        item.id = sqlite3_column_int(stmt, 0);
-        item.messageId = sqlite3_column_int(stmt, 1);
-        item.model = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)));
-        item.prompt = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)));
-        item.processingId = sqlite3_column_int(stmt, 4);
-        const unsigned char* errorText = sqlite3_column_text(stmt, 5);
-        if (errorText) item.lastError = QString::fromUtf8(reinterpret_cast<const char*>(errorText));
-        item.priority = sqlite3_column_int(stmt, 6);
-        item.timestamp = QDateTime::fromString(
-            QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 7))), Qt::ISODate);
-        item.targetType = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 8)));
-        if (item.targetType.isEmpty()) item.targetType = "message";
-        const unsigned char* stateText = sqlite3_column_text(stmt, 9);
-        if (stateText) item.state = QString::fromUtf8(reinterpret_cast<const char*>(stateText));
-        const unsigned char* responseText = sqlite3_column_text(stmt, 10);
-        if (responseText) item.response = QString::fromUtf8(reinterpret_cast<const char*>(responseText));
-        item.parentId = sqlite3_column_int(stmt, 11);
-        const unsigned char* actionText = sqlite3_column_text(stmt, 12);
-        if (actionText) item.targetAction = QString::fromUtf8(reinterpret_cast<const char*>(actionText));
-
-        result = item;
+        result = mapRunRowToQueueItem(stmt);
     }
     sqlite3_finalize(stmt);
     return result;
@@ -2959,77 +2972,90 @@ std::optional<QueueItem> BookDatabase::getQueueItem(int id) const {
 
 bool BookDatabase::updateQueueProcessingId(int id, int processingId) {
     if (!m_isOpen) return false;
-    const char* sql = "UPDATE queue SET processing_id = ? WHERE id = ?;";
-    sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
-    sqlite3_bind_int(stmt, 1, processingId);
-    sqlite3_bind_int(stmt, 2, id);
-    int rc = sqlite3_step(stmt);
+    db::Database db(reinterpret_cast<sqlite3*>(m_db));
+    store::RunStore runStore(db);
+    if (processingId > 0) {
+        return runStore.claimRun(id, workerInstanceId()).isSuccess();
+    }
+    const char* sql = "UPDATE ai_runs SET worker_instance_id = '', lease_expires_at = NULL WHERE id = ?;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db.handle(), sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_int(stmt, 1, id);
+    const bool ok = (sqlite3_step(stmt) == SQLITE_DONE);
     sqlite3_finalize(stmt);
-    return rc == SQLITE_DONE;
+    return ok;
 }
 
 bool BookDatabase::updateQueueError(int id, const QString& error) {
     if (!m_isOpen) return false;
-    const char* sql = "UPDATE queue SET last_error = ?, processing_id = 0, state = ? WHERE id = ?;";
-    sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
-
-    QString state = error.isEmpty() ? "pending" : "error";
-
-    sqlite3_bind_text(stmt, 1, error.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 2, state.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int(stmt, 3, id);
-    int rc = sqlite3_step(stmt);
+    db::Database db(reinterpret_cast<sqlite3*>(m_db));
+    if (!error.isEmpty()) {
+        return store::RunStore(db).failRun(id, error).isSuccess();
+    }
+    const char* sql =
+        "UPDATE ai_runs SET last_error = '', worker_instance_id = '', lease_expires_at = NULL, "
+        "state = 'pending' WHERE id = ?;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db.handle(), sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_int(stmt, 1, id);
+    const bool ok = (sqlite3_step(stmt) == SQLITE_DONE);
     sqlite3_finalize(stmt);
-    return rc == SQLITE_DONE;
+    return ok;
 }
 
 bool BookDatabase::updateQueueItemPrompt(int id, const QString& prompt) {
     if (!m_isOpen) return false;
-    const char* sql = "UPDATE queue SET prompt = ? WHERE id = ?;";
-    sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
-    sqlite3_bind_text(stmt, 1, prompt.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    db::Database db(reinterpret_cast<sqlite3*>(m_db));
+    store::RunStore runStore(db);
+    auto runOpt = runStore.getRun(id);
+    if (!runOpt.has_value()) return false;
+
+    store::PromptStore promptStore(db);
+    auto oldRev = promptStore.getRevision(runOpt->promptRevisionId);
+    const QString sysPrompt = oldRev.has_value() ? oldRev->systemPrompt : QString();
+    const QString tplId = oldRev.has_value() ? oldRev->templateId : QString();
+    auto newRev = promptStore.createRevision("user", tplId, runOpt->targetKind, runOpt->targetId, sysPrompt, prompt,
+                                             runOpt->model, true);
+    if (!newRev.isSuccess()) return false;
+
+    const char* sql = "UPDATE ai_runs SET prompt_revision_id = ? WHERE id = ?;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db.handle(), sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_int(stmt, 1, newRev.value->id);
     sqlite3_bind_int(stmt, 2, id);
-    int rc = sqlite3_step(stmt);
+    const bool ok = (sqlite3_step(stmt) == SQLITE_DONE);
     sqlite3_finalize(stmt);
-    return rc == SQLITE_DONE;
+    return ok;
 }
 
 bool BookDatabase::updateQueueItemModel(int id, const QString& model) {
     if (!m_isOpen) return false;
-    const char* sql = "UPDATE queue SET model = ? WHERE id = ?;";
-    sqlite3_stmt* stmt;
+    const char* sql = "UPDATE ai_runs SET model = ? WHERE id = ?;";
+    sqlite3_stmt* stmt = nullptr;
     if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
     sqlite3_bind_text(stmt, 1, model.toUtf8().constData(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_int(stmt, 2, id);
-    int rc = sqlite3_step(stmt);
+    const bool ok = (sqlite3_step(stmt) == SQLITE_DONE);
     sqlite3_finalize(stmt);
-    return rc == SQLITE_DONE;
+    return ok;
 }
 
 bool BookDatabase::updateQueueItemPriority(int id, int priority) {
     if (!m_isOpen) return false;
-    const char* sql = "UPDATE queue SET priority = ? WHERE id = ?;";
-    sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
-    sqlite3_bind_int(stmt, 1, priority);
-    sqlite3_bind_int(stmt, 2, id);
-    int rc = sqlite3_step(stmt);
-    sqlite3_finalize(stmt);
-    return rc == SQLITE_DONE;
+    db::Database db(reinterpret_cast<sqlite3*>(m_db));
+    return store::RunStore(db).updatePriority(id, priority).isSuccess();
 }
 
 bool BookDatabase::deleteQueueItem(int id) {
     if (!m_isOpen) return false;
-    const char* sql = "DELETE FROM queue WHERE id = ?;";
-    sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
-    sqlite3_bind_int(stmt, 1, id);
-    int rc = sqlite3_step(stmt);
-    sqlite3_finalize(stmt);
-    return rc == SQLITE_DONE;
+    db::Database db(reinterpret_cast<sqlite3*>(m_db));
+    store::RunStore runStore(db);
+    auto runOpt = runStore.getRun(id);
+    if (!runOpt.has_value()) return false;
+    if (runOpt->state == QLatin1String("pending") || runOpt->state == QLatin1String("running")) {
+        return runStore.cancelRun(id).isSuccess();
+    }
+    return runStore.archiveRun(id).isSuccess();
 }
 
 int BookDatabase::addNotification(int targetId, const QString& targetType, const QString& type) {
@@ -3188,7 +3214,8 @@ QList<CommentNode> BookDatabase::getComments(const QString& entityType, int enti
     if (!m_isOpen) return items;
 
     const char* sql =
-        "SELECT id, entity_type, entity_id, content, created_at FROM comments WHERE entity_type = ? AND entity_id = ? "
+        "SELECT id, entity_type, entity_id, content, created_at FROM comments WHERE entity_type = ? AND entity_id "
+        "= ? "
         "ORDER BY created_at ASC;";
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return items;
@@ -3233,7 +3260,8 @@ ChatNode BookDatabase::getChat(int messageId) const {
     if (!m_isOpen) return chat;
 
     const char* sql =
-        "SELECT title, systemPrompt, sendBehavior, model, multiLine, draftPrompt, userNote, version FROM chats WHERE "
+        "SELECT title, systemPrompt, sendBehavior, model, multiLine, draftPrompt, userNote, version FROM chats "
+        "WHERE "
         "message_id = ?;";
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) == SQLITE_OK) {
@@ -3265,7 +3293,8 @@ bool BookDatabase::updateChat(const ChatNode& chat) {
     if (!m_isOpen) return false;
 
     const char* sql =
-        "INSERT OR REPLACE INTO chats (message_id, title, systemPrompt, sendBehavior, model, multiLine, draftPrompt, "
+        "INSERT OR REPLACE INTO chats (message_id, title, systemPrompt, sendBehavior, model, multiLine, "
+        "draftPrompt, "
         "userNote, version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);";
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) {

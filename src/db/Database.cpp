@@ -6,6 +6,8 @@ namespace db {
 
 Database::Database(sqlite3* handle) : m_db(handle) {}
 
+bool Database::inTransaction() const { return m_db && sqlite3_get_autocommit(m_db) == 0; }
+
 bool Database::execute(const QString& sql, QString* error) {
     char* errMsg = nullptr;
     int rc = sqlite3_exec(m_db, sql.toUtf8().constData(), nullptr, nullptr, &errMsg);

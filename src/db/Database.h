@@ -12,6 +12,7 @@ class Database {
     explicit Database(sqlite3* handle);
 
     sqlite3* handle() const { return m_db; }
+    bool inTransaction() const;
 
     bool execute(const QString& sql, QString* error = nullptr);
 
