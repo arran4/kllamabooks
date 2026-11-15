@@ -65,7 +65,10 @@
 #include "PromptHistoryDialog.h"
 #include "QueueManager.h"
 #include "QueueWindow.h"
+#include "RecoveryBrowserDialog.h"
 #include "WalletManager.h"
+#include "db/Database.h"
+#include "store/ActivityStore.h"
 
 const QString MainWindow::GENERATING_MERGE_TEXT = QStringLiteral("*Generating merge...*");
 const QString MainWindow::GENERATING_DOC_TEXT = QStringLiteral("*Generating document...*");
@@ -949,6 +952,11 @@ void MainWindow::setupUi() {
     QAction* createFolderAction = new QAction(QIcon::fromTheme("folder-new"), tr("Create Folder"), this);
     actionCollection()->addAction(QStringLiteral("create_folder"), createFolderAction);
     connect(createFolderAction, &QAction::triggered, createFolderMenuAction, &QAction::trigger);
+
+    QAction* recoveryBrowserAction =
+        new QAction(QIcon::fromTheme("document-revert"), tr("Orphaned / Recovered Data..."), this);
+    actionCollection()->addAction(QStringLiteral("recovery_browser"), recoveryBrowserAction);
+    connect(recoveryBrowserAction, &QAction::triggered, this, &MainWindow::onOpenRecoveryBrowser);
 
     setupGUI(Default, ":/kllamabooksui.rc");
 
@@ -6465,5 +6473,34 @@ void MainWindow::copyChatSubtree(int sourceMsgId, int targetParentId, int target
         // Subsequent messages get folderId = 0.
         copyChatSubtree(child.id, newMsgId, 0, childrenMap, msgMap, db, newRootId, newLeafId, targetLeafId,
                         targetTitleId, allChatIds);
+    }
+}
+
+void MainWindow::onOpenRecoveryBrowser() {
+    auto db = currentDb;
+    if (!db || !db->isOpen()) {
+        reportError(tr("Recovery Browser"), tr("Please open a book first to inspect recovered records."), false);
+        return;
+    }
+    RecoveryBrowserDialog dlg(db.get(), this);
+    dlg.exec();
+    loadDocumentsAndNotes();
+}
+
+void MainWindow::reportError(const QString& context, const QString& message, bool blocking) {
+    if (blocking) {
+        QMessageBox::warning(this, context, message);
+        return;
+    }
+    if (statusBar) {
+        statusBar->showMessage(QStringLiteral("%1: %2").arg(context, message), 8000);
+    }
+    if (auto db = currentDb; db && db->isOpen()) {
+        if (sqlite3* raw = reinterpret_cast<sqlite3*>(db->getDatabaseHandleForTesting())) {
+            db::Database database(raw);
+            store::ActivityStore activity(database);
+            activity.addNotification(0, QStringLiteral("system"), QStringLiteral("error"),
+                                     store::ActivitySeverity::Error, context, message);
+        }
     }
 }

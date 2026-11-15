@@ -277,7 +277,7 @@ void QueueManager::processNext() {
         if (!db || !db->isOpen()) continue;
         auto items = db->getQueue();
         for (const auto& item : items) {
-            if (item.processingId == 0 && item.lastError.isEmpty()) {
+            if (item.state == QLatin1String("pending") && item.processingId == 0 && item.lastError.isEmpty()) {
                 allPending.append({db, item});
             }
         }
@@ -456,7 +456,6 @@ void QueueManager::processNext() {
                                     completedOk = false;
                                     act.db->updateQueueError(act.item.id,
                                                              QStringLiteral("Database handle unavailable"));
-                                    act.db->addNotification(act.item.messageId, act.item.targetType, "error");
                                 } else {
                                     db::Database database(raw);
                                     store::ChatStore chatStore(database);
@@ -467,17 +466,13 @@ void QueueManager::processNext() {
                                                                    ? QStringLiteral("Failed to save assistant reply")
                                                                    : replyRes.errorMessage;
                                         act.db->updateQueueError(act.item.id, errMsg);
-                                        act.db->addNotification(act.item.messageId, act.item.targetType, "error");
                                     } else {
                                         targetSettingMsgId = *replyRes.value;
-                                        act.db->addNotification(targetSettingMsgId, act.item.targetType,
-                                                                "responded_to");
                                     }
                                 }
                             } else {
                                 act.db->updateMessage(act.item.messageId, response);
                                 act.db->updateQueueItemState(act.item.id, "applied", response);
-                                act.db->addNotification(targetSettingMsgId, act.item.targetType, "responded_to");
                             }
 
                             if (completedOk) {
@@ -511,7 +506,6 @@ void QueueManager::processNext() {
                                 act.db->updateQueueError(act.item.id, "");  // also resets processing_id to 0
                             } else {
                                 act.db->updateQueueError(act.item.id, error);
-                                act.db->addNotification(act.item.messageId, act.item.targetType, "error");
                             }
                         }
                         emit processingFinished(act.db, act.item.messageId, false, act.item.targetType);
@@ -558,17 +552,11 @@ void QueueManager::processNext() {
                                         }
                                     }
                                 }
-                                if (act.db->applyRunOutput(act.item.id, response, resolvedTitle, resolvedMetadata)) {
-                                    act.db->addNotification(act.item.messageId, act.item.targetType,
-                                                            "finished_generation");
-                                } else {
+                                if (!act.db->applyRunOutput(act.item.id, response, resolvedTitle, resolvedMetadata)) {
                                     completedOk = false;
-                                    act.db->addNotification(act.item.messageId, act.item.targetType, "error");
                                 }
                             } else {
-                                if (act.db->updateQueueItemState(act.item.id, "completed", response)) {
-                                    act.db->addNotification(act.item.messageId, act.item.targetType, "review_needed");
-                                } else {
+                                if (!act.db->updateQueueItemState(act.item.id, "completed", response)) {
                                     completedOk = false;
                                 }
                             }
@@ -604,7 +592,6 @@ void QueueManager::processNext() {
                                 act.db->updateQueueError(act.item.id, "");  // also resets processing_id to 0
                             } else {
                                 act.db->updateQueueError(act.item.id, error);
-                                act.db->addNotification(act.item.messageId, act.item.targetType, "error");
                             }
                         }
                         emit processingFinished(act.db, act.item.messageId, false, act.item.targetType);
