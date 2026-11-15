@@ -9,13 +9,18 @@
 #include <QString>
 
 #include "BookDatabase.h"
+#include "TemplateModel.h"
 
 struct AIOperation {
     QString id;
     QString name;
     QString prompt;
-    QString source;     // "built-in", "global", "database"
+    QString source;     // "built-in", "global", "database", "external-cache"
     QString inputType;  // "single", "multiple", "any"
+    TemplateSource sourceKind = TemplateSource::BuiltIn;
+    TemplatePurpose purpose = TemplatePurpose::SingleDocTransform;
+
+    bool isReadOnly() const { return isTemplateSourceReadOnly(sourceKind); }
 };
 
 class AIOperationsManager {
@@ -28,6 +33,7 @@ class AIOperationsManager {
     static void setDatabaseOperations(BookDatabase* db, const QList<AIOperation>& ops);
 
     static QList<AIOperation> getMergedOperations(BookDatabase* db);
+    static QList<AIOperation> getOperationsByPurpose(BookDatabase* db, TemplatePurpose purpose);
 };
 
 #endif

@@ -11,12 +11,15 @@
 #include <functional>
 
 #include "OllamaModelInfo.h"
+#include "llm/LlmProvider.h"
 
-class OllamaClient : public QObject {
+class OllamaClient : public QObject, public llm::LlmProvider {
     Q_OBJECT
    public:
     explicit OllamaClient(QObject* parent = nullptr);
     virtual ~OllamaClient();
+
+    QString providerName() const override { return QStringLiteral("ollama"); }
 
     void setBaseUrl(const QString& url);
     void setAuthKey(const QString& key);
@@ -24,6 +27,12 @@ class OllamaClient : public QObject {
     QString getBaseUrl() const;
 
     void setSystemPrompt(const QString& prompt);
+
+    QNetworkReply* generate(const llm::LlmRequestOptions& options, const QString& prompt,
+                            const llm::LlmCallbacks& callbacks) override;
+
+    QNetworkReply* generateChat(const llm::LlmRequestOptions& options, const QJsonArray& messages,
+                                const llm::LlmCallbacks& callbacks) override;
 
     virtual QNetworkReply* generate(const QString& model, const QString& prompt,
                                     std::function<void(const QString&)> onChunk,
@@ -35,7 +44,7 @@ class OllamaClient : public QObject {
                                         std::function<void(const QString&)> onComplete,
                                         std::function<void(QNetworkReply::NetworkError, const QString&)> onError);
 
-    void abortGenerations();
+    void abortGenerations() override;
 
    signals:
     void connectionStatusChanged(bool isOk);
