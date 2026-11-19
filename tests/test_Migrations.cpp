@@ -1,6 +1,8 @@
 #include <sqlcipher/sqlite3.h>
 
+#include <QFile>
 #include <QSet>
+#include <QTemporaryDir>
 #include <QVector>
 #include <QtTest>
 #include <cstring>
@@ -207,6 +209,7 @@ class TestMigrations : public QObject {
     void testDocumentMigrationPreservation();
     void testDocumentMigrationIterationFailure();
     void testMigration24To25();
+    void testEncryptedFileBackedHistoricalFixtureUpgradeToV25();
 };
 
 void TestMigrations::testFreshDatabaseMigration() {
@@ -1351,6 +1354,99 @@ void TestMigrations::testMigration24To25() {
 
     sqlite3_close(dbHandleFail);
     sqlite3_close(dbHandle);
+}
+
+void TestMigrations::testEncryptedFileBackedHistoricalFixtureUpgradeToV25() {
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    const QString dbPath = tempDir.filePath("historical_v21_fixture.db");
+    const QByteArray password = "fixture_sqlcipher_secret_key";
+
+    // 1. Create an encrypted file-backed historical v21 database on disk
+    sqlite3* rawHandle = nullptr;
+    QCOMPARE(sqlite3_open(dbPath.toUtf8().constData(), &rawHandle), SQLITE_OK);
+
+    db::Database rawDb(rawHandle);
+    QVERIFY(rawDb.execute(QString("PRAGMA key = '%1';").arg(QString::fromUtf8(password))));
+    db::MigrationRunner runner21;
+    db::MigrationRunner fullRunner = db::MigrationFactory::createRunner();
+    for (const auto& m : fullRunner.getMigrations()) {
+        if (m.toVersion <= 21) {
+            runner21.addMigration(m);
+        }
+    }
+    QString error;
+    QVERIFY2(runner21.run(rawDb, &error), qPrintable(error));
+
+    // Seed colliding numeric IDs (id = 1 across documents, notes, templates, drafts, folders, messages)
+    // plus conflicting document_history (newest history row differs from live document content) and NULL fields
+    QVERIFY(rawDb.execute(
+        "INSERT INTO folders (id, parent_id, name, type, is_expanded) VALUES (1, 0, 'Folder One', 'documents', 1);"));
+    QVERIFY(
+        rawDb.execute("INSERT INTO messages (id, parent_id, folder_id, role, content) VALUES (1, 0, 1, 'user', "
+                      "'Root message content');"));
+    QVERIFY(
+        rawDb.execute("INSERT INTO documents (id, folder_id, title, content, timestamp, parent_id, metadata) "
+                      "VALUES (1, 1, 'Live Doc 1', 'Authoritative Live Content', '2025-02-01 10:00:00', 0, "
+                      "'{\"author\":\"tester\"}');"));
+    QVERIFY(
+        rawDb.execute("INSERT INTO document_history (id, document_id, action_type, content, timestamp) VALUES "
+                      "(1, 1, 'manual_edit_pre', 'Newer History Content That Must Not Overwrite Live', "
+                      "'2025-02-02 12:00:00');"));
+    QVERIFY(rawDb.execute(
+        "INSERT INTO notes (id, folder_id, title, content, timestamp) VALUES (1, 1, 'Note 1', 'Live Note 1', "
+        "'2025-02-01 10:05:00');"));
+    QVERIFY(
+        rawDb.execute("INSERT INTO templates (id, folder_id, title, content, timestamp) VALUES (1, 1, 'Template 1', "
+                      "'Live Template 1', '2025-02-01 10:10:00');"));
+    QVERIFY(
+        rawDb.execute("INSERT INTO drafts (id, folder_id, title, content, timestamp, parent_id, target_type) VALUES "
+                      "(1, 1, 'Draft 1', 'Draft of Doc 1', '2025-02-01 10:15:00', 1, 'document');"));
+    sqlite3_close(rawHandle);
+
+    // 2. Verify the file on disk is actually encrypted (no plaintext strings leaked)
+    QFile rawFile(dbPath);
+    QVERIFY(rawFile.open(QIODevice::ReadOnly));
+    const QByteArray diskBytes = rawFile.readAll();
+    rawFile.close();
+    QVERIFY(!diskBytes.isEmpty());
+    QVERIFY(!diskBytes.contains("Authoritative Live Content"));
+    QVERIFY(!diskBytes.contains("SQLite format 3"));
+
+    // 3. Verify opening with wrong password fails cleanly
+    {
+        BookDatabase wrongDb(dbPath);
+        QVERIFY(!wrongDb.open("wrong_password"));
+    }
+
+    // 4. Open via BookDatabase with correct password to trigger migration 21 -> 25
+    BookDatabase bookDb(dbPath);
+    QVERIFY(bookDb.open(QString::fromUtf8(password)));
+    db::Database upgradedDb(reinterpret_cast<sqlite3*>(bookDb.getDatabaseHandleForTesting()));
+
+    int userVersion = 0;
+    QVERIFY(upgradedDb.queryInt("PRAGMA user_version;", userVersion));
+    QCOMPARE(userVersion, 25);
+
+    int artifactCount = 0;
+    QVERIFY(upgradedDb.queryInt("SELECT COUNT(*) FROM artifacts;", artifactCount));
+    QCOMPARE(artifactCount, 4);
+
+    // Verify live document content is strictly preserved from documents.content, never overwritten by history
+    sqlite3_stmt* stmt = nullptr;
+    QCOMPARE(sqlite3_prepare_v2(
+                 upgradedDb.handle(),
+                 "SELECT v.title, v.content FROM artifacts a JOIN artifact_versions v ON v.id = a.current_version_id "
+                 "JOIN legacy_document_mapping m ON m.artifact_id = a.id WHERE m.document_id = 1;",
+                 -1, &stmt, nullptr),
+             SQLITE_OK);
+    QCOMPARE(sqlite3_step(stmt), SQLITE_ROW);
+    QCOMPARE(QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0))), QString("Live Doc 1"));
+    QCOMPARE(QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1))),
+             QString("Authoritative Live Content"));
+    sqlite3_finalize(stmt);
+
+    bookDb.close();
 }
 
 QTEST_MAIN(TestMigrations)
