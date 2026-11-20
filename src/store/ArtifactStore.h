@@ -65,6 +65,7 @@ class ArtifactStore {
     std::optional<Artifact> getArtifact(int id) const;
     std::optional<ArtifactVersion> getVersion(int id) const;
     std::optional<ArtifactVersion> getCurrentVersion(int artifactId) const;
+    Result<QList<ArtifactVersion>> getVersionHistory(int artifactId) const;
     Result<QList<Artifact>> getArtifacts(std::optional<ArtifactKind> kind = std::nullopt,
                                          std::optional<int> folderId = std::nullopt) const;
     Result<Artifact> resolveSourceArtifact(int draftArtifactId) const;

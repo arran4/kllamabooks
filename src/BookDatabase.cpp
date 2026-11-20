@@ -18,7 +18,7 @@
 #endif
 
 namespace {
-constexpr int CURRENT_SCHEMA_VERSION = 26;
+constexpr int CURRENT_SCHEMA_VERSION = 27;
 
 QString escapeSqlLiteral(const QString& input) {
     QString escaped = input;

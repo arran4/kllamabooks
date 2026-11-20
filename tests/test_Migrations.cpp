@@ -210,6 +210,7 @@ class TestMigrations : public QObject {
     void testDocumentMigrationIterationFailure();
     void testMigration24To25();
     void testEncryptedFileBackedHistoricalFixtureUpgradeToV25();
+    void testMigration26To27HistoryCatchupAndQuarantine();
 };
 
 void TestMigrations::testFreshDatabaseMigration() {
@@ -470,6 +471,9 @@ void TestMigrations::testFreshSchemaEquivalence() {
           {"legacy_parent_id", "INTEGER", "", 0},
           {"legacy_target_type", "TEXT", "", 0}},
          {{true, {"artifact_id"}}}},
+        {"legacy_document_history_mapping",
+         {{"history_id", "INTEGER", "", 1}, {"artifact_version_id", "INTEGER", "", 0}},
+         {{true, {"artifact_version_id"}}}},
         {"artifact_versions",
          {{"id", "INTEGER", "", 1},
           {"artifact_id", "INTEGER", "", 0},
@@ -501,9 +505,9 @@ void TestMigrations::testFreshSchemaEquivalence() {
 
     int version = 0;
     QVERIFY(db.queryInt("PRAGMA user_version;", version));
-    QCOMPARE(version, 26);
+    QCOMPARE(version, 27);
     QVERIFY(db.queryInt("SELECT MAX(version) FROM schema_version;", version));
-    QCOMPARE(version, 26);
+    QCOMPARE(version, 27);
 
     sqlite3_close(dbHandle);
 }
@@ -1442,7 +1446,7 @@ void TestMigrations::testEncryptedFileBackedHistoricalFixtureUpgradeToV25() {
 
     int userVersion = 0;
     QVERIFY(upgradedDb.queryInt("PRAGMA user_version;", userVersion));
-    QCOMPARE(userVersion, 26);
+    QCOMPARE(userVersion, 27);
 
     int artifactCount = 0;
     QVERIFY(upgradedDb.queryInt("SELECT COUNT(*) FROM artifacts;", artifactCount));
@@ -1462,7 +1466,190 @@ void TestMigrations::testEncryptedFileBackedHistoricalFixtureUpgradeToV25() {
              QString("Authoritative Live Content"));
     sqlite3_finalize(stmt);
 
+    // Verify document_history row was also migrated as a sealed version without becoming current_version_id
+    int histMappedCount = 0;
+    QVERIFY(upgradedDb.queryInt("SELECT COUNT(*) FROM legacy_document_history_mapping;", histMappedCount));
+    QCOMPARE(histMappedCount, 1);
+
     bookDb.close();
+}
+
+void TestMigrations::testMigration26To27HistoryCatchupAndQuarantine() {
+    sqlite3* dbHandle = nullptr;
+    QCOMPARE(sqlite3_open(":memory:", &dbHandle), SQLITE_OK);
+    db::Database db(dbHandle);
+    QVERIFY(db.execute("PRAGMA foreign_keys = ON;"));
+
+    db::MigrationRunner fullRunner = db::MigrationFactory::createRunner();
+    db::MigrationRunner runner26;
+    for (const auto& m : fullRunner.getMigrations()) {
+        if (m.toVersion <= 26) {
+            runner26.addMigration(m);
+        }
+    }
+
+    QString error;
+    QVERIFY2(runner26.run(db, &error), qPrintable(error));
+
+    // Seed pre-v25 documents & drafts by running 24->25 first, or simulate post-v25 state at v26:
+    // Doc 1: mapped in v25, unsealed in v26, then edited in legacy `documents` after v25!
+    QVERIFY(
+        db.execute("INSERT INTO documents (id, folder_id, title, content, metadata, timestamp) "
+                   "VALUES (1, 10, 'Doc 1 Post-V25 Edited Title', 'Doc 1 Post-V25 Live Body', '{\"edited\":true}', "
+                   "'2025-03-01 12:00:00');"));
+    QVERIFY(
+        db.execute("INSERT INTO artifacts (id, kind, folder_id, created_at) "
+                   "VALUES (1, 'document', 2, '2025-03-01 09:00:00');"));
+    QVERIFY(
+        db.execute("INSERT INTO artifact_versions (id, artifact_id, title, content, metadata, is_sealed, "
+                   "created_at) VALUES (1, 1, 'Doc 1 Stale V25 Title', 'Doc 1 Stale V25 Body', '', 0, "
+                   "'2025-03-01 09:00:00');"));
+    QVERIFY(db.execute("UPDATE artifacts SET current_version_id = 1 WHERE id = 1;"));
+    QVERIFY(db.execute("INSERT INTO legacy_document_mapping (document_id, artifact_id) VALUES (1, 1);"));
+
+    // Doc 2: mapped in v25, SEALED in v25 (because a draft forked from it), then edited in legacy `documents` after
+    // v25!
+    QVERIFY(
+        db.execute("INSERT INTO documents (id, folder_id, title, content, metadata, timestamp) "
+                   "VALUES (2, 20, 'Doc 2 Edited After Seal', 'Doc 2 New Live Body', '{\"v\":2}', "
+                   "'2025-03-02 12:00:00');"));
+    QVERIFY(
+        db.execute("INSERT INTO artifacts (id, kind, folder_id, created_at) "
+                   "VALUES (2, 'document', 20, '2025-03-02 09:00:00');"));
+    QVERIFY(
+        db.execute("INSERT INTO artifact_versions (id, artifact_id, title, content, metadata, is_sealed, "
+                   "created_at) VALUES (2, 2, 'Doc 2 Sealed V25', 'Doc 2 Sealed Body', '', 1, "
+                   "'2025-03-02 09:00:00');"));
+    QVERIFY(db.execute("UPDATE artifacts SET current_version_id = 2 WHERE id = 2;"));
+    QVERIFY(db.execute("INSERT INTO legacy_document_mapping (document_id, artifact_id) VALUES (2, 2);"));
+
+    // Doc 3: created in legacy `documents` AFTER v25 (unmapped before v27)
+    QVERIFY(
+        db.execute("INSERT INTO documents (id, folder_id, title, content, metadata, timestamp) "
+                   "VALUES (3, 30, 'Doc 3 Unmapped', 'Doc 3 Live Content', '{\"fresh\":1}', "
+                   "'2025-03-03 10:00:00');"));
+
+    // Document history for Doc 1: two historical snapshots (one older, one with a NEWER timestamp than live!)
+    QVERIFY(
+        db.execute("INSERT INTO document_history (id, document_id, action_type, content, timestamp) VALUES "
+                   "(10, 1, 'initial_save', 'Doc 1 History Snapshot 1', '2025-03-01 08:00:00'), "
+                   "(11, 1, 'ai_replace', 'Doc 1 History Snapshot 2 (Newer Timestamp)', '2025-03-05 18:00:00');"));
+
+    // Orphaned document_history row (document_id = 999 does not exist)
+    QVERIFY(
+        db.execute("INSERT INTO document_history (id, document_id, action_type, content, timestamp) VALUES "
+                   "(12, 999, 'orphan_edit', 'Orphaned history text', '2025-03-04 11:00:00');"));
+
+    // Draft with valid parent (Doc 3) and Draft with missing parent (document 888)
+    QVERIFY(
+        db.execute("INSERT INTO drafts (id, folder_id, title, content, parent_id, target_type, timestamp) VALUES "
+                   "(1, 30, 'Valid Draft For Doc 3', 'Draft body', 3, 'document', '2025-03-03 11:00:00'), "
+                   "(2, 30, 'Orphan Draft', 'Orphan draft body', 888, 'document', '2025-03-03 11:05:00');"));
+
+    // Comment with valid target (Doc 1) and Comment with missing target (note 777)
+    QVERIFY(
+        db.execute("INSERT INTO comments (id, entity_type, entity_id, content, created_at) VALUES "
+                   "(1, 'document', 1, 'Valid comment', '2025-03-01 10:00:00'), "
+                   "(2, 'note', 777, 'Orphaned note comment', '2025-03-01 10:05:00');"));
+
+    // Run migration 26 -> 27
+    db::MigrationRunner runner27;
+    for (const auto& m : fullRunner.getMigrations()) {
+        if (m.toVersion == 27) {
+            runner27.addMigration(m);
+        }
+    }
+    QVERIFY2(runner27.run(db, &error), qPrintable(error));
+
+    // 1. Verify Doc 1 catch-up and history preservation (live content NOT overwritten by newer history row!)
+    sqlite3_stmt* stmt = nullptr;
+    QCOMPARE(sqlite3_prepare_v2(dbHandle,
+                                "SELECT a.folder_id, v.id, v.title, v.content, v.metadata, v.parent_id "
+                                "FROM artifacts a JOIN artifact_versions v ON v.id = a.current_version_id "
+                                "WHERE a.id = 1;",
+                                -1, &stmt, nullptr),
+             SQLITE_OK);
+    QCOMPARE(sqlite3_step(stmt), SQLITE_ROW);
+    QCOMPARE(sqlite3_column_int(stmt, 0), 10);
+    QCOMPARE(sqlite3_column_int(stmt, 1), 1);
+    QCOMPARE(QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2))),
+             QString("Doc 1 Post-V25 Edited Title"));
+    QCOMPARE(QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3))),
+             QString("Doc 1 Post-V25 Live Body"));
+    QCOMPARE(QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4))),
+             QString("{\"edited\":true}"));
+    int doc1LiveParentVerId = sqlite3_column_int(stmt, 5);
+    QVERIFY(doc1LiveParentVerId > 0);
+    sqlite3_finalize(stmt);
+
+    // Check Doc 1's 2 migrated history versions are sealed and chained
+    int doc1VerCount = 0;
+    QVERIFY(db.queryInt("SELECT COUNT(*) FROM artifact_versions WHERE artifact_id = 1;", doc1VerCount));
+    QCOMPARE(doc1VerCount, 3);  // 2 sealed history versions + 1 live version
+
+    int hist10VerId = 0;
+    int hist11VerId = 0;
+    QVERIFY(db.queryInt("SELECT artifact_version_id FROM legacy_document_history_mapping WHERE history_id = 10;",
+                        hist10VerId));
+    QVERIFY(db.queryInt("SELECT artifact_version_id FROM legacy_document_history_mapping WHERE history_id = 11;",
+                        hist11VerId));
+    QCOMPARE(doc1LiveParentVerId, hist11VerId);
+
+    int hist11ParentId = 0;
+    QVERIFY(db.queryInt(QString("SELECT parent_id FROM artifact_versions WHERE id = %1;").arg(hist11VerId),
+                        hist11ParentId));
+    QCOMPARE(hist11ParentId, hist10VerId);
+
+    // 2. Verify Doc 2 (which had a sealed v25 version) advanced to a new mutable current version
+    int doc2CurVerId = 0;
+    QVERIFY(db.queryInt("SELECT current_version_id FROM artifacts WHERE id = 2;", doc2CurVerId));
+    QVERIFY(doc2CurVerId != 2);
+    int doc2ParentId = 0;
+    QVERIFY(
+        db.queryInt(QString("SELECT parent_id FROM artifact_versions WHERE id = %1;").arg(doc2CurVerId), doc2ParentId));
+    QCOMPARE(doc2ParentId, 2);
+
+    // 3. Verify Doc 3 was mapped and Valid Draft For Doc 3 resolved its forked_from_version_id
+    int doc3ArtId = 0;
+    QVERIFY(db.queryInt("SELECT artifact_id FROM legacy_document_mapping WHERE document_id = 3;", doc3ArtId));
+    QVERIFY(doc3ArtId > 0);
+    int draft1ForkedFrom = 0;
+    QVERIFY(db.queryInt(
+        "SELECT v.forked_from_version_id FROM legacy_draft_mapping m JOIN artifacts a ON a.id = m.artifact_id "
+        "JOIN artifact_versions v ON v.id = a.current_version_id WHERE m.draft_id = 1;",
+        draft1ForkedFrom));
+    QVERIFY(draft1ForkedFrom > 0);
+
+    // 4. Verify Quarantined records: 1 orphan document_history + 1 orphan draft + 1 orphan comment = 3
+    int quarantinedCount = 0;
+    QVERIFY(db.queryInt("SELECT COUNT(*) FROM quarantined_records;", quarantinedCount));
+    QCOMPARE(quarantinedCount, 3);
+
+    int qHist = 0, qDraft = 0, qComment = 0;
+    QVERIFY(db.queryInt(
+        "SELECT COUNT(*) FROM quarantined_records WHERE source_table = 'document_history' AND legacy_id = 12;", qHist));
+    QVERIFY(db.queryInt("SELECT COUNT(*) FROM quarantined_records WHERE source_table = 'drafts' AND legacy_id = 2;",
+                        qDraft));
+    QVERIFY(db.queryInt("SELECT COUNT(*) FROM quarantined_records WHERE source_table = 'comments' AND legacy_id = 2;",
+                        qComment));
+    QCOMPARE(qHist, 1);
+    QCOMPARE(qDraft, 1);
+    QCOMPARE(qComment, 1);
+
+    // 5. Verify idempotency when re-running migration 27 logic
+    QVERIFY(db.execute("PRAGMA user_version = 26;"));
+    QVERIFY(db.execute("DELETE FROM schema_version WHERE version > 26;"));
+    QVERIFY2(runner27.run(db, &error), qPrintable(error));
+
+    int quarantinedAfterRerun = 0;
+    QVERIFY(db.queryInt("SELECT COUNT(*) FROM quarantined_records;", quarantinedAfterRerun));
+    QCOMPARE(quarantinedAfterRerun, 3);
+
+    int fkIssues = 0;
+    QVERIFY(db.queryInt("SELECT COUNT(*) FROM pragma_foreign_key_check();", fkIssues));
+    QCOMPARE(fkIssues, 0);
+
+    sqlite3_close(dbHandle);
 }
 
 QTEST_MAIN(TestMigrations)
