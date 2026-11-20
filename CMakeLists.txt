@@ -102,6 +102,10 @@ add_executable(kllamabooks
     src/store/ChatStore.h
     src/store/ActivityStore.cpp
     src/store/ActivityStore.h
+    src/store/SearchStore.cpp
+    src/store/SearchStore.h
+    src/controllers/BookTreeController.cpp
+    src/controllers/BookTreeController.h
     src/RecoveryBrowserDialog.cpp
     src/RecoveryBrowserDialog.h
     src/resources.qrc
@@ -246,4 +250,9 @@ if(BUILD_TESTING)
     target_link_libraries(test_ActivityStore Qt6::Test Qt6::Core ${SQLCIPHER_LIBRARIES})
     target_include_directories(test_ActivityStore PRIVATE ${SQLCIPHER_INCLUDE_DIRS})
     add_test(NAME test_ActivityStore COMMAND test_ActivityStore)
+
+    add_executable(test_SearchStore tests/test_SearchStore.cpp src/store/SearchStore.cpp src/controllers/BookTreeController.cpp src/store/ChatStore.cpp src/store/RunStore.cpp src/store/PromptStore.cpp src/store/ArtifactStore.cpp src/store/FolderStore.cpp src/store/RecoveryStore.cpp src/BookDatabase.cpp src/db/Database.cpp src/db/Migrations.cpp src/db/MigrationFactory.cpp)
+    target_link_libraries(test_SearchStore Qt6::Test Qt6::Core Qt6::Gui ${SQLCIPHER_LIBRARIES})
+    target_include_directories(test_SearchStore PRIVATE ${SQLCIPHER_INCLUDE_DIRS})
+    add_test(NAME test_SearchStore COMMAND test_SearchStore)
 endif()

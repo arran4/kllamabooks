@@ -188,9 +188,14 @@ class MainWindow : public KXmlGuiWindow {
     QStandardItem* findItemById(QStandardItem* parent, int id);
     QStandardItem* findItemInTree(int id, const QString& type);
     QStandardItem* findItemRecursive(QStandardItem* parent, int id, const QString& type);
+    void onBookSearchChanged();
+    void onSearchResultActivated(QListWidgetItem* item);
 
     QSplitter* splitter;
     QSplitter* leftSplitter;
+    QLineEdit* bookSearchEdit = nullptr;
+    QComboBox* bookSearchKindCombo = nullptr;
+    QListWidget* bookSearchResults = nullptr;
     QTreeView* openBooksTree;
     CustomItemModel* openBooksModel;
     QListWidget* bookList;             // Closed books

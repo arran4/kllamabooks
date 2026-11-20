@@ -20,7 +20,7 @@
 #include "store/RunStore.h"
 
 namespace {
-constexpr int CURRENT_SCHEMA_VERSION = 31;
+constexpr int CURRENT_SCHEMA_VERSION = 32;
 
 QString escapeSqlLiteral(const QString& input) {
     QString escaped = input;
