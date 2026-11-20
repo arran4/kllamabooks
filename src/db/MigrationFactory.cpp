@@ -2040,6 +2040,414 @@ MigrationRunner MigrationFactory::createRunner() {
              return db.execute("CREATE INDEX IF NOT EXISTS idx_folders_parent_type ON folders(parent_id, type);");
          }});
 
+    // Version 28 -> 29: Durable prompt revisions, AI runs, and run inputs (#241, #242, #243)
+    runner.addMigration(
+        {28, 29, "Durable Prompt Revisions and AI Runs", [](Database& db) -> bool {
+             sqlite3* handle = db.handle();
+             if (!handle) return false;
+
+             if (!db.execute("CREATE TABLE IF NOT EXISTS prompt_revisions ("
+                             "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                             "source_kind TEXT NOT NULL DEFAULT 'user', "
+                             "template_id TEXT DEFAULT '', "
+                             "target_kind TEXT DEFAULT '', "
+                             "target_id INTEGER DEFAULT 0, "
+                             "system_prompt TEXT DEFAULT '', "
+                             "prompt_text TEXT NOT NULL, "
+                             "model TEXT DEFAULT '', "
+                             "is_sealed BOOLEAN DEFAULT 0, "
+                             "created_at DATETIME DEFAULT CURRENT_TIMESTAMP);")) {
+                 return false;
+             }
+
+             if (!db.execute("CREATE TRIGGER IF NOT EXISTS prevent_sealed_prompt_revision_update "
+                             "BEFORE UPDATE ON prompt_revisions "
+                             "WHEN OLD.is_sealed = 1 "
+                             "BEGIN "
+                             "    SELECT RAISE(ABORT, 'Cannot modify sealed prompt_revision'); "
+                             "END;")) {
+                 return false;
+             }
+
+             if (!db.execute("CREATE TABLE IF NOT EXISTS ai_runs ("
+                             "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                             "parent_run_id INTEGER DEFAULT NULL, "
+                             "prompt_revision_id INTEGER NOT NULL, "
+                             "target_kind TEXT NOT NULL DEFAULT 'message', "
+                             "target_id INTEGER DEFAULT 0, "
+                             "base_version_id INTEGER DEFAULT 0, "
+                             "target_action TEXT DEFAULT '', "
+                             "model TEXT NOT NULL DEFAULT '', "
+                             "state TEXT NOT NULL DEFAULT 'pending', "
+                             "priority INTEGER DEFAULT 0, "
+                             "worker_instance_id TEXT DEFAULT '', "
+                             "lease_expires_at DATETIME DEFAULT NULL, "
+                             "response_text TEXT DEFAULT '', "
+                             "result_version_id INTEGER DEFAULT 0, "
+                             "last_error TEXT DEFAULT '', "
+                             "created_at DATETIME DEFAULT CURRENT_TIMESTAMP, "
+                             "started_at DATETIME DEFAULT NULL, "
+                             "finished_at DATETIME DEFAULT NULL);")) {
+                 return false;
+             }
+
+             if (!db.execute("CREATE INDEX IF NOT EXISTS idx_ai_runs_state_priority "
+                             "ON ai_runs(state, priority DESC, created_at ASC);")) {
+                 return false;
+             }
+
+             if (!db.execute("CREATE TABLE IF NOT EXISTS ai_run_inputs ("
+                             "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                             "run_id INTEGER NOT NULL, "
+                             "ordinal INTEGER NOT NULL, "
+                             "artifact_id INTEGER DEFAULT 0, "
+                             "version_id INTEGER DEFAULT 0, "
+                             "role TEXT DEFAULT 'source', "
+                             "UNIQUE(run_id, ordinal));")) {
+                 return false;
+             }
+
+             auto quarantineRow = [&](const QString& srcTable, int legacyId, const QString& targetType,
+                                      std::optional<int> parentRef, const QString& title, const QString& content,
+                                      const QString& payloadJson, const QString& reason) -> bool {
+                 const char* checkSql =
+                     "SELECT 1 FROM quarantined_records WHERE source_table = ? AND legacy_id = ? AND reason = ?;";
+                 sqlite3_stmt* checkStmt = nullptr;
+                 if (sqlite3_prepare_v2(handle, checkSql, -1, &checkStmt, nullptr) != SQLITE_OK) return false;
+                 const QByteArray srcUtf8 = srcTable.toUtf8();
+                 const QByteArray reasonUtf8 = reason.toUtf8();
+                 sqlite3_bind_text(checkStmt, 1, srcUtf8.constData(), -1, SQLITE_TRANSIENT);
+                 sqlite3_bind_int(checkStmt, 2, legacyId);
+                 sqlite3_bind_text(checkStmt, 3, reasonUtf8.constData(), -1, SQLITE_TRANSIENT);
+                 const bool exists = (sqlite3_step(checkStmt) == SQLITE_ROW);
+                 sqlite3_finalize(checkStmt);
+                 if (exists) return true;
+
+                 const char* insSql =
+                     "INSERT INTO quarantined_records (source_table, legacy_id, target_type, parent_reference, title, "
+                     "content, raw_payload_json, reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?);";
+                 sqlite3_stmt* insStmt = nullptr;
+                 if (sqlite3_prepare_v2(handle, insSql, -1, &insStmt, nullptr) != SQLITE_OK) return false;
+                 const QByteArray tgtUtf8 = targetType.toUtf8();
+                 const QByteArray ttlUtf8 = title.toUtf8();
+                 const QByteArray cntUtf8 = content.toUtf8();
+                 const QByteArray payUtf8 = payloadJson.toUtf8();
+                 sqlite3_bind_text(insStmt, 1, srcUtf8.constData(), -1, SQLITE_TRANSIENT);
+                 sqlite3_bind_int(insStmt, 2, legacyId);
+                 sqlite3_bind_text(insStmt, 3, tgtUtf8.constData(), -1, SQLITE_TRANSIENT);
+                 if (parentRef.has_value()) {
+                     sqlite3_bind_int(insStmt, 4, *parentRef);
+                 } else {
+                     sqlite3_bind_null(insStmt, 4);
+                 }
+                 sqlite3_bind_text(insStmt, 5, ttlUtf8.constData(), -1, SQLITE_TRANSIENT);
+                 sqlite3_bind_text(insStmt, 6, cntUtf8.constData(), -1, SQLITE_TRANSIENT);
+                 sqlite3_bind_text(insStmt, 7, payUtf8.constData(), -1, SQLITE_TRANSIENT);
+                 sqlite3_bind_text(insStmt, 8, reasonUtf8.constData(), -1, SQLITE_TRANSIENT);
+                 const bool ok = (sqlite3_step(insStmt) == SQLITE_DONE);
+                 sqlite3_finalize(insStmt);
+                 return ok;
+             };
+
+             auto insertPromptRevision = [&](const QString& sourceKind, const QString& targetKind, int targetId,
+                                             const QString& promptText, const QString& model,
+                                             const QString& createdAt) -> int {
+                 const char* sql =
+                     "INSERT INTO prompt_revisions "
+                     "(source_kind, template_id, target_kind, target_id, system_prompt, prompt_text, model, "
+                     "is_sealed, created_at) VALUES (?, '', ?, ?, '', ?, ?, 1, COALESCE(NULLIF(?, ''), "
+                     "CURRENT_TIMESTAMP)) RETURNING id;";
+                 sqlite3_stmt* stmt = nullptr;
+                 if (sqlite3_prepare_v2(handle, sql, -1, &stmt, nullptr) != SQLITE_OK) return -1;
+                 const QByteArray skUtf8 = sourceKind.toUtf8();
+                 const QByteArray tkUtf8 = targetKind.toUtf8();
+                 const QByteArray ptUtf8 = promptText.toUtf8();
+                 const QByteArray mUtf8 = model.toUtf8();
+                 const QByteArray tsUtf8 = createdAt.toUtf8();
+                 sqlite3_bind_text(stmt, 1, skUtf8.constData(), -1, SQLITE_TRANSIENT);
+                 sqlite3_bind_text(stmt, 2, tkUtf8.constData(), -1, SQLITE_TRANSIENT);
+                 sqlite3_bind_int(stmt, 3, targetId);
+                 sqlite3_bind_text(stmt, 4, ptUtf8.constData(), -1, SQLITE_TRANSIENT);
+                 sqlite3_bind_text(stmt, 5, mUtf8.constData(), -1, SQLITE_TRANSIENT);
+                 sqlite3_bind_text(stmt, 6, tsUtf8.constData(), -1, SQLITE_TRANSIENT);
+                 int id = -1;
+                 if (sqlite3_step(stmt) == SQLITE_ROW) {
+                     id = sqlite3_column_int(stmt, 0);
+                 }
+                 sqlite3_finalize(stmt);
+                 return id;
+             };
+
+             // 1. Migrate prompt_history -> prompt_revisions
+             {
+                 sqlite3_stmt* stmt = nullptr;
+                 if (sqlite3_prepare_v2(handle,
+                                        "SELECT id, document_id, prompt, model, timestamp FROM prompt_history "
+                                        "ORDER BY id ASC;",
+                                        -1, &stmt, nullptr) != SQLITE_OK) {
+                     return false;
+                 }
+                 int rc = SQLITE_OK;
+                 while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+                     const int phId = sqlite3_column_int(stmt, 0);
+                     const int docId = sqlite3_column_int(stmt, 1);
+                     const bool isNullPrompt = (sqlite3_column_type(stmt, 2) == SQLITE_NULL);
+                     const char* pTxt = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
+                     const char* mTxt = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
+                     const char* tsTxt = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4));
+                     const QString promptStr = pTxt ? QString::fromUtf8(pTxt) : QString();
+                     const QString modelStr = mTxt ? QString::fromUtf8(mTxt) : QString();
+                     const QString tsStr = tsTxt ? QString::fromUtf8(tsTxt) : QString();
+
+                     if (isNullPrompt) {
+                         QJsonObject raw;
+                         raw["id"] = phId;
+                         raw["document_id"] = docId;
+                         raw["model"] = modelStr;
+                         if (!quarantineRow("prompt_history", phId, "document", docId, QString(), QString(),
+                                            QString::fromUtf8(QJsonDocument(raw).toJson(QJsonDocument::Compact)),
+                                            "null_prompt")) {
+                             sqlite3_finalize(stmt);
+                             return false;
+                         }
+                         continue;
+                     }
+                     if (insertPromptRevision("migrated", "document", docId, promptStr, modelStr, tsStr) <= 0) {
+                         sqlite3_finalize(stmt);
+                         return false;
+                     }
+                 }
+                 sqlite3_finalize(stmt);
+                 if (rc != SQLITE_DONE) return false;
+             }
+
+             // 2. Migrate queue -> prompt_revisions + ai_runs
+             {
+                 sqlite3_stmt* stmt = nullptr;
+                 if (sqlite3_prepare_v2(
+                         handle,
+                         "SELECT id, message_id, model, prompt, processing_id, last_error, priority, created_at, "
+                         "target_type, state, response, parent_id, target_action FROM queue ORDER BY id ASC;",
+                         -1, &stmt, nullptr) != SQLITE_OK) {
+                     return false;
+                 }
+                 int rc = SQLITE_OK;
+                 while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+                     const int qId = sqlite3_column_int(stmt, 0);
+                     const int msgId = sqlite3_column_int(stmt, 1);
+                     const char* mTxt = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
+                     const bool isNullPrompt = (sqlite3_column_type(stmt, 3) == SQLITE_NULL);
+                     const char* pTxt = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
+                     const int procId = sqlite3_column_int(stmt, 4);
+                     const char* errTxt = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 5));
+                     const int priority = sqlite3_column_int(stmt, 6);
+                     const char* tsTxt = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 7));
+                     const char* ttTxt = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 8));
+                     const char* stTxt = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 9));
+                     const char* respTxt = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 10));
+                     const char* actTxt = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 12));
+
+                     const QString modelStr = mTxt ? QString::fromUtf8(mTxt) : QString();
+                     const QString promptStr = pTxt ? QString::fromUtf8(pTxt) : QString();
+                     const QString errStr = errTxt ? QString::fromUtf8(errTxt) : QString();
+                     const QString tsStr = tsTxt ? QString::fromUtf8(tsTxt) : QString();
+                     const QString targetTypeStr =
+                         ttTxt && *ttTxt ? QString::fromUtf8(ttTxt) : QStringLiteral("message");
+                     const QString legacyState = stTxt ? QString::fromUtf8(stTxt) : QStringLiteral("pending");
+                     const QString respStr = respTxt ? QString::fromUtf8(respTxt) : QString();
+                     const QString actStr = actTxt ? QString::fromUtf8(actTxt) : QString();
+
+                     if (isNullPrompt ||
+                         (targetTypeStr != QLatin1String("message") && targetTypeStr != QLatin1String("document") &&
+                          targetTypeStr != QLatin1String("note") && targetTypeStr != QLatin1String("merge"))) {
+                         QJsonObject raw;
+                         raw["id"] = qId;
+                         raw["message_id"] = msgId;
+                         raw["target_type"] = targetTypeStr;
+                         raw["model"] = modelStr;
+                         if (!quarantineRow("queue", qId, targetTypeStr, msgId, QString(), promptStr,
+                                            QString::fromUtf8(QJsonDocument(raw).toJson(QJsonDocument::Compact)),
+                                            isNullPrompt ? QStringLiteral("null_prompt")
+                                                         : QStringLiteral("invalid_target_type"))) {
+                             sqlite3_finalize(stmt);
+                             return false;
+                         }
+                         continue;
+                     }
+
+                     const int revId =
+                         insertPromptRevision("migrated", targetTypeStr, msgId, promptStr, modelStr, tsStr);
+                     if (revId <= 0) {
+                         sqlite3_finalize(stmt);
+                         return false;
+                     }
+
+                     QString runState = QStringLiteral("pending");
+                     QString finalErr = errStr;
+                     if (legacyState == QLatin1String("completed")) {
+                         runState = QStringLiteral("completed");
+                     } else if (legacyState == QLatin1String("error") || !errStr.isEmpty()) {
+                         runState = QStringLiteral("failed");
+                     } else if (legacyState == QLatin1String("processing") || procId > 0) {
+                         runState = QStringLiteral("pending");
+                         if (finalErr.isEmpty()) {
+                             finalErr = QStringLiteral("Recovered interrupted queue item during v29 migration");
+                         }
+                     }
+
+                     const char* insRunSql =
+                         "INSERT INTO ai_runs "
+                         "(id, prompt_revision_id, target_kind, target_id, target_action, model, state, priority, "
+                         "response_text, last_error, created_at) "
+                         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(NULLIF(?, ''), CURRENT_TIMESTAMP));";
+                     sqlite3_stmt* runStmt = nullptr;
+                     if (sqlite3_prepare_v2(handle, insRunSql, -1, &runStmt, nullptr) != SQLITE_OK) {
+                         sqlite3_finalize(stmt);
+                         return false;
+                     }
+                     const QByteArray tkUtf8 = targetTypeStr.toUtf8();
+                     const QByteArray actUtf8 = actStr.toUtf8();
+                     const QByteArray modUtf8 = modelStr.toUtf8();
+                     const QByteArray stUtf8 = runState.toUtf8();
+                     const QByteArray rUtf8 = respStr.toUtf8();
+                     const QByteArray eUtf8 = finalErr.toUtf8();
+                     const QByteArray tsUtf8 = tsStr.toUtf8();
+                     sqlite3_bind_int(runStmt, 1, qId);
+                     sqlite3_bind_int(runStmt, 2, revId);
+                     sqlite3_bind_text(runStmt, 3, tkUtf8.constData(), -1, SQLITE_TRANSIENT);
+                     sqlite3_bind_int(runStmt, 4, msgId);
+                     sqlite3_bind_text(runStmt, 5, actUtf8.constData(), -1, SQLITE_TRANSIENT);
+                     sqlite3_bind_text(runStmt, 6, modUtf8.constData(), -1, SQLITE_TRANSIENT);
+                     sqlite3_bind_text(runStmt, 7, stUtf8.constData(), -1, SQLITE_TRANSIENT);
+                     sqlite3_bind_int(runStmt, 8, priority);
+                     sqlite3_bind_text(runStmt, 9, rUtf8.constData(), -1, SQLITE_TRANSIENT);
+                     sqlite3_bind_text(runStmt, 10, eUtf8.constData(), -1, SQLITE_TRANSIENT);
+                     sqlite3_bind_text(runStmt, 11, tsUtf8.constData(), -1, SQLITE_TRANSIENT);
+                     const bool ok = (sqlite3_step(runStmt) == SQLITE_DONE);
+                     sqlite3_finalize(runStmt);
+                     if (!ok) {
+                         sqlite3_finalize(stmt);
+                         return false;
+                     }
+                 }
+                 sqlite3_finalize(stmt);
+                 if (rc != SQLITE_DONE) return false;
+             }
+
+             // 3. Migrate document_merges -> prompt_revisions + ai_runs + ai_run_inputs
+             {
+                 sqlite3_stmt* stmt = nullptr;
+                 if (sqlite3_prepare_v2(handle,
+                                        "SELECT id, document_id, source_document_ids, timestamp, version_history_id "
+                                        "FROM document_merges ORDER BY id ASC;",
+                                        -1, &stmt, nullptr) != SQLITE_OK) {
+                     return false;
+                 }
+                 int rc = SQLITE_OK;
+                 while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+                     const int dmId = sqlite3_column_int(stmt, 0);
+                     const int docId = sqlite3_column_int(stmt, 1);
+                     const char* srcIdsTxt = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
+                     const char* tsTxt = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
+                     const QString srcIdsStr = srcIdsTxt ? QString::fromUtf8(srcIdsTxt) : QString();
+                     const QString tsStr = tsTxt ? QString::fromUtf8(tsTxt) : QString();
+
+                     const QStringList parts = srcIdsStr.split(',', Qt::SkipEmptyParts);
+                     QList<int> parsedIds;
+                     bool allValid = !parts.isEmpty();
+                     for (const QString& p : parts) {
+                         bool ok = false;
+                         const int val = p.trimmed().toInt(&ok);
+                         if (!ok || val <= 0) {
+                             allValid = false;
+                             break;
+                         }
+                         parsedIds.append(val);
+                     }
+
+                     if (!allValid) {
+                         QJsonObject raw;
+                         raw["id"] = dmId;
+                         raw["document_id"] = docId;
+                         raw["source_document_ids"] = srcIdsStr;
+                         if (!quarantineRow("document_merges", dmId, "document", docId, QString(), srcIdsStr,
+                                            QString::fromUtf8(QJsonDocument(raw).toJson(QJsonDocument::Compact)),
+                                            "unparseable_merge_sources")) {
+                             sqlite3_finalize(stmt);
+                             return false;
+                         }
+                         continue;
+                     }
+
+                     const int revId = insertPromptRevision("migrated", "merge", docId,
+                                                            QStringLiteral("Migrated merge run"), QString(), tsStr);
+                     if (revId <= 0) {
+                         sqlite3_finalize(stmt);
+                         return false;
+                     }
+
+                     const char* insMergeRunSql =
+                         "INSERT INTO ai_runs (prompt_revision_id, target_kind, target_id, target_action, model, "
+                         "state, created_at) VALUES (?, 'merge', ?, 'merge', '', 'completed', "
+                         "COALESCE(NULLIF(?, ''), CURRENT_TIMESTAMP)) RETURNING id;";
+                     sqlite3_stmt* mrStmt = nullptr;
+                     if (sqlite3_prepare_v2(handle, insMergeRunSql, -1, &mrStmt, nullptr) != SQLITE_OK) {
+                         sqlite3_finalize(stmt);
+                         return false;
+                     }
+                     const QByteArray tsUtf8 = tsStr.toUtf8();
+                     sqlite3_bind_int(mrStmt, 1, revId);
+                     sqlite3_bind_int(mrStmt, 2, docId);
+                     sqlite3_bind_text(mrStmt, 3, tsUtf8.constData(), -1, SQLITE_TRANSIENT);
+                     int runId = -1;
+                     if (sqlite3_step(mrStmt) == SQLITE_ROW) {
+                         runId = sqlite3_column_int(mrStmt, 0);
+                     }
+                     sqlite3_finalize(mrStmt);
+                     if (runId <= 0) {
+                         sqlite3_finalize(stmt);
+                         return false;
+                     }
+
+                     for (int ord = 0; ord < parsedIds.size(); ++ord) {
+                         int artId = parsedIds.at(ord);
+                         sqlite3_stmt* mapStmt = nullptr;
+                         if (sqlite3_prepare_v2(
+                                 handle, "SELECT artifact_id FROM legacy_document_mapping WHERE document_id = ?;", -1,
+                                 &mapStmt, nullptr) == SQLITE_OK) {
+                             sqlite3_bind_int(mapStmt, 1, artId);
+                             if (sqlite3_step(mapStmt) == SQLITE_ROW) {
+                                 artId = sqlite3_column_int(mapStmt, 0);
+                             }
+                             sqlite3_finalize(mapStmt);
+                         }
+
+                         sqlite3_stmt* inStmt = nullptr;
+                         if (sqlite3_prepare_v2(handle,
+                                                "INSERT INTO ai_run_inputs (run_id, ordinal, artifact_id, version_id, "
+                                                "role) VALUES (?, ?, ?, 0, 'source');",
+                                                -1, &inStmt, nullptr) != SQLITE_OK) {
+                             sqlite3_finalize(stmt);
+                             return false;
+                         }
+                         sqlite3_bind_int(inStmt, 1, runId);
+                         sqlite3_bind_int(inStmt, 2, ord);
+                         sqlite3_bind_int(inStmt, 3, artId);
+                         const bool ok = (sqlite3_step(inStmt) == SQLITE_DONE);
+                         sqlite3_finalize(inStmt);
+                         if (!ok) {
+                             sqlite3_finalize(stmt);
+                             return false;
+                         }
+                     }
+                 }
+                 sqlite3_finalize(stmt);
+                 if (rc != SQLITE_DONE) return false;
+             }
+
+             return true;
+         }});
+
     return runner;
 }
 

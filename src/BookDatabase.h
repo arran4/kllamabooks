@@ -213,7 +213,9 @@ class BookDatabase {
     bool moveItem(const store::ItemRef& item, int newFolderId);
     bool moveFolder(int id, int newParentId);
 
-    // Queue
+    // Queue / Durable Runs
+    static QString workerInstanceId();
+    int recoverStaleRuns(const QString& workerId = workerInstanceId());
     void cleanupDeadProcessingItems();
     int enqueuePrompt(int messageId, const QString& model, const QString& prompt, int priority = 0,
                       const QString& targetType = "message", int parentId = 0, const QString& targetAction = "");
@@ -234,6 +236,7 @@ class BookDatabase {
     bool updateQueueItemPrompt(int id, const QString& prompt);
     bool updateQueueItemModel(int id, const QString& model);
     bool updateQueueItemState(int id, const QString& state, const QString& response = "");
+    bool applyRunOutput(int runId, const QString& response, const QString& title, const QString& metadata = QString());
     bool updateQueueItemPriority(int id, int priority);
     bool deleteQueueItem(int id);
 

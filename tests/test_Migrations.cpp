@@ -500,14 +500,54 @@ void TestMigrations::testFreshSchemaEquivalence() {
           {"resolved_target_id", "INTEGER", "", 0},
           {"created_at", "DATETIME", "CURRENT_TIMESTAMP", 0},
           {"resolved_at", "DATETIME", "", 0}},
-         {{false, {"source_table", "legacy_id"}}, {false, {"status"}}}}};
+         {{false, {"source_table", "legacy_id"}}, {false, {"status"}}}},
+        {"prompt_revisions",
+         {{"id", "INTEGER", "", 1},
+          {"source_kind", "TEXT", "'user'", 0},
+          {"template_id", "TEXT", "''", 0},
+          {"target_kind", "TEXT", "''", 0},
+          {"target_id", "INTEGER", "0", 0},
+          {"system_prompt", "TEXT", "''", 0},
+          {"prompt_text", "TEXT", "", 0},
+          {"model", "TEXT", "''", 0},
+          {"is_sealed", "BOOLEAN", "0", 0},
+          {"created_at", "DATETIME", "CURRENT_TIMESTAMP", 0}},
+         {}},
+        {"ai_runs",
+         {{"id", "INTEGER", "", 1},
+          {"parent_run_id", "INTEGER", "NULL", 0},
+          {"prompt_revision_id", "INTEGER", "", 0},
+          {"target_kind", "TEXT", "'message'", 0},
+          {"target_id", "INTEGER", "0", 0},
+          {"base_version_id", "INTEGER", "0", 0},
+          {"target_action", "TEXT", "''", 0},
+          {"model", "TEXT", "''", 0},
+          {"state", "TEXT", "'pending'", 0},
+          {"priority", "INTEGER", "0", 0},
+          {"worker_instance_id", "TEXT", "''", 0},
+          {"lease_expires_at", "DATETIME", "NULL", 0},
+          {"response_text", "TEXT", "''", 0},
+          {"result_version_id", "INTEGER", "0", 0},
+          {"last_error", "TEXT", "''", 0},
+          {"created_at", "DATETIME", "CURRENT_TIMESTAMP", 0},
+          {"started_at", "DATETIME", "NULL", 0},
+          {"finished_at", "DATETIME", "NULL", 0}},
+         {{false, {"state", "priority", "created_at"}}}},
+        {"ai_run_inputs",
+         {{"id", "INTEGER", "", 1},
+          {"run_id", "INTEGER", "", 0},
+          {"ordinal", "INTEGER", "", 0},
+          {"artifact_id", "INTEGER", "0", 0},
+          {"version_id", "INTEGER", "0", 0},
+          {"role", "TEXT", "'source'", 0}},
+         {{true, {"run_id", "ordinal"}}}}};
     QVERIFY2(matchesExpectedSchema(db, expectedTables, error), qPrintable(error));
 
     int version = 0;
     QVERIFY(db.queryInt("PRAGMA user_version;", version));
-    QCOMPARE(version, 28);
+    QCOMPARE(version, 29);
     QVERIFY(db.queryInt("SELECT MAX(version) FROM schema_version;", version));
-    QCOMPARE(version, 28);
+    QCOMPARE(version, 29);
 
     sqlite3_close(dbHandle);
 }
@@ -1446,7 +1486,7 @@ void TestMigrations::testEncryptedFileBackedHistoricalFixtureUpgradeToV25() {
 
     int userVersion = 0;
     QVERIFY(upgradedDb.queryInt("PRAGMA user_version;", userVersion));
-    QCOMPARE(userVersion, 28);
+    QCOMPARE(userVersion, 29);
 
     int artifactCount = 0;
     QVERIFY(upgradedDb.queryInt("SELECT COUNT(*) FROM artifacts;", artifactCount));
