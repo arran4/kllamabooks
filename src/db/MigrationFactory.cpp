@@ -2672,6 +2672,29 @@ MigrationRunner MigrationFactory::createRunner() {
              return true;
          }});
 
+    // Version 30 -> 31: Upgrade notifications for ActivityStore (#246, #234)
+    runner.addMigration({30, 31, "Activity Notifications Schema Upgrade", [](Database& db) -> bool {
+                             if (!db.handle()) return false;
+
+                             auto addColIfMissing = [&db](const QString& col, const QString& def) -> bool {
+                                 bool exists = false;
+                                 if (!db.hasColumn("notifications", col, exists)) return false;
+                                 if (exists) return true;
+                                 return db.execute(
+                                     QString("ALTER TABLE notifications ADD COLUMN %1 %2;").arg(col, def));
+                             };
+
+                             if (!addColIfMissing("run_id", "INTEGER DEFAULT 0")) return false;
+                             if (!addColIfMissing("severity", "TEXT DEFAULT 'info'")) return false;
+                             if (!addColIfMissing("title", "TEXT DEFAULT ''")) return false;
+                             if (!addColIfMissing("message", "TEXT DEFAULT ''")) return false;
+                             if (!addColIfMissing("dismissed_at", "DATETIME DEFAULT NULL")) return false;
+
+                             return db.execute(
+                                 "CREATE INDEX IF NOT EXISTS idx_notifications_dismissed "
+                                 "ON notifications(is_dismissed, created_at DESC);");
+                         }});
+
     return runner;
 }
 

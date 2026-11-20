@@ -10,6 +10,7 @@
 #include "../src/OllamaClient.h"
 #include "../src/QueueManager.h"
 #include "../src/db/Database.h"
+#include "../src/store/ActivityStore.h"
 #include "../src/store/ArtifactStore.h"
 #include "../src/store/ChatStore.h"
 #include "../src/store/RunStore.h"
@@ -89,6 +90,7 @@ class TestQueueManager : public QObject {
     void testDocumentReplaceDirectWriteFailureRollsBack();
     void testChatReplyCompletionSuccess();
     void testChatReplyCompletionFailurePropagates();
+    void testNoDuplicateActivityOnRunEvents();
 
    private:
     std::shared_ptr<BookDatabase> m_db;
@@ -443,6 +445,66 @@ void TestQueueManager::testChatReplyCompletionFailurePropagates() {
     auto msgs = chatStore.getMessagesForChat(chatRes.value->id);
     QCOMPARE(msgs.size(), 1);
     QCOMPARE(msgs.at(0).role, QStringLiteral("user"));
+}
+
+void TestQueueManager::testNoDuplicateActivityOnRunEvents() {
+    QueueManager& qm = QueueManager::instance();
+    qm.addDatabase(m_db);
+    qm.setClient(m_client);
+    qm.setMaxConcurrent(2);
+    emit m_client->connectionStatusChanged(true);
+    qm.resumeQueue();
+
+    const int docId = m_db->addDocument(0, "Doc", "Body", 0, "{}");
+    QVERIFY(docId > 0);
+
+    // 1. Document review completion via QueueManager -> 1 run-derived activity, 0 notification rows
+    const int reviewRunId = m_db->enqueuePrompt(docId, "test_model", "Review prompt", 0, "document", 0, "replace");
+    QVERIFY(reviewRunId > 0);
+    m_client->onGenerate = [](const llm::LlmCallbacks& cb) { cb.onComplete("Draft output"); };
+
+    QSignalSpy finishedSpy(&qm, &QueueManager::processingFinished);
+    qm.checkQueue();
+    QTRY_COMPARE(finishedSpy.count(), 1);
+    QCOMPARE(finishedSpy.at(0).at(2).toBool(), true);
+
+    db::Database rawDb(reinterpret_cast<sqlite3*>(m_db->getDatabaseHandleForTesting()));
+    store::ActivityStore activityStore(rawDb);
+    auto feed = activityStore.getActivityFeed();
+    int reviewRunCount = 0;
+    for (const auto& item : feed) {
+        if (item.runId == reviewRunId) ++reviewRunCount;
+    }
+    QCOMPARE(reviewRunCount, 1);
+    QCOMPARE(m_db->getNotifications(true).size(), 0);
+
+    // 2. Failed AI run via QueueManager -> 1 run-derived activity, still 0 notification rows
+    const int failRunId = m_db->enqueuePrompt(docId, "test_model", "Fail prompt", 0, "document", 0, "replace_direct");
+    QVERIFY(failRunId > 0);
+    m_client->onGenerate = [](const llm::LlmCallbacks& cb) {
+        cb.onError(QNetworkReply::InternalServerError, QStringLiteral("Server 500"));
+    };
+
+    qm.checkQueue();
+    QTRY_COMPARE(finishedSpy.count(), 2);
+    QCOMPARE(finishedSpy.at(1).at(2).toBool(), false);
+
+    feed = activityStore.getActivityFeed();
+    int failRunCount = 0;
+    for (const auto& item : feed) {
+        if (item.runId == failRunId) ++failRunCount;
+    }
+    QCOMPARE(failRunCount, 1);
+    QCOMPARE(m_db->getNotifications(true).size(), 0);
+
+    // 3. Arbitrary non-run notification still works independently
+    auto notifRes = activityStore.addNotification(0, QStringLiteral("book"), QStringLiteral("backup_warning"),
+                                                  store::ActivitySeverity::Warning, QStringLiteral("Backup"),
+                                                  QStringLiteral("Manual notice"));
+    QVERIFY(notifRes.isSuccess());
+    QCOMPARE(m_db->getNotifications(true).size(), 1);
+    feed = activityStore.getActivityFeed();
+    QCOMPARE(feed.size(), 3);  // 2 run-derived + 1 arbitrary notification
 }
 
 QTEST_GUILESS_MAIN(TestQueueManager)
