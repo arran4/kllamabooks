@@ -480,14 +480,30 @@ void TestMigrations::testFreshSchemaEquivalence() {
           {"metadata", "TEXT", "''", 0},
           {"is_sealed", "BOOLEAN", "0", 0},
           {"created_at", "DATETIME", "CURRENT_TIMESTAMP", 0}},
-         {{true, {"id", "artifact_id"}}}}};
+         {{true, {"id", "artifact_id"}}}},
+        {"quarantined_records",
+         {{"id", "INTEGER", "", 1},
+          {"source_table", "TEXT", "", 0},
+          {"legacy_id", "INTEGER", "", 0},
+          {"target_type", "TEXT", "''", 0},
+          {"parent_reference", "INTEGER", "", 0},
+          {"title", "TEXT", "", 0},
+          {"content", "TEXT", "", 0},
+          {"raw_payload_json", "TEXT", "", 0},
+          {"reason", "TEXT", "", 0},
+          {"status", "TEXT", "'quarantined'", 0},
+          {"resolved_target_kind", "TEXT", "", 0},
+          {"resolved_target_id", "INTEGER", "", 0},
+          {"created_at", "DATETIME", "CURRENT_TIMESTAMP", 0},
+          {"resolved_at", "DATETIME", "", 0}},
+         {{false, {"source_table", "legacy_id"}}, {false, {"status"}}}}};
     QVERIFY2(matchesExpectedSchema(db, expectedTables, error), qPrintable(error));
 
     int version = 0;
     QVERIFY(db.queryInt("PRAGMA user_version;", version));
-    QCOMPARE(version, 25);
+    QCOMPARE(version, 26);
     QVERIFY(db.queryInt("SELECT MAX(version) FROM schema_version;", version));
-    QCOMPARE(version, 25);
+    QCOMPARE(version, 26);
 
     sqlite3_close(dbHandle);
 }
@@ -1419,14 +1435,14 @@ void TestMigrations::testEncryptedFileBackedHistoricalFixtureUpgradeToV25() {
         QVERIFY(!wrongDb.open("wrong_password"));
     }
 
-    // 4. Open via BookDatabase with correct password to trigger migration 21 -> 25
+    // 4. Open via BookDatabase with correct password to trigger migration 21 -> 26
     BookDatabase bookDb(dbPath);
     QVERIFY(bookDb.open(QString::fromUtf8(password)));
     db::Database upgradedDb(reinterpret_cast<sqlite3*>(bookDb.getDatabaseHandleForTesting()));
 
     int userVersion = 0;
     QVERIFY(upgradedDb.queryInt("PRAGMA user_version;", userVersion));
-    QCOMPARE(userVersion, 25);
+    QCOMPARE(userVersion, 26);
 
     int artifactCount = 0;
     QVERIFY(upgradedDb.queryInt("SELECT COUNT(*) FROM artifacts;", artifactCount));

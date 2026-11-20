@@ -6,6 +6,7 @@
 #include <QDateTime>
 #include <QDebug>
 #include <QFile>
+#include <QFileInfo>
 #include <QVariant>
 #include <cerrno>
 
@@ -17,8 +18,126 @@
 #endif
 
 namespace {
-constexpr int CURRENT_SCHEMA_VERSION = 25;
+constexpr int CURRENT_SCHEMA_VERSION = 26;
+
+QString escapeSqlLiteral(const QString& input) {
+    QString escaped = input;
+    escaped.replace("'", "''");
+    return escaped;
 }
+
+bool copyFileOwnerOnly(const QString& sourcePath, const QString& destPath, QString* error) {
+    QFile src(sourcePath);
+    if (!src.open(QIODevice::ReadOnly)) {
+        if (error) *error = QString("Failed to open source file for copy: %1").arg(src.errorString());
+        return false;
+    }
+
+    QFile::remove(destPath);
+    QFile dst(destPath);
+    if (!dst.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        if (error) *error = QString("Failed to create destination file: %1").arg(dst.errorString());
+        return false;
+    }
+    // Restrict permissions before writing payload bytes so no world/group-readable window exists.
+    if (!dst.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner)) {
+        dst.close();
+        QFile::remove(destPath);
+        if (error) *error = "Failed to restrict destination file permissions";
+        return false;
+    }
+
+    constexpr qint64 kChunkSize = 65536;
+    QByteArray buffer(kChunkSize, Qt::Uninitialized);
+    while (!src.atEnd()) {
+        const qint64 bytesRead = src.read(buffer.data(), kChunkSize);
+        if (bytesRead < 0) {
+            dst.close();
+            QFile::remove(destPath);
+            if (error) *error = QString("Failed to read source file during copy: %1").arg(src.errorString());
+            return false;
+        }
+        qint64 totalWritten = 0;
+        while (totalWritten < bytesRead) {
+            const qint64 bytesWritten = dst.write(buffer.constData() + totalWritten, bytesRead - totalWritten);
+            if (bytesWritten <= 0) {
+                dst.close();
+                QFile::remove(destPath);
+                if (error) *error = QString("Failed to write destination file during copy: %1").arg(dst.errorString());
+                return false;
+            }
+            totalWritten += bytesWritten;
+        }
+    }
+
+    if (!dst.flush()) {
+        dst.close();
+        QFile::remove(destPath);
+        if (error) *error = QString("Failed to flush destination file during copy: %1").arg(dst.errorString());
+        return false;
+    }
+    dst.close();
+    return true;
+}
+
+bool verifyEncryptedFileIntegrity(const QString& path, const QString& password, QString* error) {
+    QFile file(path);
+    if (!file.exists()) {
+        if (error) *error = "Database file does not exist";
+        return false;
+    }
+    if (!file.open(QIODevice::ReadOnly)) {
+        if (error) *error = "Failed to open database file for verification";
+        return false;
+    }
+    const QByteArray header = file.read(16);
+    file.close();
+    if (header.isEmpty()) {
+        if (error) *error = "Database file is empty";
+        return false;
+    }
+    if (!password.isEmpty() && header.startsWith("SQLite format 3")) {
+        if (error) *error = "Refusing unencrypted plaintext SQLite file";
+        return false;
+    }
+
+    sqlite3* checkDb = nullptr;
+    if (sqlite3_open(path.toUtf8().constData(), &checkDb) != SQLITE_OK) {
+        if (error) *error = "sqlite3_open failed during verification";
+        if (checkDb) sqlite3_close(checkDb);
+        return false;
+    }
+
+    if (!password.isEmpty()) {
+        const QByteArray keySql = QString("PRAGMA key = '%1';").arg(escapeSqlLiteral(password)).toUtf8();
+        if (sqlite3_exec(checkDb, keySql.constData(), nullptr, nullptr, nullptr) != SQLITE_OK) {
+            if (error) *error = "Failed to set SQLCipher key during verification";
+            sqlite3_close(checkDb);
+            return false;
+        }
+    }
+
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(checkDb, "PRAGMA integrity_check;", -1, &stmt, nullptr) != SQLITE_OK) {
+        if (error) *error = "Invalid password or unreadable SQLCipher database";
+        sqlite3_close(checkDb);
+        return false;
+    }
+    QString integrityResult;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        const unsigned char* text = sqlite3_column_text(stmt, 0);
+        if (text) integrityResult = QString::fromUtf8(reinterpret_cast<const char*>(text));
+    }
+    sqlite3_finalize(stmt);
+    sqlite3_close(checkDb);
+
+    if (integrityResult != "ok") {
+        if (error) *error = QString("Database integrity check failed: %1").arg(integrityResult);
+        return false;
+    }
+    return true;
+}
+}  // namespace
 
 BookDatabase::BookDatabase(const QString& filepath) : m_filepath(filepath), m_db(nullptr), m_isOpen(false) {}
 
@@ -34,7 +153,7 @@ bool BookDatabase::open(const QString& password) {
     }
 
     if (!password.isEmpty()) {
-        QString keyPragma = QString("PRAGMA key = '%1';").arg(password);
+        QString keyPragma = QString("PRAGMA key = '%1';").arg(escapeSqlLiteral(password));
         char* errMsg = nullptr;
         rc = sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), keyPragma.toUtf8().constData(), nullptr, nullptr, &errMsg);
         if (rc != SQLITE_OK) {
@@ -71,6 +190,7 @@ bool BookDatabase::open(const QString& password) {
         return false;
     }
 
+    m_password = password;
     m_isOpen = true;
     if (!initSchema()) {
         close();
@@ -145,17 +265,291 @@ void BookDatabase::close() {
         m_db = nullptr;
         m_isOpen = false;
     }
+    m_password.clear();
 }
 
 bool BookDatabase::isOpen() const { return m_isOpen; }
 
 QString BookDatabase::filepath() const { return m_filepath; }
 
+bool BookDatabase::createEncryptedBackup(const QString& backupPath, QString* error) const {
+    if (!m_isOpen || !m_db) {
+        if (error) *error = "Database is not open";
+        return false;
+    }
+    if (m_filepath.isEmpty() || m_filepath == ":memory:") {
+        if (error) *error = "Cannot create file backup of an in-memory database";
+        return false;
+    }
+    if (backupPath.trimmed().isEmpty() || backupPath == m_filepath || QFileInfo(backupPath).isDir()) {
+        if (error) *error = "Invalid backup path";
+        return false;
+    }
+
+    int logFrames = 0;
+    int checkpointedFrames = 0;
+    const int walRc = sqlite3_wal_checkpoint_v2(reinterpret_cast<sqlite3*>(m_db), nullptr, SQLITE_CHECKPOINT_TRUNCATE,
+                                                &logFrames, &checkpointedFrames);
+    if (walRc != SQLITE_OK || (logFrames > 0 && checkpointedFrames < logFrames)) {
+        if (error) {
+            *error = QString("WAL checkpoint incomplete or busy before backup (rc=%1, log=%2, checkpointed=%3): %4")
+                         .arg(walRc)
+                         .arg(logFrames)
+                         .arg(checkpointedFrames)
+                         .arg(QString::fromUtf8(sqlite3_errmsg(reinterpret_cast<sqlite3*>(m_db))));
+        }
+        return false;
+    }
+
+    const QString tempPath = backupPath + ".tmp";
+    if (!copyFileOwnerOnly(m_filepath, tempPath, error)) {
+        return false;
+    }
+
+    if (!verifyEncryptedFileIntegrity(tempPath, m_password, error)) {
+        QFile::remove(tempPath);
+        return false;
+    }
+
+    const QString oldBackupPath = backupPath + ".old";
+    QFile::remove(oldBackupPath);
+    const bool hadExistingBackup = QFile::exists(backupPath);
+    if (hadExistingBackup && !QFile::rename(backupPath, oldBackupPath)) {
+        QFile::remove(tempPath);
+        if (error) *error = "Failed to stage existing backup file for atomic replacement";
+        return false;
+    }
+
+    if (!QFile::rename(tempPath, backupPath)) {
+        QFile::remove(tempPath);
+        if (hadExistingBackup) {
+            QFile::rename(oldBackupPath, backupPath);
+        }
+        if (error) *error = "Failed to finalize encrypted backup file";
+        return false;
+    }
+    if (hadExistingBackup) {
+        QFile::remove(oldBackupPath);
+    }
+    if (!QFile::setPermissions(backupPath, QFileDevice::ReadOwner | QFileDevice::WriteOwner)) {
+        if (error) *error = "Failed to restrict encrypted backup permissions";
+        return false;
+    }
+    return true;
+}
+
+bool BookDatabase::restoreEncryptedBackup(const QString& backupPath, const QString& password, bool upgradeSchema,
+                                          QString* error) {
+    if (m_filepath.isEmpty() || m_filepath == ":memory:") {
+        if (error) *error = "Cannot restore file backup into an in-memory database";
+        return false;
+    }
+    if (backupPath.trimmed().isEmpty() || backupPath == m_filepath) {
+        if (error) *error = "Invalid backup source path";
+        return false;
+    }
+
+    if (!verifyEncryptedFileIntegrity(backupPath, password, error)) {
+        return false;
+    }
+
+    if (m_isOpen && m_db) {
+        int logFrames = 0;
+        int checkpointedFrames = 0;
+        const int walRc = sqlite3_wal_checkpoint_v2(reinterpret_cast<sqlite3*>(m_db), nullptr,
+                                                    SQLITE_CHECKPOINT_TRUNCATE, &logFrames, &checkpointedFrames);
+        if (walRc != SQLITE_OK || (logFrames > 0 && checkpointedFrames < logFrames)) {
+            if (error) {
+                *error =
+                    QString("WAL checkpoint incomplete or busy before restore (rc=%1, log=%2, checkpointed=%3): %4")
+                        .arg(walRc)
+                        .arg(logFrames)
+                        .arg(checkpointedFrames)
+                        .arg(QString::fromUtf8(sqlite3_errmsg(reinterpret_cast<sqlite3*>(m_db))));
+            }
+            return false;
+        }
+    }
+
+    const QString tempRestorePath = m_filepath + ".restore.tmp";
+    const QString rollbackPath = m_filepath + ".pre_restore.bak";
+    const QString rollbackWalPath = rollbackPath + "-wal";
+    const QString rollbackShmPath = rollbackPath + "-shm";
+    const QString walPath = m_filepath + "-wal";
+    const QString shmPath = m_filepath + "-shm";
+    QFile::remove(tempRestorePath);
+    QFile::remove(rollbackPath);
+    QFile::remove(rollbackWalPath);
+    QFile::remove(rollbackShmPath);
+
+    if (!copyFileOwnerOnly(backupPath, tempRestorePath, error)) {
+        return false;
+    }
+
+    const QString previousPassword = m_password;
+    const bool wasOpen = m_isOpen;
+    const bool hadExistingFile = QFile::exists(m_filepath);
+    const bool hadWalFile = QFile::exists(walPath);
+    const bool hadShmFile = QFile::exists(shmPath);
+    close();
+
+    auto restoreStagedOriginal = [&]() {
+        if (hadExistingFile && QFile::exists(rollbackPath) && !QFile::exists(m_filepath)) {
+            QFile::rename(rollbackPath, m_filepath);
+        }
+        if (hadWalFile && QFile::exists(rollbackWalPath) && !QFile::exists(walPath)) {
+            QFile::rename(rollbackWalPath, walPath);
+        }
+        if (hadShmFile && QFile::exists(rollbackShmPath) && !QFile::exists(shmPath)) {
+            QFile::rename(rollbackShmPath, shmPath);
+        }
+        if (wasOpen) {
+            open(previousPassword);
+        }
+    };
+
+    if (hadExistingFile) {
+        if (!QFile::rename(m_filepath, rollbackPath)) {
+            QFile::remove(tempRestorePath);
+            if (wasOpen) open(previousPassword);
+            if (error) *error = "Failed to move existing database aside during restore";
+            return false;
+        }
+        QFile::setPermissions(rollbackPath, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+    }
+    if (hadWalFile) {
+        if (!QFile::rename(walPath, rollbackWalPath)) {
+            QFile::remove(tempRestorePath);
+            restoreStagedOriginal();
+            if (error) *error = "Failed to move existing WAL sidecar aside during restore";
+            return false;
+        }
+        QFile::setPermissions(rollbackWalPath, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+    }
+    if (hadShmFile) {
+        if (!QFile::rename(shmPath, rollbackShmPath)) {
+            QFile::remove(tempRestorePath);
+            restoreStagedOriginal();
+            if (error) *error = "Failed to move existing SHM sidecar aside during restore";
+            return false;
+        }
+        QFile::setPermissions(rollbackShmPath, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+    }
+
+    if (!QFile::rename(tempRestorePath, m_filepath)) {
+        QFile::remove(tempRestorePath);
+        restoreStagedOriginal();
+        if (error) *error = "Failed to replace database file with backup";
+        return false;
+    }
+
+    auto rollbackReplacedFile = [&]() {
+        close();
+        QFile::remove(m_filepath);
+        QFile::remove(walPath);
+        QFile::remove(shmPath);
+        restoreStagedOriginal();
+    };
+
+    if (!QFile::setPermissions(m_filepath, QFileDevice::ReadOwner | QFileDevice::WriteOwner)) {
+        rollbackReplacedFile();
+        if (error) *error = "Failed to restrict restored database permissions";
+        return false;
+    }
+
+    if (upgradeSchema) {
+        if (!open(password)) {
+            rollbackReplacedFile();
+            if (error) *error = "Failed to open and upgrade restored backup";
+            return false;
+        }
+        QFile::remove(rollbackPath);
+        QFile::remove(rollbackWalPath);
+        QFile::remove(rollbackShmPath);
+        return true;
+    }
+
+    // Open restored database at its exact schema version without running forward migrations
+    int rc = sqlite3_open(m_filepath.toUtf8().constData(), reinterpret_cast<sqlite3**>(&m_db));
+    if (rc != SQLITE_OK) {
+        rollbackReplacedFile();
+        if (error) *error = "Failed to open restored database file";
+        return false;
+    }
+
+    if (!password.isEmpty()) {
+        const QByteArray keySql = QString("PRAGMA key = '%1';").arg(escapeSqlLiteral(password)).toUtf8();
+        if (sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), keySql.constData(), nullptr, nullptr, nullptr) !=
+            SQLITE_OK) {
+            rollbackReplacedFile();
+            if (error) *error = "Failed to set key on restored database";
+            return false;
+        }
+    }
+
+    if (sqlite3_exec(reinterpret_cast<sqlite3*>(m_db), "SELECT count(*) FROM sqlite_master;", nullptr, nullptr,
+                     nullptr) != SQLITE_OK) {
+        rollbackReplacedFile();
+        if (error) *error = "Failed to decrypt restored database with provided password";
+        return false;
+    }
+
+    db::Database database(reinterpret_cast<sqlite3*>(m_db));
+    if (!database.execute("PRAGMA foreign_keys = ON;", error)) {
+        rollbackReplacedFile();
+        return false;
+    }
+    int fkEnabled = 0;
+    if (!database.queryInt("PRAGMA foreign_keys;", fkEnabled, error) || fkEnabled != 1) {
+        rollbackReplacedFile();
+        if (error) *error = "Failed to verify foreign keys on restored database";
+        return false;
+    }
+
+    m_password = password;
+    m_isOpen = true;
+    QFile::remove(rollbackPath);
+    QFile::remove(rollbackWalPath);
+    QFile::remove(rollbackShmPath);
+    return true;
+}
+
 bool BookDatabase::initSchema() {
     if (!m_isOpen) return false;
 
     db::Database database(reinterpret_cast<sqlite3*>(m_db));
     db::MigrationRunner runner = db::MigrationFactory::createRunner();
+
+    // Enforce a recoverable encrypted backup before migrating any existing file-backed user book
+    if (!m_filepath.isEmpty() && m_filepath != ":memory:") {
+        const auto& migrations = runner.getMigrations();
+        const int targetVersion = migrations.empty() ? 0 : migrations.back().toVersion;
+
+        int userVersion = 0;
+        database.queryInt("PRAGMA user_version;", userVersion);
+
+        int tableCount = 0;
+        database.queryInt("SELECT COUNT(*) FROM sqlite_master;", tableCount);
+
+        int schemaTableVersion = 0;
+        int hasSchemaTable = 0;
+        database.queryInt("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='schema_version';",
+                          hasSchemaTable);
+        if (hasSchemaTable > 0) {
+            database.queryInt("SELECT COALESCE(MAX(version), 0) FROM schema_version;", schemaTableVersion);
+        }
+
+        const int currentVersion = qMax(userVersion, schemaTableVersion);
+        if (targetVersion > 0 && currentVersion < targetVersion && (currentVersion > 0 || tableCount > 0)) {
+            const QString backupPath = QString("%1.pre_v%2.bak").arg(m_filepath).arg(targetVersion);
+            QString backupError;
+            if (!createEncryptedBackup(backupPath, &backupError)) {
+                qWarning() << "Pre-migration encrypted backup failed:" << backupError;
+                return false;
+            }
+        }
+    }
+
     QString error;
     if (!runner.run(database, &error)) {
         qWarning() << "Migration failed:" << error;
