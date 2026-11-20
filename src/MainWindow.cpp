@@ -436,7 +436,8 @@ void MainWindow::setupUi() {
                     title = tr("Draft of: ") + title;
 
                 if (currentAutoDraftId == 0) {
-                    currentAutoDraftId = currentDb->addDraft(0, title, noteEditorView->toPlainText());
+                    currentAutoDraftId =
+                        currentDb->addDraft(0, title, noteEditorView->toPlainText(), currentNoteId, "note");
                 } else {
                     currentDb->updateDraft(currentAutoDraftId, title, noteEditorView->toPlainText());
                 }
@@ -478,8 +479,10 @@ void MainWindow::setupUi() {
 
         QString textToSave = (mainContentStack->currentWidget() == docContainer) ? documentEditorView->toPlainText()
                                                                                  : noteEditorView->toPlainText();
+        int parentItemId = item->data(Qt::UserRole).toInt();
+        QString parentItemType = item->data(Qt::UserRole + 1).toString();
         if (currentAutoDraftId == 0) {
-            currentAutoDraftId = currentDb->addDraft(0, title, textToSave);
+            currentAutoDraftId = currentDb->addDraft(0, title, textToSave, parentItemId, parentItemType);
         } else {
             currentDb->updateDraft(currentAutoDraftId, title, textToSave);
         }
@@ -2014,21 +2017,16 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
         } else if (gotoOriginalAction && selectedAction == gotoOriginalAction) {
             int docId = item->data(Qt::UserRole).toInt();
             if (currentDb) {
-                QList<DocumentNode> drafts = currentDb->getDrafts();
-                for (const auto& d : drafts) {
-                    if (d.id == docId) {
-                        QStandardItem* originalItem = findItemInTree(d.parentId, d.targetType);
-                        if (originalItem) {
-                            openBooksTree->setCurrentIndex(originalItem->index());
-                            openBooksTree->selectionModel()->select(
-                                originalItem->index(),
-                                QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Current);
-                            openBooksTree->scrollTo(originalItem->index());
-                            onOpenBooksTreeDoubleClicked(originalItem->index());
-                        } else {
-                            statusBar->showMessage(tr("Original document not found."), 3000);
-                        }
-                        break;
+                if (auto dOpt = currentDb->getDraft(docId)) {
+                    QStandardItem* originalItem = findItemInTree(dOpt->parentId, dOpt->targetType);
+                    if (originalItem) {
+                        openBooksTree->setCurrentIndex(originalItem->index());
+                        openBooksTree->selectionModel()->select(
+                            originalItem->index(), QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Current);
+                        openBooksTree->scrollTo(originalItem->index());
+                        onOpenBooksTreeDoubleClicked(originalItem->index());
+                    } else {
+                        statusBar->showMessage(tr("Original document not found."), 3000);
                     }
                 }
             }
@@ -2061,23 +2059,15 @@ void MainWindow::showItemContextMenu(QStandardItem* item, const QPoint& globalPo
         } else if (loadTemplateAction && selectedAction == loadTemplateAction) {
             int docId = item->data(Qt::UserRole).toInt();
             if (currentDb) {
-                QList<DocumentNode> templates = currentDb->getTemplates();
-                for (const auto& t : templates) {
-                    if (t.id == docId) {
-                        inputField->setPlainText(t.content);
-                        break;
-                    }
+                if (auto tOpt = currentDb->getTemplate(docId)) {
+                    inputField->setPlainText(tOpt->content);
                 }
             }
         } else if (resumeDraftAction && selectedAction == resumeDraftAction) {
             int docId = item->data(Qt::UserRole).toInt();
             if (currentDb) {
-                QList<DocumentNode> drafts = currentDb->getDrafts();
-                for (const auto& d : drafts) {
-                    if (d.id == docId) {
-                        inputField->setPlainText(d.content);
-                        break;
-                    }
+                if (auto dOpt = currentDb->getDraft(docId)) {
+                    inputField->setPlainText(dOpt->content);
                 }
             }
         } else if (discardAction && selectedAction == discardAction) {
@@ -2430,6 +2420,11 @@ void MainWindow::populateDocumentFolders(QStandardItem* parentItem, int folderId
     }
 
     // Then, add items in this folder
+    QList<DocumentNode> allDrafts;
+    if (type != "drafts") {
+        allDrafts = db->getDrafts(-1);
+    }
+
     if (type == "documents" || type == "templates" || type == "drafts") {
         QList<DocumentNode> docs;
         if (type == "documents")
@@ -2444,6 +2439,16 @@ void MainWindow::populateDocumentFolders(QStandardItem* parentItem, int folderId
             QStandardItem* item = new QStandardItem(QIcon::fromTheme("text-x-generic"), doc.title);
             item->setData(doc.id, Qt::UserRole);
             item->setData(itemType, Qt::UserRole + 1);
+            if (itemType != "draft") {
+                for (const auto& d : allDrafts) {
+                    if (d.parentId == doc.id && (d.targetType == itemType || d.targetType == type)) {
+                        QStandardItem* draftItem = new QStandardItem(QIcon::fromTheme("text-plain"), d.title);
+                        draftItem->setData(d.id, Qt::UserRole);
+                        draftItem->setData("draft", Qt::UserRole + 1);
+                        item->appendRow(draftItem);
+                    }
+                }
+            }
             parentItem->appendRow(item);
         }
     } else if (type == "notes") {
@@ -2452,6 +2457,14 @@ void MainWindow::populateDocumentFolders(QStandardItem* parentItem, int folderId
             QStandardItem* item = new QStandardItem(QIcon::fromTheme("text-x-generic"), note.title);
             item->setData(note.id, Qt::UserRole);
             item->setData("note", Qt::UserRole + 1);
+            for (const auto& d : allDrafts) {
+                if (d.parentId == note.id && (d.targetType == "note" || d.targetType == "notes")) {
+                    QStandardItem* draftItem = new QStandardItem(QIcon::fromTheme("text-plain"), d.title);
+                    draftItem->setData(d.id, Qt::UserRole);
+                    draftItem->setData("draft", Qt::UserRole + 1);
+                    item->appendRow(draftItem);
+                }
+            }
             parentItem->appendRow(item);
         }
     }
@@ -4132,6 +4145,28 @@ void MainWindow::onOpenBooksSelectionChanged(const QItemSelection& selected, con
         return;
     }
 
+    // Preserve any dirty inline note edits as a draft before switching selection
+    if (mainContentStack->currentWidget() == noteContainer && currentDb && currentDb->isOpen()) {
+        QString currentText = noteEditorView->toPlainText();
+        bool noteDirty = false;
+        QString noteTitle = tr("Unsaved Draft");
+        if (isCreatingNewNote) {
+            noteDirty = !currentText.isEmpty();
+        } else if (currentNoteId > 0) {
+            if (auto noteOpt = currentDb->getNote(currentNoteId)) {
+                noteDirty = (currentText != noteOpt->content);
+                noteTitle = tr("Draft of: ") + noteOpt->title;
+            }
+        }
+        if (noteDirty) {
+            if (currentAutoDraftId == 0) {
+                currentAutoDraftId = currentDb->addDraft(0, noteTitle, currentText, currentNoteId, "note");
+            } else {
+                currentDb->updateDraft(currentAutoDraftId, noteTitle, currentText);
+            }
+        }
+    }
+
     currentAutoDraftId = 0;  // Reset auto draft when selecting a new item
 
     QString type = item->data(Qt::UserRole + 1).toString();
@@ -4154,18 +4189,18 @@ void MainWindow::onOpenBooksSelectionChanged(const QItemSelection& selected, con
                 // If it was marked as updated via AI notification modifications, dismiss it
                 dismissDocumentNotifications(currentDocumentId);
 
-                QList<DocumentNode> docs =
-                    (type == "template") ? currentDb->getTemplates()
-                                         : ((type == "draft") ? currentDb->getDrafts() : currentDb->getDocuments());
-                for (const auto& doc : docs) {
-                    if (doc.id == currentDocumentId) {
-                        documentEditorView->setPlainText(doc.content);
-                        mainContentStack->setCurrentWidget(docContainer);
-
-                        updateRegenerateButtonVisibility(doc, type);
-
-                        break;
-                    }
+                std::optional<DocumentNode> docOpt;
+                if (type == "template") {
+                    docOpt = currentDb->getTemplate(currentDocumentId);
+                } else if (type == "draft") {
+                    docOpt = currentDb->getDraft(currentDocumentId);
+                } else {
+                    docOpt = currentDb->getDocument(currentDocumentId);
+                }
+                if (docOpt) {
+                    documentEditorView->setPlainText(docOpt->content);
+                    mainContentStack->setCurrentWidget(docContainer);
+                    updateRegenerateButtonVisibility(*docOpt, type);
                 }
             }
         } else if (type == "note") {
@@ -5328,12 +5363,8 @@ void MainWindow::onDocumentAIOperations() {
             getDocumentContent(currentDocumentId, "document", outTitle, outContent);
 
             int parentId = 0;
-            QList<DocumentNode> allDocs = currentDb->getDocuments(-1);
-            for (const auto& doc : allDocs) {
-                if (doc.id == currentDocumentId) {
-                    parentId = doc.parentId;
-                    break;
-                }
+            if (auto docOpt = currentDb->getDocument(currentDocumentId)) {
+                parentId = docOpt->parentId;
             }
 
             int newFolderId =
@@ -5736,25 +5767,17 @@ void MainWindow::handleNewDocumentCreation(int defaultFolderId) {
             int draftId = dialog.getSelectedDraftId();
             QString content = "";
             if (draftId != -1) {
-                QList<DocumentNode> drafts = currentDb->getDrafts(-1);
-                for (const auto& d : drafts) {
-                    if (d.id == draftId) {
-                        content = d.content;
-                        break;
-                    }
+                if (auto dOpt = currentDb->getDraft(draftId)) {
+                    content = dOpt->content;
                 }
                 currentDb->deleteDraft(draftId);
             }
             if (dialog.isOverwriteDocument()) {
                 int overwriteId = dialog.getOverwriteDocumentId();
                 if (overwriteId != -1) {
-                    // Let's get the old title
                     QString oldTitle;
-                    for (const auto& d : currentDb->getDocuments(-1)) {
-                        if (d.id == overwriteId) {
-                            oldTitle = d.title;
-                            break;
-                        }
+                    if (auto docOpt = currentDb->getDocument(overwriteId)) {
+                        oldTitle = docOpt->title;
                     }
                     currentDb->updateDocument(overwriteId, oldTitle, content);
                     newDocId = overwriteId;
@@ -5957,12 +5980,8 @@ void MainWindow::onEditDocument() {
         // Find by type but try finding the original target type if it fails
         QStandardItem* item = findItemInTree(docId, type);
         if (!item && type == "draft" && currentDb) {
-            QList<DocumentNode> drafts = currentDb->getDrafts();
-            for (const auto& d : drafts) {
-                if (d.id == currentDocumentId) {
-                    item = findItemInTree(d.parentId, d.targetType);
-                    break;
-                }
+            if (auto dOpt = currentDb->getDraft(currentDocumentId)) {
+                item = findItemInTree(dOpt->parentId, dOpt->targetType);
             }
         }
 

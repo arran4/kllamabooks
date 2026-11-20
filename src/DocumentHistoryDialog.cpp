@@ -48,10 +48,14 @@ DocumentHistoryDialog::DocumentHistoryDialog(std::shared_ptr<BookDatabase> db, i
     QPushButton* closeBtn = new QPushButton(tr("Close"), this);
     connect(closeBtn, &QPushButton::clicked, this, &QDialog::accept);
 
+    QPushButton* restoreInPlaceBtn = new QPushButton(tr("Restore Version"), this);
+    connect(restoreInPlaceBtn, &QPushButton::clicked, this, &DocumentHistoryDialog::onRestoreInPlace);
+
     QPushButton* restoreBtn = new QPushButton(tr("Open Version in Editor"), this);
     connect(restoreBtn, &QPushButton::clicked, this, &DocumentHistoryDialog::onRestore);
 
     bottomLayout->addWidget(closeBtn);
+    bottomLayout->addWidget(restoreInPlaceBtn);
     bottomLayout->addWidget(restoreBtn);
     mainLayout->addLayout(bottomLayout);
 
@@ -90,30 +94,9 @@ void DocumentHistoryDialog::onRestore() {
     if (idx >= 0 && idx < m_entries.size()) {
         if (!m_db || !m_db->isOpen()) return;
 
-        auto docs = m_db->getDocuments();
-        QString title;
-        for (const auto& d : docs) {
-            if (d.id == m_documentId) {
-                title = d.title;
-                break;
-            }
-        }
-
-        // Open in a new DocumentEditWindow but load this specific version
-        // Wait, DocumentEditWindow loads from DB. We can't pass a specific version directly via its constructor
-        // unless we augment it, but the user requested: "You can open documents from the history this way"
-        // Let's just create a new document with this content (fork it essentially) or let them edit it as a new draft.
-        // Or better yet, we can augment DocumentEditWindow to accept initial content!
-
-        // Actually, the simplest approach for "open version" is to create a new draft/fork with it.
-        // Let's just fork it immediately and open that.
-        int folderId = 0;
-        for (const auto& d : docs) {
-            if (d.id == m_documentId) {
-                folderId = d.folderId;
-                break;
-            }
-        }
+        auto docOpt = m_db->getDocument(m_documentId);
+        QString title = docOpt ? docOpt->title : tr("Document");
+        int folderId = docOpt ? docOpt->folderId : 0;
 
         QDateTime dt = QDateTime::fromString(m_entries[idx].timestamp, Qt::ISODate);
         QString displayTime = dt.isValid() ? dt.toString("yyyy-MM-dd_HH-mm") : m_entries[idx].timestamp;
@@ -141,5 +124,20 @@ void DocumentHistoryDialog::onRestore() {
             editWin->show();
             accept();
         }
+    }
+}
+
+void DocumentHistoryDialog::onRestoreInPlace() {
+    int idx = m_historyList->currentRow();
+    if (idx < 0 || idx >= m_entries.size() || !m_db || !m_db->isOpen()) return;
+
+    if (m_db->restoreDocumentHistoryVersion(m_documentId, m_entries[idx].id)) {
+        for (QWidget* widget : QApplication::topLevelWidgets()) {
+            if (widget->inherits("MainWindow")) {
+                QMetaObject::invokeMethod(widget, "loadDocumentsAndNotes");
+                break;
+            }
+        }
+        accept();
     }
 }
