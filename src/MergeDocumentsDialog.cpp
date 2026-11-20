@@ -1,5 +1,7 @@
 #include "MergeDocumentsDialog.h"
 
+#include <sqlcipher/sqlite3.h>
+
 #include <QCheckBox>
 #include <QDialogButtonBox>
 #include <QFormLayout>
@@ -16,6 +18,8 @@
 
 #include "ModelSelectionDialog.h"
 #include "TemplateParser.h"
+#include "db/Database.h"
+#include "store/ArtifactStore.h"
 
 MergeDocumentsDialog::MergeDocumentsDialog(BookDatabase* db, const QList<int>& documentIds,
                                            const QList<OllamaModelInfo>& modelInfos, const QStringList& fallbackModels,
@@ -65,6 +69,11 @@ MergeDocumentsDialog::MergeDocumentsDialog(BookDatabase* db, const QList<int>& d
 
     m_deleteSourcesCheck = new QCheckBox(tr("Delete all other source documents"), this);
     actionsOuterLayout->addWidget(m_deleteSourcesCheck);
+
+    m_exactSnapshotCheck = new QCheckBox(tr("Re-run using exact historical source snapshots"), this);
+    m_exactSnapshotCheck->setChecked(true);
+    m_exactSnapshotCheck->setVisible(false);
+    actionsOuterLayout->addWidget(m_exactSnapshotCheck);
 
     layout->addLayout(actionsOuterLayout);
 
@@ -280,6 +289,7 @@ void MergeDocumentsDialog::setIsRegenerating(bool isRegenerating) {
         }
     }
     m_isRegenerating = isRegenerating;
+    if (m_exactSnapshotCheck) m_exactSnapshotCheck->setVisible(m_isRegenerating);
     m_mainActionCombo->clear();
 
     m_mainActionCombo->addItem(tr("Create New Merged Document"), 0);
@@ -527,4 +537,43 @@ void MergeDocumentsDialog::updateDynamicInputs() {
 void MergeDocumentsDialog::accept() {
     m_finalPrompt = buildPreviewPrompt();
     QDialog::accept();
+}
+
+MergeDocumentsDialog::MergeRerunMode MergeDocumentsDialog::getRerunMode() const {
+    if (m_exactSnapshotCheck && !m_exactSnapshotCheck->isChecked()) {
+        return MergeRerunMode::LatestSources;
+    }
+    return MergeRerunMode::ExactSnapshot;
+}
+
+QList<store::AiRunInput> MergeDocumentsDialog::buildMergeRunInputs() const {
+    QList<store::AiRunInput> inputs;
+    if (!m_db || !m_db->isOpen()) return inputs;
+
+    sqlite3* raw = reinterpret_cast<sqlite3*>(m_db->getDatabaseHandleForTesting());
+    if (!raw) return inputs;
+    db::Database database(raw);
+    store::ArtifactStore artStore(database);
+
+    for (int i = 0; i < m_documentIds.size(); ++i) {
+        const int docId = m_documentIds.at(i);
+        int artifactId = docId;
+        int versionId = 0;
+
+        sqlite3_stmt* stmt = nullptr;
+        if (sqlite3_prepare_v2(raw, "SELECT artifact_id FROM legacy_document_mapping WHERE document_id = ?;", -1, &stmt,
+                               nullptr) == SQLITE_OK) {
+            sqlite3_bind_int(stmt, 1, docId);
+            if (sqlite3_step(stmt) == SQLITE_ROW) {
+                artifactId = sqlite3_column_int(stmt, 0);
+            }
+            sqlite3_finalize(stmt);
+        }
+
+        if (auto artOpt = artStore.getArtifact(artifactId)) {
+            versionId = artOpt->currentVersionId;
+        }
+        inputs.append({0, 0, i, artifactId, versionId, QStringLiteral("source")});
+    }
+    return inputs;
 }
