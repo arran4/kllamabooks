@@ -15,13 +15,14 @@
 #include "db/Database.h"
 #include "db/MigrationFactory.h"
 #include "store/ArtifactStore.h"
+#include "store/FolderStore.h"
 
 #ifdef Q_OS_UNIX
 #include <csignal>
 #endif
 
 namespace {
-constexpr int CURRENT_SCHEMA_VERSION = 27;
+constexpr int CURRENT_SCHEMA_VERSION = 28;
 
 QString escapeSqlLiteral(const QString& input) {
     QString escaped = input;
@@ -699,44 +700,18 @@ QString BookDatabase::getSetting(const QString& scope, int targetId, const QStri
     return result;
 }
 
-bool BookDatabase::moveItem(const QString& table, int id, int newFolderId) {
+bool BookDatabase::moveItem(const store::ItemRef& item, int newFolderId) {
     if (!m_isOpen) return false;
-
-    if (table == "messages") {
-        const char* sql = "UPDATE messages SET folder_id = ? WHERE id = ?;";
-        sqlite3_stmt* stmt = nullptr;
-        if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
-        sqlite3_bind_int(stmt, 1, newFolderId);
-        sqlite3_bind_int(stmt, 2, id);
-        int rc = sqlite3_step(stmt);
-        sqlite3_finalize(stmt);
-        return (rc == SQLITE_DONE);
-    }
-
-    auto kindOpt = parseArtifactKind(table);
-    if (!kindOpt.has_value()) return false;
-
-    auto* rawDb = reinterpret_cast<sqlite3*>(m_db);
-    auto artIdOpt = resolveArtifactIdForKind(rawDb, *kindOpt, id);
-    if (!artIdOpt.has_value()) return false;
-
-    db::Database database(rawDb);
-    store::ArtifactStore store(database);
-    return store.moveArtifact(*artIdOpt, newFolderId).isSuccess();
+    db::Database database(reinterpret_cast<sqlite3*>(m_db));
+    store::FolderStore folderStore(database);
+    return folderStore.moveItem(item, newFolderId).isSuccess();
 }
 
 bool BookDatabase::moveFolder(int id, int newParentId) {
     if (!m_isOpen) return false;
-    const char* sql = "UPDATE folders SET parent_id = ? WHERE id = ?;";
-    sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
-
-    sqlite3_bind_int(stmt, 1, newParentId);
-    sqlite3_bind_int(stmt, 2, id);
-
-    int rc = sqlite3_step(stmt);
-    sqlite3_finalize(stmt);
-    return (rc == SQLITE_DONE);
+    db::Database database(reinterpret_cast<sqlite3*>(m_db));
+    store::FolderStore folderStore(database);
+    return folderStore.moveFolder(id, newParentId).isSuccess();
 }
 
 int BookDatabase::addMessage(int parentId, const QString& content, const QString& role, int folderId) {
@@ -1503,68 +1478,31 @@ bool BookDatabase::deleteDraft(int id) {
 
 int BookDatabase::addFolder(int parentId, const QString& name, const QString& type, bool isExpanded) {
     if (!m_isOpen) return -1;
-
-    const char* sql = "INSERT INTO folders (parent_id, name, type, is_expanded) VALUES (?, ?, ?, ?);";
-    sqlite3_stmt* stmt;
-    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr);
-    if (rc != SQLITE_OK) return -1;
-
-    sqlite3_bind_int(stmt, 1, parentId);
-    sqlite3_bind_text(stmt, 2, name.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 3, type.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int(stmt, 4, isExpanded ? 1 : 0);
-
-    rc = sqlite3_step(stmt);
-    if (rc != SQLITE_DONE) {
-        sqlite3_finalize(stmt);
-        return -1;
-    }
-
-    int id = sqlite3_last_insert_rowid(reinterpret_cast<sqlite3*>(m_db));
-    sqlite3_finalize(stmt);
-    return id;
+    db::Database database(reinterpret_cast<sqlite3*>(m_db));
+    store::FolderStore folderStore(database);
+    auto res = folderStore.createFolder(parentId, name, type, isExpanded);
+    return res.isSuccess() ? *res.value : -1;
 }
 
 bool BookDatabase::updateFolder(int id, const QString& newName) {
     if (!m_isOpen) return false;
-
-    const char* sql = "UPDATE folders SET name = ? WHERE id = ?;";
-    sqlite3_stmt* stmt;
-    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr);
-    if (rc != SQLITE_OK) return false;
-
-    sqlite3_bind_text(stmt, 1, newName.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int(stmt, 2, id);
-
-    rc = sqlite3_step(stmt);
-    sqlite3_finalize(stmt);
-    return rc == SQLITE_DONE;
+    db::Database database(reinterpret_cast<sqlite3*>(m_db));
+    store::FolderStore folderStore(database);
+    return folderStore.renameFolder(id, newName).isSuccess();
 }
 
 bool BookDatabase::deleteFolder(int id) {
     if (!m_isOpen) return false;
-
-    const char* sql = "DELETE FROM folders WHERE id = ?;";
-    sqlite3_stmt* stmt;
-    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr);
-    if (rc != SQLITE_OK) return false;
-
-    sqlite3_bind_int(stmt, 1, id);
-
-    rc = sqlite3_step(stmt);
-    sqlite3_finalize(stmt);
-    return rc == SQLITE_DONE;
+    db::Database database(reinterpret_cast<sqlite3*>(m_db));
+    store::FolderStore folderStore(database);
+    return folderStore.deleteFolder(id).isSuccess();
 }
 
 void BookDatabase::setFolderExpanded(int id, bool expanded) {
     if (!m_isOpen) return;
-    const char* sql = "UPDATE folders SET is_expanded = ? WHERE id = ?;";
-    sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr) != SQLITE_OK) return;
-    sqlite3_bind_int(stmt, 1, expanded ? 1 : 0);
-    sqlite3_bind_int(stmt, 2, id);
-    sqlite3_step(stmt);
-    sqlite3_finalize(stmt);
+    db::Database database(reinterpret_cast<sqlite3*>(m_db));
+    store::FolderStore folderStore(database);
+    folderStore.setExpanded(id, expanded);
 }
 
 void BookDatabase::setMessageExpanded(int id, bool expanded) {
@@ -1582,29 +1520,22 @@ QList<FolderNode> BookDatabase::getFolders(const QString& type) const {
     QList<FolderNode> folderNodes;
     if (!m_isOpen) return folderNodes;
 
-    const char* sql =
-        "SELECT id, parent_id, name, type, timestamp, position, is_expanded FROM folders WHERE type = ? ORDER BY "
-        "position ASC, name "
-        "ASC;";
-    sqlite3_stmt* stmt;
-    int rc = sqlite3_prepare_v2(reinterpret_cast<sqlite3*>(m_db), sql, -1, &stmt, nullptr);
-    if (rc != SQLITE_OK) return folderNodes;
+    db::Database database(reinterpret_cast<sqlite3*>(m_db));
+    store::FolderStore folderStore(database);
+    auto res = folderStore.getFolders(type);
+    if (!res.isSuccess()) return folderNodes;
 
-    sqlite3_bind_text(stmt, 1, type.toUtf8().constData(), -1, SQLITE_TRANSIENT);
-
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
+    for (const auto& rec : *res.value) {
         FolderNode node;
-        node.id = sqlite3_column_int(stmt, 0);
-        node.parentId = sqlite3_column_int(stmt, 1);
-        node.name = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)));
-        node.type = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)));
-        QString ts = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4)));
-        node.timestamp = QDateTime::fromString(ts, Qt::ISODate);
-        node.position = sqlite3_column_int(stmt, 5);
-        node.isExpanded = sqlite3_column_int(stmt, 6) != 0;
+        node.id = rec.id;
+        node.parentId = rec.parentId;
+        node.name = rec.name;
+        node.type = rec.rootType;
+        node.timestamp = rec.timestamp;
+        node.position = rec.position;
+        node.isExpanded = rec.isExpanded;
         folderNodes.append(node);
     }
-    sqlite3_finalize(stmt);
     return folderNodes;
 }
 

@@ -35,6 +35,9 @@ add_executable(kllamabooks
     src/db/MigrationFactory.h
     src/store/ArtifactStore.cpp
     src/store/ArtifactStore.h
+    src/store/FolderStore.cpp
+    src/store/FolderStore.h
+    src/store/ItemRef.h
     src/store/RecoveryStore.cpp
     src/store/RecoveryStore.h
     src/WalletManager.cpp
@@ -158,8 +161,8 @@ if(BUILD_TESTING)
     target_link_libraries(test_TemplateParser Qt6::Test Qt6::Core)
     add_test(NAME test_TemplateParser COMMAND test_TemplateParser)
 
-    add_executable(test_BookDatabase tests/test_BookDatabase.cpp src/BookDatabase.cpp src/store/ArtifactStore.cpp src/db/Database.cpp src/db/Migrations.cpp src/db/MigrationFactory.cpp)
-    target_link_libraries(test_BookDatabase Qt6::Test Qt6::Core ${SQLCIPHER_LIBRARIES})
+    add_executable(test_BookDatabase tests/test_BookDatabase.cpp src/BookDatabase.cpp src/store/ArtifactStore.cpp src/store/FolderStore.cpp src/db/Database.cpp src/db/Migrations.cpp src/db/MigrationFactory.cpp)
+    target_link_libraries(test_BookDatabase Qt6::Test Qt6::Core Qt6::Gui ${SQLCIPHER_LIBRARIES})
     target_include_directories(test_BookDatabase PRIVATE ${SQLCIPHER_INCLUDE_DIRS})
     add_test(NAME test_BookDatabase COMMAND test_BookDatabase)
 
@@ -168,23 +171,28 @@ if(BUILD_TESTING)
     target_include_directories(test_ArtifactStore PRIVATE ${SQLCIPHER_INCLUDE_DIRS})
     add_test(NAME test_ArtifactStore COMMAND test_ArtifactStore)
 
-    add_executable(test_RecoveryStore tests/test_RecoveryStore.cpp src/store/RecoveryStore.cpp src/store/ArtifactStore.cpp src/BookDatabase.cpp src/db/Database.cpp src/db/Migrations.cpp src/db/MigrationFactory.cpp)
-    target_link_libraries(test_RecoveryStore Qt6::Test Qt6::Core ${SQLCIPHER_LIBRARIES})
+    add_executable(test_FolderStore tests/test_FolderStore.cpp src/store/FolderStore.cpp src/store/ArtifactStore.cpp src/store/RecoveryStore.cpp src/BookDatabase.cpp src/db/Database.cpp src/db/Migrations.cpp src/db/MigrationFactory.cpp)
+    target_link_libraries(test_FolderStore Qt6::Test Qt6::Core Qt6::Gui ${SQLCIPHER_LIBRARIES})
+    target_include_directories(test_FolderStore PRIVATE ${SQLCIPHER_INCLUDE_DIRS})
+    add_test(NAME test_FolderStore COMMAND test_FolderStore)
+
+    add_executable(test_RecoveryStore tests/test_RecoveryStore.cpp src/store/RecoveryStore.cpp src/store/ArtifactStore.cpp src/store/FolderStore.cpp src/BookDatabase.cpp src/db/Database.cpp src/db/Migrations.cpp src/db/MigrationFactory.cpp)
+    target_link_libraries(test_RecoveryStore Qt6::Test Qt6::Core Qt6::Gui ${SQLCIPHER_LIBRARIES})
     target_include_directories(test_RecoveryStore PRIVATE ${SQLCIPHER_INCLUDE_DIRS})
     add_test(NAME test_RecoveryStore COMMAND test_RecoveryStore)
 
-    add_executable(test_QueueManager tests/test_QueueManager.cpp src/QueueManager.cpp src/BookDatabase.cpp src/store/ArtifactStore.cpp src/OllamaClient.cpp src/NotificationDelegate.cpp src/DocumentTemplatesManager.cpp src/AIOperationsManager.cpp src/TemplateParser.cpp src/db/Database.cpp src/db/Migrations.cpp src/db/MigrationFactory.cpp)
+    add_executable(test_QueueManager tests/test_QueueManager.cpp src/QueueManager.cpp src/BookDatabase.cpp src/store/ArtifactStore.cpp src/store/FolderStore.cpp src/OllamaClient.cpp src/NotificationDelegate.cpp src/DocumentTemplatesManager.cpp src/AIOperationsManager.cpp src/TemplateParser.cpp src/db/Database.cpp src/db/Migrations.cpp src/db/MigrationFactory.cpp)
     target_link_libraries(test_QueueManager Qt6::Test Qt6::Core Qt6::Widgets Qt6::Network ${SQLCIPHER_LIBRARIES})
     target_include_directories(test_QueueManager PRIVATE ${SQLCIPHER_INCLUDE_DIRS})
     add_test(NAME test_QueueManager COMMAND test_QueueManager)
 
-    add_executable(test_PerformanceMainWindow tests/test_PerformanceMainWindow.cpp src/BookDatabase.cpp src/store/ArtifactStore.cpp src/db/Database.cpp src/db/Migrations.cpp src/db/MigrationFactory.cpp)
-    target_link_libraries(test_PerformanceMainWindow Qt6::Test Qt6::Core Qt6::Sql ${SQLCIPHER_LIBRARIES})
+    add_executable(test_PerformanceMainWindow tests/test_PerformanceMainWindow.cpp src/BookDatabase.cpp src/store/ArtifactStore.cpp src/store/FolderStore.cpp src/db/Database.cpp src/db/Migrations.cpp src/db/MigrationFactory.cpp)
+    target_link_libraries(test_PerformanceMainWindow Qt6::Test Qt6::Core Qt6::Gui Qt6::Sql ${SQLCIPHER_LIBRARIES})
     target_include_directories(test_PerformanceMainWindow PRIVATE ${SQLCIPHER_INCLUDE_DIRS})
     add_test(NAME test_PerformanceMainWindow COMMAND test_PerformanceMainWindow)
 
-    add_executable(test_Migrations tests/test_Migrations.cpp src/BookDatabase.cpp src/store/ArtifactStore.cpp src/db/Database.cpp src/db/Migrations.cpp src/db/MigrationFactory.cpp)
-    target_link_libraries(test_Migrations Qt6::Test Qt6::Core ${SQLCIPHER_LIBRARIES})
+    add_executable(test_Migrations tests/test_Migrations.cpp src/BookDatabase.cpp src/store/ArtifactStore.cpp src/store/FolderStore.cpp src/db/Database.cpp src/db/Migrations.cpp src/db/MigrationFactory.cpp)
+    target_link_libraries(test_Migrations Qt6::Test Qt6::Core Qt6::Gui ${SQLCIPHER_LIBRARIES})
     target_include_directories(test_Migrations PRIVATE ${SQLCIPHER_INCLUDE_DIRS})
     add_test(NAME test_Migrations COMMAND test_Migrations)
 
@@ -200,7 +208,7 @@ if(BUILD_TESTING)
     target_link_libraries(test_AppCredentialManager Qt6::Test Qt6::Core KF6::Wallet)
     add_test(NAME test_AppCredentialManager COMMAND test_AppCredentialManager)
 
-    add_executable(test_SettingsApply tests/test_SettingsApply.cpp src/SettingsDialog.cpp src/SettingsDialog.h src/AppCredentialManager.cpp src/AppCredentialManager.h src/CredentialStore.cpp src/ConnectionMigration.cpp src/AIOperationsManager.cpp src/DocumentTemplatesManager.cpp src/AIOperationsEditorWidget.cpp src/DocumentTemplatesEditorWidget.cpp src/AiActionDialog.cpp src/TemplateParser.cpp src/BookDatabase.cpp src/store/ArtifactStore.cpp src/db/Database.cpp src/db/Migrations.cpp src/db/MigrationFactory.cpp)
+    add_executable(test_SettingsApply tests/test_SettingsApply.cpp src/SettingsDialog.cpp src/SettingsDialog.h src/AppCredentialManager.cpp src/AppCredentialManager.h src/CredentialStore.cpp src/ConnectionMigration.cpp src/AIOperationsManager.cpp src/DocumentTemplatesManager.cpp src/AIOperationsEditorWidget.cpp src/DocumentTemplatesEditorWidget.cpp src/AiActionDialog.cpp src/TemplateParser.cpp src/BookDatabase.cpp src/store/ArtifactStore.cpp src/store/FolderStore.cpp src/db/Database.cpp src/db/Migrations.cpp src/db/MigrationFactory.cpp)
     target_link_libraries(test_SettingsApply Qt6::Test Qt6::Core Qt6::Sql Qt6::Widgets Qt6::Network KF6::Wallet KF6::ConfigWidgets KF6::CoreAddons KF6::I18n KF6::XmlGui ${SQLCIPHER_LIBRARIES})
     add_test(NAME test_SettingsApply COMMAND test_SettingsApply)
 endif()

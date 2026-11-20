@@ -39,6 +39,8 @@
             <Separator />
             <Action name="show_queue" />
             <Action name="show_spy" />
+            <Separator />
+            <Action name="toggle_unified_folders" />
         </Menu>
         <Menu name="tools">
             <text>&amp;Tools</text>
