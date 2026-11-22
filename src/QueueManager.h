@@ -23,6 +23,7 @@ class QueueManager : public QObject {
     OllamaClient* client() const { return m_client; }
     void enqueuePrompt(int messageId, const QString& model, const QString& prompt, int priority = 0,
                        const QString& targetType = "message", int parentId = 0, const QString& targetAction = "");
+    int enqueueChatReply(int userMessageId, const QString& model, const QString& prompt, int priority = 0);
 
     int totalPendingCount() const;
     int pendingCount(std::shared_ptr<BookDatabase> db) const;

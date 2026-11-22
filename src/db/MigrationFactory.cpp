@@ -2448,6 +2448,230 @@ MigrationRunner MigrationFactory::createRunner() {
              return true;
          }});
 
+    // Version 29 -> 30: Explicit chat sessions, message chat_id/run_id provenance, and orphan recovery (#247, #239)
+    runner.addMigration(
+        {29, 30, "Explicit Chat Sessions and Message Provenance", [](Database& db) -> bool {
+             sqlite3* handle = db.handle();
+             if (!handle) return false;
+
+             if (!db.execute("CREATE TABLE IF NOT EXISTS chat_sessions ("
+                             "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                             "root_message_id INTEGER DEFAULT 0, "
+                             "folder_id INTEGER DEFAULT 0, "
+                             "title TEXT DEFAULT '', "
+                             "system_prompt TEXT DEFAULT '', "
+                             "model TEXT DEFAULT '', "
+                             "created_at DATETIME DEFAULT CURRENT_TIMESTAMP, "
+                             "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP);")) {
+                 return false;
+             }
+
+             if (!db.execute("CREATE INDEX IF NOT EXISTS idx_chat_sessions_root "
+                             "ON chat_sessions(root_message_id);")) {
+                 return false;
+             }
+
+             bool hasChatId = false;
+             if (!db.hasColumn("messages", "chat_id", hasChatId)) return false;
+             if (!hasChatId && !db.execute("ALTER TABLE messages ADD COLUMN chat_id INTEGER DEFAULT 0;")) {
+                 return false;
+             }
+
+             bool hasRunId = false;
+             if (!db.hasColumn("messages", "run_id", hasRunId)) return false;
+             if (!hasRunId && !db.execute("ALTER TABLE messages ADD COLUMN run_id INTEGER DEFAULT 0;")) {
+                 return false;
+             }
+
+             // 1. Quarantine and recover orphaned messages whose parent_id points to a missing message
+             {
+                 sqlite3_stmt* orphStmt = nullptr;
+                 if (sqlite3_prepare_v2(handle,
+                                        "SELECT m.id, m.parent_id, m.role, m.content FROM messages m "
+                                        "WHERE m.parent_id IS NOT NULL AND m.parent_id > 0 "
+                                        "AND NOT EXISTS (SELECT 1 FROM messages p WHERE p.id = m.parent_id);",
+                                        -1, &orphStmt, nullptr) != SQLITE_OK) {
+                     return false;
+                 }
+                 int rc = SQLITE_OK;
+                 while ((rc = sqlite3_step(orphStmt)) == SQLITE_ROW) {
+                     const int msgId = sqlite3_column_int(orphStmt, 0);
+                     const int badParent = sqlite3_column_int(orphStmt, 1);
+                     const char* roleTxt = reinterpret_cast<const char*>(sqlite3_column_text(orphStmt, 2));
+                     const char* cntTxt = reinterpret_cast<const char*>(sqlite3_column_text(orphStmt, 3));
+                     const QString roleStr = roleTxt ? QString::fromUtf8(roleTxt) : QString();
+                     const QString cntStr = cntTxt ? QString::fromUtf8(cntTxt) : QString();
+
+                     QJsonObject raw;
+                     raw["id"] = msgId;
+                     raw["parent_id"] = badParent;
+                     raw["role"] = roleStr;
+
+                     sqlite3_stmt* qStmt = nullptr;
+                     if (sqlite3_prepare_v2(
+                             handle,
+                             "INSERT INTO quarantined_records (source_table, legacy_id, target_type, parent_reference, "
+                             "title, content, raw_payload_json, reason) VALUES ('messages', ?, 'chat', ?, '', ?, ?, "
+                             "'orphaned_parent_message');",
+                             -1, &qStmt, nullptr) != SQLITE_OK) {
+                         sqlite3_finalize(orphStmt);
+                         return false;
+                     }
+                     const QByteArray cUtf8 = cntStr.toUtf8();
+                     const QByteArray pUtf8 = QJsonDocument(raw).toJson(QJsonDocument::Compact);
+                     sqlite3_bind_int(qStmt, 1, msgId);
+                     sqlite3_bind_int(qStmt, 2, badParent);
+                     sqlite3_bind_text(qStmt, 3, cUtf8.constData(), -1, SQLITE_TRANSIENT);
+                     sqlite3_bind_text(qStmt, 4, pUtf8.constData(), -1, SQLITE_TRANSIENT);
+                     const bool ok = (sqlite3_step(qStmt) == SQLITE_DONE);
+                     sqlite3_finalize(qStmt);
+                     if (!ok) {
+                         sqlite3_finalize(orphStmt);
+                         return false;
+                     }
+                 }
+                 sqlite3_finalize(orphStmt);
+                 if (rc != SQLITE_DONE) return false;
+
+                 if (!db.execute("UPDATE messages SET parent_id = 0 "
+                                 "WHERE parent_id IS NOT NULL AND parent_id > 0 "
+                                 "AND NOT EXISTS (SELECT 1 FROM messages p WHERE p.id = messages.parent_id);")) {
+                     return false;
+                 }
+             }
+
+             // 2. Backfill chat_sessions for all root messages and propagate chat_id to descendants
+             struct MsgNode {
+                 int id = 0;
+                 int parentId = 0;
+                 int folderId = 0;
+                 QString content;
+                 QString timestamp;
+             };
+             QHash<int, MsgNode> msgMap;
+             QList<MsgNode> roots;
+             {
+                 sqlite3_stmt* stmt = nullptr;
+                 if (sqlite3_prepare_v2(
+                         handle,
+                         "SELECT id, COALESCE(parent_id, 0), COALESCE(folder_id, 0), COALESCE(content, ''), "
+                         "COALESCE(timestamp, '') FROM messages ORDER BY id ASC;",
+                         -1, &stmt, nullptr) != SQLITE_OK) {
+                     return false;
+                 }
+                 int rc = SQLITE_OK;
+                 while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+                     MsgNode n;
+                     n.id = sqlite3_column_int(stmt, 0);
+                     n.parentId = sqlite3_column_int(stmt, 1);
+                     n.folderId = sqlite3_column_int(stmt, 2);
+                     const char* cTxt = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
+                     const char* tsTxt = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4));
+                     n.content = cTxt ? QString::fromUtf8(cTxt) : QString();
+                     n.timestamp = tsTxt ? QString::fromUtf8(tsTxt) : QString();
+                     msgMap.insert(n.id, n);
+                     if (n.parentId == 0) {
+                         roots.append(n);
+                     }
+                 }
+                 sqlite3_finalize(stmt);
+                 if (rc != SQLITE_DONE) return false;
+             }
+
+             QHash<int, int> rootToChatId;
+             for (const MsgNode& root : roots) {
+                 // Check if a chat_session already exists for this root
+                 int existingChatId = 0;
+                 {
+                     sqlite3_stmt* chk = nullptr;
+                     if (sqlite3_prepare_v2(handle, "SELECT id FROM chat_sessions WHERE root_message_id = ?;", -1, &chk,
+                                            nullptr) == SQLITE_OK) {
+                         sqlite3_bind_int(chk, 1, root.id);
+                         if (sqlite3_step(chk) == SQLITE_ROW) {
+                             existingChatId = sqlite3_column_int(chk, 0);
+                         }
+                         sqlite3_finalize(chk);
+                     }
+                 }
+                 if (existingChatId > 0) {
+                     rootToChatId.insert(root.id, existingChatId);
+                     continue;
+                 }
+
+                 QString title;
+                 QString sysPrompt;
+                 QString model;
+                 {
+                     sqlite3_stmt* cStmt = nullptr;
+                     if (sqlite3_prepare_v2(handle,
+                                            "SELECT COALESCE(title, ''), COALESCE(systemPrompt, ''), "
+                                            "COALESCE(model, '') FROM chats WHERE message_id = ?;",
+                                            -1, &cStmt, nullptr) == SQLITE_OK) {
+                         sqlite3_bind_int(cStmt, 1, root.id);
+                         if (sqlite3_step(cStmt) == SQLITE_ROW) {
+                             const char* t = reinterpret_cast<const char*>(sqlite3_column_text(cStmt, 0));
+                             const char* s = reinterpret_cast<const char*>(sqlite3_column_text(cStmt, 1));
+                             const char* m = reinterpret_cast<const char*>(sqlite3_column_text(cStmt, 2));
+                             title = t ? QString::fromUtf8(t) : QString();
+                             sysPrompt = s ? QString::fromUtf8(s) : QString();
+                             model = m ? QString::fromUtf8(m) : QString();
+                         }
+                         sqlite3_finalize(cStmt);
+                     }
+                 }
+                 if (title.isEmpty()) {
+                     title = root.content.trimmed().left(60);
+                 }
+
+                 sqlite3_stmt* ins = nullptr;
+                 if (sqlite3_prepare_v2(handle,
+                                        "INSERT INTO chat_sessions (root_message_id, folder_id, title, system_prompt, "
+                                        "model, created_at, updated_at) VALUES (?, ?, ?, ?, ?, "
+                                        "COALESCE(NULLIF(?, ''), CURRENT_TIMESTAMP), "
+                                        "COALESCE(NULLIF(?, ''), CURRENT_TIMESTAMP)) RETURNING id;",
+                                        -1, &ins, nullptr) != SQLITE_OK) {
+                     return false;
+                 }
+                 const QByteArray tUtf8 = title.toUtf8();
+                 const QByteArray sUtf8 = sysPrompt.toUtf8();
+                 const QByteArray mUtf8 = model.toUtf8();
+                 const QByteArray tsUtf8 = root.timestamp.toUtf8();
+                 sqlite3_bind_int(ins, 1, root.id);
+                 sqlite3_bind_int(ins, 2, root.folderId);
+                 sqlite3_bind_text(ins, 3, tUtf8.constData(), -1, SQLITE_TRANSIENT);
+                 sqlite3_bind_text(ins, 4, sUtf8.constData(), -1, SQLITE_TRANSIENT);
+                 sqlite3_bind_text(ins, 5, mUtf8.constData(), -1, SQLITE_TRANSIENT);
+                 sqlite3_bind_text(ins, 6, tsUtf8.constData(), -1, SQLITE_TRANSIENT);
+                 sqlite3_bind_text(ins, 7, tsUtf8.constData(), -1, SQLITE_TRANSIENT);
+                 int chatId = 0;
+                 if (sqlite3_step(ins) == SQLITE_ROW) {
+                     chatId = sqlite3_column_int(ins, 0);
+                 }
+                 sqlite3_finalize(ins);
+                 if (chatId <= 0) return false;
+                 rootToChatId.insert(root.id, chatId);
+             }
+
+             // Propagate chat_id to all messages
+             for (auto it = msgMap.begin(); it != msgMap.end(); ++it) {
+                 int curr = it.key();
+                 QSet<int> visited;
+                 while (msgMap.contains(curr) && msgMap.value(curr).parentId > 0 && !visited.contains(curr)) {
+                     visited.insert(curr);
+                     curr = msgMap.value(curr).parentId;
+                 }
+                 const int chatId = rootToChatId.value(curr, 0);
+                 if (chatId > 0) {
+                     if (!db.execute(
+                             QString("UPDATE messages SET chat_id = %1 WHERE id = %2;").arg(chatId).arg(it.key()))) {
+                         return false;
+                     }
+                 }
+             }
+
+             return true;
+         }});
+
     return runner;
 }
 

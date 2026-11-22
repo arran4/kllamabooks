@@ -242,6 +242,21 @@ QList<AiRunInput> RunStore::getRunInputs(int runId) const {
     return inputs;
 }
 
+QList<AiRunInput> RunStore::resolveInputsForRerun(int runId, bool exactSnapshot) const {
+    QList<AiRunInput> inputs = getRunInputs(runId);
+    if (exactSnapshot || !m_db.handle()) return inputs;
+
+    ArtifactStore artStore(m_db);
+    for (AiRunInput& inp : inputs) {
+        if (inp.artifactId > 0) {
+            if (auto artOpt = artStore.getArtifact(inp.artifactId)) {
+                inp.versionId = artOpt->currentVersionId;
+            }
+        }
+    }
+    return inputs;
+}
+
 Result<bool> RunStore::claimRun(int runId, const QString& workerInstanceId, int leaseSeconds) {
     if (!m_db.handle()) return Result<bool>::fail(TransitionError::DatabaseError, "Database not open");
     if (runId <= 0 || workerInstanceId.trimmed().isEmpty() || leaseSeconds <= 0) {

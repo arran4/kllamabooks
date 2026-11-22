@@ -3287,15 +3287,9 @@ void MainWindow::onSendMessage() {
                 models.append(m_availableModels.first());
             }
 
+            currentLastNodeId = userMsgId;
             for (const QString& model : models) {
-                int aiId = currentDb->addMessage(userMsgId, "", "assistant");
-                currentLastNodeId = aiId;  // Will point to the last created fork
-
-                ChatNode cn = currentDb->getChat(aiId);
-                cn.model = model;
-                currentDb->updateChat(cn);
-
-                QueueManager::instance().enqueuePrompt(aiId, model, text);
+                QueueManager::instance().enqueueChatReply(userMsgId, model, text);
             }
 
             if (m_selectedModels.size() > 1) {
@@ -3438,21 +3432,15 @@ void MainWindow::onSendMessage() {
         }
     }
 
-    // 2. Add Assistant placeholders & Enqueue
+    // 2. Enqueue assistant reply runs without creating blank assistant placeholder messages
     QStringList models = m_selectedModels;
     if (models.isEmpty() && !m_availableModels.isEmpty()) {
         models.append(m_availableModels.first());
     }
 
+    currentLastNodeId = userMsgId;
     for (const QString& model : models) {
-        int aiId = currentDb->addMessage(userMsgId, "", "assistant");
-        currentLastNodeId = aiId;  // Will point to the last created fork
-
-        ChatNode cn = currentDb->getChat(aiId);
-        cn.model = model;
-        currentDb->updateChat(cn);
-
-        QueueManager::instance().enqueuePrompt(aiId, model, text);
+        QueueManager::instance().enqueueChatReply(userMsgId, model, text);
     }
 
     // Refresh tree if needed
@@ -3663,6 +3651,20 @@ void MainWindow::onProcessingFinished(std::shared_ptr<BookDatabase> db, int mess
                 success ? tr("AI document generation complete.") : tr("Error generating document changes."), 3000);
         } else if (targetType == "message" && currentLastNodeId == messageId) {
             statusBar->showMessage(success ? tr("Response complete.") : tr("Error in response."), 3000);
+            if (success) {
+                // Advance currentLastNodeId to the newly created assistant child message if present
+                const QList<MessageNode> allMsgs = currentDb->getMessages();
+                int newestAssistantId = 0;
+                for (const auto& m : allMsgs) {
+                    if (m.parentId == messageId && m.role == QLatin1String("assistant") && m.id > newestAssistantId) {
+                        newestAssistantId = m.id;
+                    }
+                }
+                if (newestAssistantId > 0) {
+                    currentLastNodeId = newestAssistantId;
+                    loadDocumentsAndNotes();
+                }
+            }
             updateGenerationUI();
             updateLinearChatView(currentLastNodeId, currentDb->getMessages());
         }
