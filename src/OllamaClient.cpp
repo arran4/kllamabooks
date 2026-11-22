@@ -180,10 +180,66 @@ void OllamaClient::pullModel(const QString& modelName) {
  * @param onComplete Fired when the JSON EOF boolean is detected.
  * @param onError Fired on socket or HTTP error conditions.
  */
-QNetworkReply* OllamaClient::generate(const QString& model, const QString& prompt,
-                                      std::function<void(const QString&)> onChunk,
-                                      std::function<void(const QString&)> onComplete,
-                                      std::function<void(QNetworkReply::NetworkError, const QString&)> onError) {
+namespace {
+
+template <typename Extractor>
+void attachStreamingHandlers(OllamaClient* client, QNetworkReply* reply, const llm::LlmCallbacks& callbacks,
+                             QList<QNetworkReply*>& activeGenerations, Extractor&& extractPart) {
+    auto fullResponse = std::make_shared<QString>();
+    auto buffer = std::make_shared<QByteArray>();
+
+    QObject::connect(reply, &QNetworkReply::readyRead, client,
+                     [client, reply, callbacks, fullResponse, buffer, extractPart]() {
+                         buffer->append(reply->readAll());
+
+                         while (true) {
+                             int newlineIndex = buffer->indexOf('\n');
+                             if (newlineIndex == -1) break;
+
+                             QByteArray line = buffer->left(newlineIndex);
+                             buffer->remove(0, newlineIndex + 1);
+
+                             if (line.trimmed().isEmpty()) continue;
+
+                             QJsonParseError error;
+                             QJsonDocument doc = QJsonDocument::fromJson(line, &error);
+                             if (error.error == QJsonParseError::NoError && doc.isObject()) {
+                                 QJsonObject obj = doc.object();
+                                 QString responsePart = extractPart(obj);
+                                 if (!responsePart.isEmpty()) {
+                                     fullResponse->append(responsePart);
+                                     if (callbacks.onChunk) callbacks.onChunk(responsePart);
+                                 }
+
+                                 if (obj.value("done").toBool()) {
+                                     double evalCount = obj.value("eval_count").toDouble();
+                                     double evalDuration = obj.value("eval_duration").toDouble();
+                                     if (evalDuration > 0 && evalCount > 0) {
+                                         double tokensPerSecond = (evalCount / evalDuration) * 1e9;
+                                         emit client->generationMetrics(tokensPerSecond);
+                                     }
+                                 }
+                             }
+                         }
+                     });
+
+    QObject::connect(reply, &QNetworkReply::finished, client,
+                     [client, reply, callbacks, fullResponse, &activeGenerations]() {
+                         activeGenerations.removeAll(reply);
+                         if (reply->error() != QNetworkReply::NoError) {
+                             emit client->connectionStatusChanged(false);
+                             if (callbacks.onError) callbacks.onError(reply->error(), reply->errorString());
+                         } else {
+                             if (callbacks.onComplete) callbacks.onComplete(*fullResponse);
+                         }
+                         reply->deleteLater();
+                     });
+}
+
+}  // namespace
+
+QNetworkReply* OllamaClient::generate(const llm::LlmRequestOptions& options, const QString& prompt,
+                                      const llm::LlmCallbacks& callbacks) {
     QUrl url(m_baseUrl + "/api/generate");
     QNetworkRequest request(url);
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
@@ -191,89 +247,36 @@ QNetworkReply* OllamaClient::generate(const QString& model, const QString& promp
         request.setRawHeader("Authorization", ("Bearer " + m_authKey).toUtf8());
     }
 
-    QJsonObject json;
-    json["model"] = model;
-    json["prompt"] = prompt;
-    json["stream"] = true;
+    const QJsonObject json = llm::buildOllamaGeneratePayload(options, prompt);
+    const QByteArray data = QJsonDocument(json).toJson();
 
-    if (!m_systemPrompt.isEmpty()) {
-        json["system"] = m_systemPrompt;
-    }
-
-    QJsonDocument doc(json);
-    QByteArray data = doc.toJson();
-
-    emit requestSent(model, m_systemPrompt, prompt);
+    emit requestSent(options.model, options.systemPrompt, prompt);
 
     QNetworkReply* reply = m_networkManager->post(request, data);
     m_activeGenerations.append(reply);
 
-    // Shared pointer to accumulate the full response safely
-    auto fullResponse = std::make_shared<QString>();
-    // Buffer for incomplete lines
-    auto buffer = std::make_shared<QByteArray>();
-
-    connect(reply, &QNetworkReply::readyRead, this, [this, reply, onChunk, fullResponse, buffer]() {
-        buffer->append(reply->readAll());
-
-        while (true) {
-            int newlineIndex = buffer->indexOf('\n');
-            if (newlineIndex == -1) break;
-
-            QByteArray line = buffer->left(newlineIndex);
-            buffer->remove(0, newlineIndex + 1);
-
-            if (line.trimmed().isEmpty()) continue;
-
-            QJsonParseError error;
-            QJsonDocument doc = QJsonDocument::fromJson(line, &error);
-            if (error.error == QJsonParseError::NoError && doc.isObject()) {
-                QJsonObject obj = doc.object();
-                QString responsePart = obj.value("response").toString();
-                if (!responsePart.isEmpty()) {
-                    fullResponse->append(responsePart);
-                    onChunk(responsePart);
-                }
-
-                if (obj.value("done").toBool()) {
-                    double evalCount = obj.value("eval_count").toDouble();
-                    double evalDuration = obj.value("eval_duration").toDouble();
-                    if (evalDuration > 0 && evalCount > 0) {
-                        double tokensPerSecond = (evalCount / evalDuration) * 1e9;
-                        emit generationMetrics(tokensPerSecond);
-                    }
-                }
-            }
-        }
-    });
-
-    connect(reply, &QNetworkReply::finished, this, [this, reply, onComplete, onError, fullResponse]() {
-        m_activeGenerations.removeAll(reply);
-        if (reply->error() != QNetworkReply::NoError) {
-            emit connectionStatusChanged(false);
-            onError(reply->error(), reply->errorString());
-        } else {
-            onComplete(*fullResponse);
-        }
-        reply->deleteLater();
-    });
-
+    attachStreamingHandlers(this, reply, callbacks, m_activeGenerations,
+                            [](const QJsonObject& obj) { return obj.value("response").toString(); });
     return reply;
+}
+
+QNetworkReply* OllamaClient::generate(const QString& model, const QString& prompt,
+                                      std::function<void(const QString&)> onChunk,
+                                      std::function<void(const QString&)> onComplete,
+                                      std::function<void(QNetworkReply::NetworkError, const QString&)> onError) {
+    return generate(llm::LlmRequestOptions{model, m_systemPrompt, {}}, prompt,
+                    llm::LlmCallbacks{std::move(onChunk), std::move(onComplete), std::move(onError)});
 }
 
 /**
  * @brief Opens a POST stream sequence to the Ollama chat endpoint.
  *
- * @param model The target model hash or tag.
+ * @param options Per-request model, system prompt, and generation options.
  * @param messages The complete chat history in the format required by Ollama API.
- * @param onChunk Fired per JSON line received.
- * @param onComplete Fired when the JSON EOF boolean is detected.
- * @param onError Fired on socket or HTTP error conditions.
+ * @param callbacks Streaming callbacks.
  */
-QNetworkReply* OllamaClient::generateChat(const QString& model, const QJsonArray& messages,
-                                          std::function<void(const QString&)> onChunk,
-                                          std::function<void(const QString&)> onComplete,
-                                          std::function<void(QNetworkReply::NetworkError, const QString&)> onError) {
+QNetworkReply* OllamaClient::generateChat(const llm::LlmRequestOptions& options, const QJsonArray& messages,
+                                          const llm::LlmCallbacks& callbacks) {
     QUrl url(m_baseUrl + "/api/chat");
     QNetworkRequest request(url);
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
@@ -281,93 +284,31 @@ QNetworkReply* OllamaClient::generateChat(const QString& model, const QJsonArray
         request.setRawHeader("Authorization", ("Bearer " + m_authKey).toUtf8());
     }
 
-    QJsonObject json;
-    json["model"] = model;
-    json["messages"] = messages;
-    json["stream"] = true;
-
-    if (!m_systemPrompt.isEmpty()) {
-        // According to Ollama API documentation, system prompt can be passed either
-        // as a top level parameter in chat or injected as a system role message.
-        // We will stick to top-level `system` property if they support it, but
-        // it is safer to inject it as the first message with role="system".
-        QJsonObject sysMsg;
-        sysMsg["role"] = "system";
-        sysMsg["content"] = m_systemPrompt;
-
-        QJsonArray newMessages;
-        newMessages.append(sysMsg);
-        for (const auto& msg : messages) {
-            newMessages.append(msg);
-        }
-        json["messages"] = newMessages;
-    }
-
-    QJsonDocument doc(json);
-    QByteArray data = doc.toJson();
+    const QJsonObject json = llm::buildOllamaChatPayload(options, messages);
+    const QByteArray data = QJsonDocument(json).toJson();
 
     // Re-use requestSent with stringified prompt to maintain compatibility with GlobalSpy
     QJsonDocument debugDoc(json["messages"].toArray());
-    emit requestSent(model, m_systemPrompt, QString(debugDoc.toJson(QJsonDocument::Compact)));
+    emit requestSent(options.model, options.systemPrompt, QString(debugDoc.toJson(QJsonDocument::Compact)));
 
     QNetworkReply* reply = m_networkManager->post(request, data);
     m_activeGenerations.append(reply);
 
-    auto fullResponse = std::make_shared<QString>();
-    auto buffer = std::make_shared<QByteArray>();
-
-    connect(reply, &QNetworkReply::readyRead, this, [this, reply, onChunk, fullResponse, buffer]() {
-        buffer->append(reply->readAll());
-
-        while (true) {
-            int newlineIndex = buffer->indexOf('\n');
-            if (newlineIndex == -1) break;
-
-            QByteArray line = buffer->left(newlineIndex);
-            buffer->remove(0, newlineIndex + 1);
-
-            if (line.trimmed().isEmpty()) continue;
-
-            QJsonParseError error;
-            QJsonDocument doc = QJsonDocument::fromJson(line, &error);
-            if (error.error == QJsonParseError::NoError && doc.isObject()) {
-                QJsonObject obj = doc.object();
-
-                // For /api/chat, the actual response string is nested inside "message" object
-                QString responsePart;
-                if (obj.contains("message") && obj.value("message").isObject()) {
-                    responsePart = obj.value("message").toObject().value("content").toString();
-                }
-
-                if (!responsePart.isEmpty()) {
-                    fullResponse->append(responsePart);
-                    onChunk(responsePart);
-                }
-
-                if (obj.value("done").toBool()) {
-                    double evalCount = obj.value("eval_count").toDouble();
-                    double evalDuration = obj.value("eval_duration").toDouble();
-                    if (evalDuration > 0 && evalCount > 0) {
-                        double tokensPerSecond = (evalCount / evalDuration) * 1e9;
-                        emit generationMetrics(tokensPerSecond);
-                    }
-                }
-            }
+    attachStreamingHandlers(this, reply, callbacks, m_activeGenerations, [](const QJsonObject& obj) {
+        if (obj.contains("message") && obj.value("message").isObject()) {
+            return obj.value("message").toObject().value("content").toString();
         }
+        return QString();
     });
-
-    connect(reply, &QNetworkReply::finished, this, [this, reply, onComplete, onError, fullResponse]() {
-        m_activeGenerations.removeAll(reply);
-        if (reply->error() != QNetworkReply::NoError) {
-            emit connectionStatusChanged(false);
-            onError(reply->error(), reply->errorString());
-        } else {
-            onComplete(*fullResponse);
-        }
-        reply->deleteLater();
-    });
-
     return reply;
+}
+
+QNetworkReply* OllamaClient::generateChat(const QString& model, const QJsonArray& messages,
+                                          std::function<void(const QString&)> onChunk,
+                                          std::function<void(const QString&)> onComplete,
+                                          std::function<void(QNetworkReply::NetworkError, const QString&)> onError) {
+    return generateChat(llm::LlmRequestOptions{model, m_systemPrompt, {}}, messages,
+                        llm::LlmCallbacks{std::move(onChunk), std::move(onComplete), std::move(onError)});
 }
 
 void OllamaClient::abortGenerations() {
