@@ -44,6 +44,7 @@ class DocumentEditWindow : public KXmlGuiWindow {
     int m_documentId;
     QString m_title;
     QDateTime m_openTimestamp;
+    int m_loadedVersionId = 0;
     QString m_initialContent;
     QString m_targetType;
 

@@ -81,43 +81,30 @@ void DocumentEditWindow::setupWindow() {
         connect(replaceOriginalAction, &QAction::triggered, this, [this]() {
             if (!m_db || !m_db->isOpen()) return;
 
-            QList<DocumentNode> drafts = m_db->getDrafts(-1);
-            int parentId = 0;
-            QString targetType = "";
-            for (const auto& d : drafts) {
-                if (d.id == m_documentId) {
-                    parentId = d.parentId;
-                    targetType = d.targetType;
-                    break;
-                }
-            }
-
-            if (parentId <= 0) {
+            auto draftOpt = m_db->getDraft(m_documentId);
+            if (!draftOpt.has_value() || draftOpt->parentId <= 0) {
                 QMessageBox::warning(this, tr("Not Found"), tr("Cannot find original document."));
                 return;
             }
+            const int parentId = draftOpt->parentId;
+            const QString targetType = draftOpt->targetType;
 
             QDateTime originalTimestamp;
-            QList<DocumentNode> originals;
-            if (targetType == "document")
-                originals = m_db->getDocuments(-1);
-            else if (targetType == "template")
-                originals = m_db->getTemplates(-1);
-            else if (targetType == "note") {
-                auto notes = m_db->getNotes(-1);
-                for (const auto& n : notes) {
-                    if (n.id == parentId) {
-                        originalTimestamp = n.timestamp;
-                        break;
-                    }
+            int parentFolderId = 0;
+            if (targetType == "document") {
+                if (auto orig = m_db->getDocument(parentId)) {
+                    originalTimestamp = orig->timestamp;
+                    parentFolderId = orig->folderId;
                 }
-            }
-            if (targetType != "note") {
-                for (const auto& doc : originals) {
-                    if (doc.id == parentId) {
-                        originalTimestamp = doc.timestamp;
-                        break;
-                    }
+            } else if (targetType == "template") {
+                if (auto orig = m_db->getTemplate(parentId)) {
+                    originalTimestamp = orig->timestamp;
+                    parentFolderId = orig->folderId;
+                }
+            } else if (targetType == "note") {
+                if (auto orig = m_db->getNote(parentId)) {
+                    originalTimestamp = orig->timestamp;
+                    parentFolderId = orig->folderId;
                 }
             }
 
@@ -134,6 +121,7 @@ void DocumentEditWindow::setupWindow() {
                 QPushButton* deleteDraftBtn =
                     msgBox.addButton(tr("Delete Draft & Cancel"), QMessageBox::DestructiveRole);
                 QPushButton* cancelBtn = msgBox.addButton(tr("Cancel"), QMessageBox::RejectRole);
+                Q_UNUSED(cancelBtn)
 
                 msgBox.exec();
 
@@ -147,26 +135,12 @@ void DocumentEditWindow::setupWindow() {
                     QString newTitle = QInputDialog::getText(this, tr("Create Fork"), tr("New Title:"),
                                                              QLineEdit::Normal, m_title + " (Fork)", &ok);
                     if (ok && !newTitle.isEmpty()) {
-                        int folderId = 0;
-                        for (const auto& doc : originals) {
-                            if (doc.id == parentId) {
-                                folderId = doc.folderId;
-                                break;
-                            }
-                        }
                         if (targetType == "note") {
-                            auto notes = m_db->getNotes(-1);
-                            for (const auto& n : notes) {
-                                if (n.id == parentId) {
-                                    folderId = n.folderId;
-                                    break;
-                                }
-                            }
-                            m_db->addNote(folderId, newTitle, m_editor->toPlainText());
+                            m_db->addNote(parentFolderId, newTitle, m_editor->toPlainText());
                         } else if (targetType == "document") {
-                            m_db->addDocument(folderId, newTitle, m_editor->toPlainText());
+                            m_db->addDocument(parentFolderId, newTitle, m_editor->toPlainText(), parentId);
                         } else if (targetType == "template") {
-                            m_db->addTemplate(folderId, newTitle, m_editor->toPlainText());
+                            m_db->addTemplate(parentFolderId, newTitle, m_editor->toPlainText());
                         }
                         m_db->deleteDraft(m_documentId);
                         emit documentModified(m_documentId);
@@ -205,23 +179,13 @@ void DocumentEditWindow::setupWindow() {
         connect(viewOriginalAction, &QAction::triggered, this, [this]() {
             if (!m_db || !m_db->isOpen()) return;
 
-            QList<DocumentNode> drafts = m_db->getDrafts(-1);
-            int parentId = 0;
-            QString targetType = "";
-            for (const auto& d : drafts) {
-                if (d.id == m_documentId) {
-                    parentId = d.parentId;
-                    targetType = d.targetType;
-                    break;
-                }
-            }
-
-            if (parentId <= 0) {
+            auto draftOpt = m_db->getDraft(m_documentId);
+            if (!draftOpt.has_value() || draftOpt->parentId <= 0) {
                 QMessageBox::warning(this, tr("Not Found"), tr("Cannot find original document."));
                 return;
             }
 
-            emit jumpToDocumentRequested(parentId);  // Signal MainWindow to jump there, need to update param
+            emit jumpToDocumentRequested(draftOpt->parentId);
         });
     }
 
@@ -324,7 +288,10 @@ void DocumentEditWindow::updateStatusBar() {
     }
 
     QDateTime currentDbTimestamp = getLatestDbTimestamp();
-    if (currentDbTimestamp > m_openTimestamp) {
+    int currentVersionId =
+        (m_db && m_db->isOpen()) ? m_db->getArtifactCurrentVersionId(m_documentId, m_targetType) : m_loadedVersionId;
+    if ((m_loadedVersionId > 0 && currentVersionId > 0 && currentVersionId != m_loadedVersionId) ||
+        currentDbTimestamp > m_openTimestamp) {
         m_statusLabel->setText(tr("⚠️ Must Fork - Document was modified externally"));
         m_statusLabel->setStyleSheet("color: red; font-weight: bold;");
     } else if (m_editor->toPlainText() != m_initialContent) {
@@ -339,37 +306,34 @@ void DocumentEditWindow::updateStatusBar() {
 void DocumentEditWindow::loadDocument() {
     if (!m_db || !m_db->isOpen()) return;
 
-    QList<DocumentNode> docs;
-    if (m_targetType == "document")
-        docs = m_db->getDocuments();
-    else if (m_targetType == "draft")
-        docs = m_db->getDrafts();
-    else if (m_targetType == "template")
-        docs = m_db->getTemplates();
-    else if (m_targetType == "note") {
-        auto notes = m_db->getNotes();
-        for (const auto& n : notes) {
-            if (n.id == m_documentId) {
-                m_initialContent = n.content;
-                if (m_editor->toPlainText().isEmpty()) {
-                    m_editor->setPlainText(m_initialContent);
-                }
-                break;
-            }
-        }
-        return;
-    }
-
-    for (const auto& d : docs) {
-        if (d.id == m_documentId) {
-            m_initialContent = d.content;
+    if (m_targetType == "note") {
+        if (auto n = m_db->getNote(m_documentId)) {
+            m_initialContent = n->content;
             if (m_editor->toPlainText().isEmpty()) {
                 m_editor->setPlainText(m_initialContent);
             }
-            break;
+        }
+        m_loadedVersionId = m_db->getArtifactCurrentVersionId(m_documentId, m_targetType);
+        m_openTimestamp = getLatestDbTimestamp();
+        return;
+    }
+
+    std::optional<DocumentNode> docOpt;
+    if (m_targetType == "document")
+        docOpt = m_db->getDocument(m_documentId);
+    else if (m_targetType == "draft")
+        docOpt = m_db->getDraft(m_documentId);
+    else if (m_targetType == "template")
+        docOpt = m_db->getTemplate(m_documentId);
+
+    if (docOpt.has_value()) {
+        m_initialContent = docOpt->content;
+        if (m_editor->toPlainText().isEmpty()) {
+            m_editor->setPlainText(m_initialContent);
         }
     }
 
+    m_loadedVersionId = m_db->getArtifactCurrentVersionId(m_documentId, m_targetType);
     m_openTimestamp = getLatestDbTimestamp();
 }
 
@@ -377,29 +341,21 @@ QDateTime DocumentEditWindow::getLatestDbTimestamp() const {
     if (!m_db || !m_db->isOpen()) return QDateTime::currentDateTime();
 
     QDateTime latest;
-    QList<DocumentNode> docs;
-    if (m_targetType == "document")
-        docs = m_db->getDocuments();
-    else if (m_targetType == "draft")
-        docs = m_db->getDrafts();
-    else if (m_targetType == "template")
-        docs = m_db->getTemplates();
-    else if (m_targetType == "note") {
-        auto notes = m_db->getNotes();
-        for (const auto& n : notes) {
-            if (n.id == m_documentId) {
-                latest = n.timestamp;
-                break;
-            }
+    if (m_targetType == "note") {
+        if (auto n = m_db->getNote(m_documentId)) {
+            latest = n->timestamp;
         }
-    }
+    } else {
+        std::optional<DocumentNode> docOpt;
+        if (m_targetType == "document")
+            docOpt = m_db->getDocument(m_documentId);
+        else if (m_targetType == "draft")
+            docOpt = m_db->getDraft(m_documentId);
+        else if (m_targetType == "template")
+            docOpt = m_db->getTemplate(m_documentId);
 
-    if (m_targetType != "note") {
-        for (const auto& d : docs) {
-            if (d.id == m_documentId) {
-                latest = d.timestamp;
-                break;
-            }
+        if (docOpt.has_value()) {
+            latest = docOpt->timestamp;
         }
     }
 
@@ -426,6 +382,7 @@ void DocumentEditWindow::onJumpClicked() { emit jumpToDocumentRequested(m_docume
 void DocumentEditWindow::onSaveClicked() {
     if (saveToDb()) {
         m_initialContent = m_editor->toPlainText();
+        m_loadedVersionId = m_db->getArtifactCurrentVersionId(m_documentId, m_targetType);
         m_openTimestamp = QDateTime::currentDateTime();  // Update reference time to avoid immediate re-conflicts
         m_statusLabel->setText(tr("Saved"));
         updateStatusBar();
@@ -444,6 +401,7 @@ void DocumentEditWindow::onSaveAsClicked() {
             m_title = newTitle;
             setWindowTitle(tr("Editing: %1").arg(m_title));
             m_initialContent = m_editor->toPlainText();
+            m_loadedVersionId = m_db->getArtifactCurrentVersionId(m_documentId, m_targetType);
             m_openTimestamp = QDateTime::currentDateTime();
             m_statusLabel->setText(tr("Saved as new document"));
             updateStatusBar();
@@ -486,7 +444,7 @@ void DocumentEditWindow::onRenameClicked() {
     QString newTitle = QInputDialog::getText(this, tr("Rename"), tr("New Title:"), QLineEdit::Normal, m_title, &ok);
     if (ok && !newTitle.isEmpty()) {
         if (m_db && m_db->isOpen()) {
-            m_db->updateDocument(m_documentId, newTitle, m_editor->toPlainText());
+            m_db->updateDocumentTitle(m_documentId, newTitle, m_targetType);
             m_title = newTitle;
             setWindowTitle(tr("Editing: %1").arg(m_title));
             m_statusLabel->setText(tr("Renamed"));
@@ -498,31 +456,24 @@ void DocumentEditWindow::onRenameClicked() {
 int DocumentEditWindow::forkDocument(const QString& newTitle) {
     if (!m_db || !m_db->isOpen()) return 0;
 
-    QList<DocumentNode> docs;
-    if (m_targetType == "document")
-        docs = m_db->getDocuments();
-    else if (m_targetType == "draft")
-        docs = m_db->getDrafts();
-    else if (m_targetType == "template")
-        docs = m_db->getTemplates();
-    else if (m_targetType == "note") {
-        auto notes = m_db->getNotes();
+    if (m_targetType == "note") {
         int folderId = 0;
-        for (const auto& n : notes) {
-            if (n.id == m_documentId) {
-                folderId = n.folderId;
-                break;
-            }
+        if (auto n = m_db->getNote(m_documentId)) {
+            folderId = n->folderId;
         }
         return m_db->addNote(folderId, newTitle, m_editor->toPlainText());
     }
 
     int folderId = 0;
-    for (const auto& d : docs) {
-        if (d.id == m_documentId) {
-            folderId = d.folderId;
-            break;
-        }
+    std::optional<DocumentNode> docOpt;
+    if (m_targetType == "document")
+        docOpt = m_db->getDocument(m_documentId);
+    else if (m_targetType == "draft")
+        docOpt = m_db->getDraft(m_documentId);
+    else if (m_targetType == "template")
+        docOpt = m_db->getTemplate(m_documentId);
+    if (docOpt.has_value()) {
+        folderId = docOpt->folderId;
     }
 
     if (m_targetType == "document") {
@@ -538,31 +489,24 @@ int DocumentEditWindow::forkDocument(const QString& newTitle) {
 int DocumentEditWindow::saveToDraft(const QString& newTitle) {
     if (!m_db || !m_db->isOpen()) return 0;
 
-    QList<DocumentNode> docs;
-    if (m_targetType == "document")
-        docs = m_db->getDocuments();
-    else if (m_targetType == "draft")
-        docs = m_db->getDrafts();
-    else if (m_targetType == "template")
-        docs = m_db->getTemplates();
-    else if (m_targetType == "note") {
-        auto notes = m_db->getNotes();
+    if (m_targetType == "note") {
         int folderId = 0;
-        for (const auto& n : notes) {
-            if (n.id == m_documentId) {
-                folderId = n.folderId;
-                break;
-            }
+        if (auto n = m_db->getNote(m_documentId)) {
+            folderId = n->folderId;
         }
         return m_db->addDraft(folderId, newTitle, m_editor->toPlainText(), m_documentId, m_targetType);
     }
 
     int folderId = 0;
-    for (const auto& d : docs) {
-        if (d.id == m_documentId) {
-            folderId = d.folderId;
-            break;
-        }
+    std::optional<DocumentNode> docOpt;
+    if (m_targetType == "document")
+        docOpt = m_db->getDocument(m_documentId);
+    else if (m_targetType == "draft")
+        docOpt = m_db->getDraft(m_documentId);
+    else if (m_targetType == "template")
+        docOpt = m_db->getTemplate(m_documentId);
+    if (docOpt.has_value()) {
+        folderId = docOpt->folderId;
     }
 
     return m_db->addDraft(folderId, newTitle, m_editor->toPlainText(), m_documentId, m_targetType);
@@ -571,14 +515,14 @@ int DocumentEditWindow::saveToDraft(const QString& newTitle) {
 bool DocumentEditWindow::saveToDb() {
     if (!m_db || !m_db->isOpen()) return false;
 
-    // Check for conflicts
     QDateTime currentDbTimestamp = getLatestDbTimestamp();
-    // Sometimes timestamps match exactly due to seconds resolution. We consider it modified if strictly >
-    // m_openTimestamp Wait, let's just do a strict greater check
+    int currentVersionId = m_db->getArtifactCurrentVersionId(m_documentId, m_targetType);
+    const bool hasConflict =
+        ((m_loadedVersionId > 0 && currentVersionId > 0 && currentVersionId != m_loadedVersionId) ||
+         currentDbTimestamp > m_openTimestamp) &&
+        m_targetType != "draft";
 
-    // Ignore conflict checking if this is just a draft we are editing,
-    // since the target's modifications shouldn't prevent saving the draft itself
-    if (currentDbTimestamp > m_openTimestamp && m_targetType != "draft") {
+    if (hasConflict) {
         // Conflict
         QMessageBox msgBox(this);
         msgBox.setWindowTitle(tr("Conflict Detected"));
@@ -589,6 +533,7 @@ bool DocumentEditWindow::saveToDb() {
         QPushButton* forkBtn = msgBox.addButton(tr("Create New Fork"), QMessageBox::AcceptRole);
         QPushButton* draftBtn = msgBox.addButton(tr("Save to Drafts"), QMessageBox::AcceptRole);
         QPushButton* cancelBtn = msgBox.addButton(tr("Cancel"), QMessageBox::RejectRole);
+        Q_UNUSED(cancelBtn)
 
         msgBox.exec();
 
@@ -636,28 +581,18 @@ void DocumentEditWindow::closeEvent(QCloseEvent* event) {
             int originalId = -1;
             QString targetType = "";
             QDateTime originalTimestamp;
-            QList<DocumentNode> drafts = m_db->getDrafts(-1);
-            for (const auto& d : drafts) {
-                if (d.id == m_documentId) {
-                    originalId = d.parentId;
-                    targetType = d.targetType;
-                    break;
-                }
+            if (auto d = m_db->getDraft(m_documentId)) {
+                originalId = d->parentId;
+                targetType = d->targetType;
             }
 
             if (originalId > 0) {
-                // Fetch the original's current timestamp
-                QList<DocumentNode> originals;
-                if (targetType == "document")
-                    originals = m_db->getDocuments(-1);
-                else if (targetType == "template")
-                    originals = m_db->getTemplates(-1);
-
-                for (const auto& doc : originals) {
-                    if (doc.id == originalId) {
-                        originalTimestamp = doc.timestamp;
-                        break;
-                    }
+                if (targetType == "document") {
+                    if (auto doc = m_db->getDocument(originalId)) originalTimestamp = doc->timestamp;
+                } else if (targetType == "template") {
+                    if (auto tmpl = m_db->getTemplate(originalId)) originalTimestamp = tmpl->timestamp;
+                } else if (targetType == "note") {
+                    if (auto note = m_db->getNote(originalId)) originalTimestamp = note->timestamp;
                 }
 
                 // If the original has changed since this draft was created, we should warn them.

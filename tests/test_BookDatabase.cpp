@@ -19,6 +19,7 @@ class TestBookDatabase : public QObject {
     void testAddDocumentUnopenedDb();
     void testChatRenamePreservesMessageContent();
     void testNestedForkChatRename();
+    void testArtifactStoreProductionCutoverLifecycle();
 };
 
 void TestBookDatabase::initTestCase() {
@@ -203,6 +204,91 @@ void TestBookDatabase::testNestedForkChatRename() {
     QHash<int, QString> titles = db.getAllChatTitles();
     QCOMPARE(titles.value(parentMsgId), QString("Parent Title"));
     QCOMPARE(titles.value(childMsgId), QString("Forked Title"));
+}
+
+void TestBookDatabase::testArtifactStoreProductionCutoverLifecycle() {
+    BookDatabase db(":memory:");
+    QVERIFY(db.open("testpassword"));
+
+    int folder1 = db.addFolder(0, "Folder 1", "documents");
+    int folder2 = db.addFolder(0, "Folder 2", "documents");
+    QVERIFY(folder1 > 0);
+    QVERIFY(folder2 > 0);
+
+    // 1. Document create, update, version history, restore, move, rename, delete
+    int docId = db.addDocument(folder1, "Initial Doc", "Version 1 content", 0, "{\"k\":1}");
+    QVERIFY(docId > 0);
+    int v1Id = db.getArtifactCurrentVersionId(docId, "document");
+    QVERIFY(v1Id > 0);
+
+    // Save an explicit history snapshot and update document
+    int histId = db.addDocumentHistoryReturningId(docId, "manual_edit_pre", "Version 1 content");
+    QVERIFY(histId > 0);
+    QVERIFY(db.updateDocument(docId, "Updated Doc", "Version 2 content"));
+
+    auto docOpt = db.getDocument(docId);
+    QVERIFY(docOpt.has_value());
+    QCOMPARE(docOpt->title, QString("Updated Doc"));
+    QCOMPARE(docOpt->content, QString("Version 2 content"));
+    QCOMPARE(docOpt->metadata, QString("{\"k\":1}"));
+
+    auto history = db.getDocumentHistory(docId);
+    QVERIFY(!history.isEmpty());
+    QCOMPARE(history.first().content, QString("Version 1 content"));
+    QCOMPARE(history.first().actionType, QString("manual_edit_pre"));
+
+    // Create a draft forked from the document
+    int draftId = db.addDraft(folder1, "Draft of Updated Doc", "Draft content", docId, "document");
+    QVERIFY(draftId > 0);
+    auto draftOpt = db.getDraft(draftId);
+    QVERIFY(draftOpt.has_value());
+    QCOMPARE(draftOpt->parentId, docId);
+    QCOMPARE(draftOpt->targetType, QString("document"));
+    QCOMPARE(draftOpt->content, QString("Draft content"));
+    // Forked source content should match the document's content at the time the draft was created
+    QCOMPARE(db.getDraftForkedSourceContent(draftId), QString("Version 2 content"));
+
+    // Restore document to historical version 1
+    QVERIFY(db.restoreDocumentHistoryVersion(docId, histId));
+    docOpt = db.getDocument(docId);
+    QVERIFY(docOpt.has_value());
+    QCOMPARE(docOpt->content, QString("Version 1 content"));
+    int vRestoredId = db.getArtifactCurrentVersionId(docId, "document");
+    QVERIFY(vRestoredId != v1Id);
+
+    // Rename & move document
+    QVERIFY(db.updateDocumentTitle(docId, "Renamed Doc", "document"));
+    QVERIFY(db.moveItem("documents", docId, folder2));
+    docOpt = db.getDocument(docId);
+    QVERIFY(docOpt.has_value());
+    QCOMPARE(docOpt->title, QString("Renamed Doc"));
+    QCOMPARE(docOpt->folderId, folder2);
+
+    // 2. Note & Template CRUD through ArtifactStore
+    int noteId = db.addNote(0, "My Note", "Initial note body");
+    QVERIFY(noteId > 0);
+    QVERIFY(db.updateNote(noteId, "My Note Renamed", "Updated note body"));
+    auto noteOpt = db.getNote(noteId);
+    QVERIFY(noteOpt.has_value());
+    QCOMPARE(noteOpt->title, QString("My Note Renamed"));
+    QCOMPARE(noteOpt->content, QString("Updated note body"));
+
+    int tplId = db.addTemplate(0, "My Template", "Template body {context}");
+    QVERIFY(tplId > 0);
+    QVERIFY(db.updateTemplate(tplId, "My Template v2", "Updated template {context}"));
+    auto tplOpt = db.getTemplate(tplId);
+    QVERIFY(tplOpt.has_value());
+    QCOMPARE(tplOpt->title, QString("My Template v2"));
+    QCOMPARE(tplOpt->content, QString("Updated template {context}"));
+
+    QVERIFY(db.deleteDraft(draftId));
+    QVERIFY(!db.getDraft(draftId).has_value());
+    QVERIFY(db.deleteNote(noteId));
+    QVERIFY(!db.getNote(noteId).has_value());
+    QVERIFY(db.deleteTemplate(tplId));
+    QVERIFY(!db.getTemplate(tplId).has_value());
+    QVERIFY(db.deleteDocument(docId));
+    QVERIFY(!db.getDocument(docId).has_value());
 }
 
 QTEST_MAIN(TestBookDatabase)

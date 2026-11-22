@@ -18,6 +18,7 @@ class DocumentHistoryDialog : public QDialog {
    private slots:
     void onSelectionChanged();
     void onRestore();
+    void onRestoreInPlace();
 
    private:
     std::shared_ptr<BookDatabase> m_db;

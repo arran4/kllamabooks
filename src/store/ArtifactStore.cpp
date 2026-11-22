@@ -656,6 +656,13 @@ Result<bool> ArtifactStore::deleteArtifact(int id) {
     }
     sqlite3_finalize(stmt);
 
+    // Clean up any legacy mapping rows referencing this artifact (legacy_document_mapping in v23 lacked ON DELETE
+    // CASCADE)
+    m_db.execute(QString("DELETE FROM legacy_document_mapping WHERE artifact_id = %1;").arg(id));
+    m_db.execute(QString("DELETE FROM legacy_note_mapping WHERE artifact_id = %1;").arg(id));
+    m_db.execute(QString("DELETE FROM legacy_template_mapping WHERE artifact_id = %1;").arg(id));
+    m_db.execute(QString("DELETE FROM legacy_draft_mapping WHERE artifact_id = %1;").arg(id));
+
     // Finally delete the artifact
     QString deleteArtifactSql = "DELETE FROM artifacts WHERE id = ?";
     if (sqlite3_prepare_v2(m_db.handle(), deleteArtifactSql.toUtf8().constData(), -1, &stmt, nullptr) != SQLITE_OK) {

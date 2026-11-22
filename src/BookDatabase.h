@@ -154,6 +154,9 @@ class BookDatabase {
     };
     QList<DocumentHistoryEntry> getDocumentHistory(int documentId) const;
     int addDocumentHistoryReturningId(int documentId, const QString& actionType, const QString& content);
+    bool restoreDocumentHistoryVersion(int documentId, int historyVersionId);
+    int getArtifactCurrentVersionId(int id, const QString& targetType = "document") const;
+    QString getDraftForkedSourceContent(int draftId) const;
 
     // Merges
     struct PromptHistoryEntry {
