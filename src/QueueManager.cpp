@@ -344,12 +344,7 @@ void QueueManager::processNext() {
             sysPrompt = settings.value("globalSystemPrompt", "").toString();
         }
 
-        // System prompt is configured globally in the client, but in concurrent setups
-        // we might want it passed dynamically. For now, since OllamaClient doesn't support
-        // per-request system prompts for standard generate (it does for chat via roles),
-        // we set it globally. This might cause a race condition if two standard generates
-        // have different system prompts, but it's a limitation of the current client interface.
-        m_client->setSystemPrompt(sysPrompt);
+        const llm::LlmRequestOptions reqOpts{item.model, sysPrompt, {}};
 
         if (item.targetType == "message") {
             QJsonArray messagesArray;
@@ -392,156 +387,179 @@ void QueueManager::processNext() {
                 messagesArray.append(msgObj);
             }
 
-            m_activeNetworkRequests[procId] = m_client->generateChat(
-                item.model, messagesArray,
-                [this, procId](const QString& chunk) {
-                    if (!m_activeItems.contains(procId)) return;
-                    auto act = m_activeItems[procId];
-                    if (act.db && act.db->isOpen()) {
-                        if (act.accumulatedContent.isNull()) {
-                            auto optMsg = act.db->getMessage(act.item.messageId);
-                            if (optMsg) {
-                                act.accumulatedContent = optMsg->content;
-                            } else {
-                                m_activeItems.remove(procId);
-                                if (m_activeNetworkRequests.contains(procId)) {
-                                    m_activeNetworkRequests[procId]->abort();
+            QNetworkReply* chatReply = m_client->generateChat(
+                reqOpts, messagesArray,
+                llm::LlmCallbacks{
+                    [this, procId](const QString& chunk) {
+                        if (!m_activeItems.contains(procId)) return;
+                        auto act = m_activeItems[procId];
+                        if (act.db && act.db->isOpen()) {
+                            if (act.accumulatedContent.isNull()) {
+                                auto optMsg = act.db->getMessage(act.item.messageId);
+                                if (optMsg) {
+                                    act.accumulatedContent = optMsg->content;
+                                } else {
+                                    m_activeItems.remove(procId);
+                                    if (m_activeNetworkRequests.contains(procId)) {
+                                        m_activeNetworkRequests[procId]->abort();
+                                    }
+                                    return;
                                 }
-                                return;
+                            }
+                            act.accumulatedContent += chunk;
+                            m_activeItems[procId] = act;
+
+                            // Accumulate in memory. Only update DB when message finishes to reduce IO pressure
+                            // Or if we need a periodic sync, can be based on length, e.g. every 50 chunks
+                            if (act.accumulatedContent.length() % 50 == 0) {
+                                act.db->updateMessage(act.item.messageId, act.accumulatedContent);
+                            }
+
+                            emit processingChunk(act.db, act.item.messageId, chunk, act.item.targetType);
+                        }
+                    },
+                    [this, procId](const QString& response) {
+                        if (!m_activeItems.contains(procId)) return;
+                        auto act = m_activeItems[procId];
+                        if (act.db && act.db->isOpen()) {
+                            act.db->updateMessage(act.item.messageId, response);
+                            act.db->updateQueueItemState(act.item.id, "applied", response);
+                            act.db->addNotification(act.item.messageId, act.item.targetType, "responded_to");
+
+                            act.db->setSetting(act.item.targetType, act.item.messageId, "model", act.item.model);
+
+                            QString sysPrompt = act.db->getInheritedSetting(act.item.messageId, "systemPrompt");
+                            if (sysPrompt.isEmpty()) {
+                                sysPrompt = act.db->getSetting("book", 0, "systemPrompt", "");
+                            }
+                            if (sysPrompt.isEmpty()) {
+                                QSettings settings;
+                                sysPrompt = settings.value("globalSystemPrompt", "").toString();
+                            }
+                            act.db->setSetting(act.item.targetType, act.item.messageId, "systemPrompt", sysPrompt);
+                        }
+                        emit processingFinished(act.db, act.item.messageId, true, act.item.targetType);
+                        m_activeItems.remove(procId);
+                        m_activeNetworkRequests.remove(procId);
+                        emit queueChanged();
+                        QTimer::singleShot(500, this, &QueueManager::checkQueue);
+                    },
+                    [this, procId](QNetworkReply::NetworkError errorCode, const QString& error) {
+                        if (!m_activeItems.contains(procId)) return;
+                        auto act = m_activeItems[procId];
+                        if (act.db && act.db->isOpen()) {
+                            if (errorCode == QNetworkReply::ConnectionRefusedError ||
+                                errorCode == QNetworkReply::HostNotFoundError ||
+                                errorCode == QNetworkReply::TimeoutError) {
+                                act.db->updateQueueItemState(act.item.id, "pending");
+                                act.db->updateQueueError(act.item.id, "");  // also resets processing_id to 0
+                            } else {
+                                act.db->updateQueueError(act.item.id, error);
+                                act.db->addNotification(act.item.messageId, act.item.targetType, "error");
                             }
                         }
-                        act.accumulatedContent += chunk;
-                        m_activeItems[procId] = act;
-
-                        // Accumulate in memory. Only update DB when message finishes to reduce IO pressure
-                        // Or if we need a periodic sync, can be based on length, e.g. every 50 chunks
-                        if (act.accumulatedContent.length() % 50 == 0) {
-                            act.db->updateMessage(act.item.messageId, act.accumulatedContent);
-                        }
-
-                        emit processingChunk(act.db, act.item.messageId, chunk, act.item.targetType);
-                    }
-                },
-                [this, procId](const QString& response) {
-                    if (!m_activeItems.contains(procId)) return;
-                    auto act = m_activeItems[procId];
-                    if (act.db && act.db->isOpen()) {
-                        act.db->updateMessage(act.item.messageId, response);
-                        act.db->deleteQueueItem(act.item.id);
-                        act.db->addNotification(act.item.messageId, act.item.targetType, "responded_to");
-
-                        act.db->setSetting(act.item.targetType, act.item.messageId, "model", act.item.model);
-
-                        QString sysPrompt = act.db->getInheritedSetting(act.item.messageId, "systemPrompt");
-                        if (sysPrompt.isEmpty()) {
-                            sysPrompt = act.db->getSetting("book", 0, "systemPrompt", "");
-                        }
-                        if (sysPrompt.isEmpty()) {
-                            QSettings settings;
-                            sysPrompt = settings.value("globalSystemPrompt", "").toString();
-                        }
-                        act.db->setSetting(act.item.targetType, act.item.messageId, "systemPrompt", sysPrompt);
-                    }
-                    emit processingFinished(act.db, act.item.messageId, true, act.item.targetType);
-                    m_activeItems.remove(procId);
-                    m_activeNetworkRequests.remove(procId);
-                    emit queueChanged();
-                    QTimer::singleShot(500, this, &QueueManager::checkQueue);
-                },
-                [this, procId](QNetworkReply::NetworkError errorCode, const QString& error) {
-                    if (!m_activeItems.contains(procId)) return;
-                    auto act = m_activeItems[procId];
-                    if (act.db && act.db->isOpen()) {
-                        if (errorCode == QNetworkReply::ConnectionRefusedError ||
-                            errorCode == QNetworkReply::HostNotFoundError || errorCode == QNetworkReply::TimeoutError) {
-                            act.db->updateQueueItemState(act.item.id, "pending");
-                            act.db->updateQueueError(act.item.id, "");  // also resets processing_id to 0
-                        } else {
-                            act.db->updateQueueError(act.item.id, error);
-                            act.db->addNotification(act.item.messageId, act.item.targetType, "error");
-                        }
-                    }
-                    emit processingFinished(act.db, act.item.messageId, false, act.item.targetType);
-                    m_activeItems.remove(procId);
-                    m_activeNetworkRequests.remove(procId);
-                    emit queueChanged();
-                    QTimer::singleShot(500, this, &QueueManager::checkQueue);
-                });
+                        emit processingFinished(act.db, act.item.messageId, false, act.item.targetType);
+                        m_activeItems.remove(procId);
+                        m_activeNetworkRequests.remove(procId);
+                        emit queueChanged();
+                        QTimer::singleShot(500, this, &QueueManager::checkQueue);
+                    }});
+            if (m_activeItems.contains(procId)) {
+                m_activeNetworkRequests[procId] = chatReply;
+            }
         } else {
-            m_activeNetworkRequests[procId] = m_client->generate(
-                item.model, item.prompt,
-                [this, procId](const QString& chunk) {
-                    if (!m_activeItems.contains(procId)) return;
-                    auto act = m_activeItems[procId];
-                    if (act.db && act.db->isOpen()) {
-                        if (act.item.targetType == "document" && act.item.targetAction == "replace_direct") {
-                            // We do not append chunks to the document during generation
-                            // to ensure the old content is visible until generation is complete.
+            QNetworkReply* genReply = m_client->generate(
+                reqOpts, item.prompt,
+                llm::LlmCallbacks{
+                    [this, procId](const QString& chunk) {
+                        if (!m_activeItems.contains(procId)) return;
+                        auto act = m_activeItems[procId];
+                        if (act.db && act.db->isOpen()) {
+                            if (act.item.targetType == "document" && act.item.targetAction == "replace_direct") {
+                                // We do not append chunks to the document during generation
+                                // to ensure the old content is visible until generation is complete.
+                            }
+                            // For other document actions, we do not update the document directly.
+                            // Just emit the chunk for the preview.
+                            emit processingChunk(act.db, act.item.messageId, chunk, act.item.targetType);
                         }
-                        // For other document actions, we do not update the document directly.
-                        // Just emit the chunk for the preview.
-                        emit processingChunk(act.db, act.item.messageId, chunk, act.item.targetType);
-                    }
-                },
-                [this, procId](const QString& response) {
-                    if (!m_activeItems.contains(procId)) return;
-                    auto act = m_activeItems[procId];
-                    if (act.db && act.db->isOpen()) {
-                        if (act.item.targetType == "document" && act.item.targetAction == "replace_direct") {
-                            // Directly replace content without review.
-                            if (!act.title.isNull()) {
-                                act.db->updateDocument(act.item.messageId, act.title, response, act.metadata);
+                    },
+                    [this, procId](const QString& response) {
+                        if (!m_activeItems.contains(procId)) return;
+                        auto act = m_activeItems[procId];
+                        bool completedOk = true;
+                        if (act.db && act.db->isOpen()) {
+                            if (act.item.targetType == "document" && act.item.targetAction == "replace_direct") {
+                                // Directly replace content atomically via RunStore::applyRunOutput.
+                                QString resolvedTitle = act.title;
+                                QString resolvedMetadata = act.metadata;
+                                if (resolvedTitle.isNull()) {
+                                    auto optDoc = act.db->getDocument(act.item.messageId);
+                                    if (optDoc) {
+                                        resolvedTitle = optDoc->title;
+                                        if (resolvedMetadata.isNull()) {
+                                            resolvedMetadata = optDoc->metadata;
+                                        }
+                                    }
+                                }
+                                if (act.db->applyRunOutput(act.item.id, response, resolvedTitle, resolvedMetadata)) {
+                                    act.db->addNotification(act.item.messageId, act.item.targetType,
+                                                            "finished_generation");
+                                } else {
+                                    completedOk = false;
+                                    act.db->addNotification(act.item.messageId, act.item.targetType, "error");
+                                }
                             } else {
-                                auto optDoc = act.db->getDocument(act.item.messageId);
-                                if (optDoc) {
-                                    act.db->updateDocument(act.item.messageId, optDoc->title, response,
-                                                           optDoc->metadata);
+                                if (act.db->updateQueueItemState(act.item.id, "completed", response)) {
+                                    act.db->addNotification(act.item.messageId, act.item.targetType, "review_needed");
+                                } else {
+                                    completedOk = false;
                                 }
                             }
-                            act.db->deleteQueueItem(act.item.id);
-                            act.db->addNotification(act.item.messageId, act.item.targetType, "finished_generation");
-                        } else {
-                            act.db->updateQueueItemState(act.item.id, "completed", response);
-                            act.db->addNotification(act.item.messageId, act.item.targetType, "review_needed");
-                        }
 
-                        act.db->setSetting(act.item.targetType, act.item.messageId, "model", act.item.model);
+                            if (completedOk) {
+                                act.db->setSetting(act.item.targetType, act.item.messageId, "model", act.item.model);
 
-                        QString sysPrompt = act.db->getInheritedSetting(act.item.messageId, "systemPrompt");
-                        if (sysPrompt.isEmpty()) {
-                            sysPrompt = act.db->getSetting("book", 0, "systemPrompt", "");
+                                QString sysPrompt = act.db->getInheritedSetting(act.item.messageId, "systemPrompt");
+                                if (sysPrompt.isEmpty()) {
+                                    sysPrompt = act.db->getSetting("book", 0, "systemPrompt", "");
+                                }
+                                if (sysPrompt.isEmpty()) {
+                                    QSettings settings;
+                                    sysPrompt = settings.value("globalSystemPrompt", "").toString();
+                                }
+                                act.db->setSetting(act.item.targetType, act.item.messageId, "systemPrompt", sysPrompt);
+                            }
                         }
-                        if (sysPrompt.isEmpty()) {
-                            QSettings settings;
-                            sysPrompt = settings.value("globalSystemPrompt", "").toString();
+                        emit processingFinished(act.db, act.item.messageId, completedOk, act.item.targetType);
+                        m_activeItems.remove(procId);
+                        m_activeNetworkRequests.remove(procId);
+                        emit queueChanged();
+                        QTimer::singleShot(500, this, &QueueManager::checkQueue);
+                    },
+                    [this, procId](QNetworkReply::NetworkError errorCode, const QString& error) {
+                        if (!m_activeItems.contains(procId)) return;
+                        auto act = m_activeItems[procId];
+                        if (act.db && act.db->isOpen()) {
+                            if (errorCode == QNetworkReply::ConnectionRefusedError ||
+                                errorCode == QNetworkReply::HostNotFoundError ||
+                                errorCode == QNetworkReply::TimeoutError) {
+                                act.db->updateQueueItemState(act.item.id, "pending");
+                                act.db->updateQueueError(act.item.id, "");  // also resets processing_id to 0
+                            } else {
+                                act.db->updateQueueError(act.item.id, error);
+                                act.db->addNotification(act.item.messageId, act.item.targetType, "error");
+                            }
                         }
-                        act.db->setSetting(act.item.targetType, act.item.messageId, "systemPrompt", sysPrompt);
-                    }
-                    emit processingFinished(act.db, act.item.messageId, true, act.item.targetType);
-                    m_activeItems.remove(procId);
-                    m_activeNetworkRequests.remove(procId);
-                    emit queueChanged();
-                    QTimer::singleShot(500, this, &QueueManager::checkQueue);
-                },
-                [this, procId](QNetworkReply::NetworkError errorCode, const QString& error) {
-                    if (!m_activeItems.contains(procId)) return;
-                    auto act = m_activeItems[procId];
-                    if (act.db && act.db->isOpen()) {
-                        if (errorCode == QNetworkReply::ConnectionRefusedError ||
-                            errorCode == QNetworkReply::HostNotFoundError || errorCode == QNetworkReply::TimeoutError) {
-                            act.db->updateQueueItemState(act.item.id, "pending");
-                            act.db->updateQueueError(act.item.id, "");  // also resets processing_id to 0
-                        } else {
-                            act.db->updateQueueError(act.item.id, error);
-                            act.db->addNotification(act.item.messageId, act.item.targetType, "error");
-                        }
-                    }
-                    emit processingFinished(act.db, act.item.messageId, false, act.item.targetType);
-                    m_activeItems.remove(procId);
-                    m_activeNetworkRequests.remove(procId);
-                    emit queueChanged();
-                    QTimer::singleShot(500, this, &QueueManager::checkQueue);
-                });
+                        emit processingFinished(act.db, act.item.messageId, false, act.item.targetType);
+                        m_activeItems.remove(procId);
+                        m_activeNetworkRequests.remove(procId);
+                        emit queueChanged();
+                        QTimer::singleShot(500, this, &QueueManager::checkQueue);
+                    }});
+            if (m_activeItems.contains(procId)) {
+                m_activeNetworkRequests[procId] = genReply;
+            }
         }
     }
 }
