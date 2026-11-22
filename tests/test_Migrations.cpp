@@ -112,7 +112,9 @@ bool readTableIndexes(db::Database& db, const QString& table, QVector<ActualInde
 
 bool matchesExpectedSchema(db::Database& db, std::initializer_list<ExpectedTable> expectedTables, QString& error) {
     sqlite3_stmt* statement = nullptr;
-    const char* sql = "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name;";
+    const char* sql =
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' "
+        "AND name NOT LIKE 'search_fts%' ORDER BY name;";
     if (sqlite3_prepare_v2(db.handle(), sql, -1, &statement, nullptr) != SQLITE_OK) {
         error = QString::fromUtf8(sqlite3_errmsg(db.handle()));
         return false;
@@ -557,14 +559,27 @@ void TestMigrations::testFreshSchemaEquivalence() {
           {"model", "TEXT", "''", 0},
           {"created_at", "DATETIME", "CURRENT_TIMESTAMP", 0},
           {"updated_at", "DATETIME", "CURRENT_TIMESTAMP", 0}},
-         {{false, {"root_message_id"}}}}};
+         {{false, {"root_message_id"}}}},
+        {"search_index",
+         {{"id", "INTEGER", "", 1},
+          {"item_kind", "TEXT", "", 0},
+          {"item_id", "INTEGER", "", 0},
+          {"folder_id", "INTEGER", "0", 0},
+          {"title", "TEXT", "''", 0},
+          {"body", "TEXT", "''", 0},
+          {"updated_at", "DATETIME", "CURRENT_TIMESTAMP", 0}},
+         {{false, {"item_kind", "item_id"}}, {true, {"item_kind", "item_id"}}}}};
     QVERIFY2(matchesExpectedSchema(db, expectedTables, error), qPrintable(error));
+
+    int hasFts = 0;
+    QVERIFY(db.queryInt("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='search_fts';", hasFts));
+    QCOMPARE(hasFts, 1);
 
     int version = 0;
     QVERIFY(db.queryInt("PRAGMA user_version;", version));
-    QCOMPARE(version, 31);
+    QCOMPARE(version, 32);
     QVERIFY(db.queryInt("SELECT MAX(version) FROM schema_version;", version));
-    QCOMPARE(version, 31);
+    QCOMPARE(version, 32);
 
     sqlite3_close(dbHandle);
 }
@@ -1503,7 +1518,7 @@ void TestMigrations::testEncryptedFileBackedHistoricalFixtureUpgradeToV25() {
 
     int userVersion = 0;
     QVERIFY(upgradedDb.queryInt("PRAGMA user_version;", userVersion));
-    QCOMPARE(userVersion, 31);
+    QCOMPARE(userVersion, 32);
 
     int artifactCount = 0;
     QVERIFY(upgradedDb.queryInt("SELECT COUNT(*) FROM artifacts;", artifactCount));

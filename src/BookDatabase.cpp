@@ -31,7 +31,7 @@
 #endif
 
 namespace {
-constexpr int CURRENT_SCHEMA_VERSION = 31;
+constexpr int CURRENT_SCHEMA_VERSION = 32;
 constexpr int kRestoreJournalVersion = 1;
 
 BookDatabase::RestoreFaultHook g_restoreFaultHook;
