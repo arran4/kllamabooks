@@ -166,6 +166,8 @@ class MainWindow : public KXmlGuiWindow {
                                  const QMultiMap<int, FolderNode>* preloadedFolders = nullptr);
     void populateDraftsFolders(QStandardItem* parentItem, int folderId, const QString& underlyingType, BookDatabase* db,
                                const QMultiMap<int, FolderNode>* preloadedFolders = nullptr);
+    void populateUnifiedFolders(QStandardItem* parentItem, int folderId, BookDatabase* db,
+                                const QMultiMap<int, FolderNode>* preloadedFolders = nullptr);
     void addPhantomItem(QStandardItem* folderItem, const QString& type);
     void updateLinearChatView(int tailNodeId, const QList<MessageNode>& allMessages);
     void getPathToRoot(int nodeId, const QList<MessageNode>& allMessages, QList<MessageNode>& path);
@@ -269,6 +271,7 @@ class MainWindow : public KXmlGuiWindow {
     bool isCreatingNewChat = false;
     bool isCreatingNewDoc = false;
     bool isCreatingNewNote = false;
+    bool m_unifiedFolderTree = false;
 
     bool m_isGenerating = false;
     int m_generationId = 0;

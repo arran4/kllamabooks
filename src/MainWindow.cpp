@@ -935,6 +935,17 @@ void MainWindow::setupUi() {
     connect(showSpyAction, &QAction::triggered, this, &MainWindow::showSpyWindow);
     actionCollection()->addAction(QStringLiteral("show_spy"), showSpyAction);
 
+    m_unifiedFolderTree = QSettings().value("unifiedFolderTree", false).toBool();
+    QAction* toggleUnifiedFoldersAction = new QAction(QIcon::fromTheme("folder-open"), tr("Unified Folder Tree"), this);
+    toggleUnifiedFoldersAction->setCheckable(true);
+    toggleUnifiedFoldersAction->setChecked(m_unifiedFolderTree);
+    actionCollection()->addAction(QStringLiteral("toggle_unified_folders"), toggleUnifiedFoldersAction);
+    connect(toggleUnifiedFoldersAction, &QAction::toggled, this, [this](bool checked) {
+        m_unifiedFolderTree = checked;
+        QSettings().setValue("unifiedFolderTree", checked);
+        loadDocumentsAndNotes();
+    });
+
     QAction* createFolderAction = new QAction(QIcon::fromTheme("folder-new"), tr("Create Folder"), this);
     actionCollection()->addAction(QStringLiteral("create_folder"), createFolderAction);
     connect(createFolderAction, &QAction::triggered, createFolderMenuAction, &QAction::trigger);
@@ -2279,19 +2290,19 @@ void MainWindow::onBookSelected(const QModelIndex& index) {
 
     // Add to open books tree
     QStandardItem* bookItem = new QStandardItem(QIcon::fromTheme("application-x-sqlite3"), fileName);
-    bookItem->setData("book", Qt::UserRole + 1);    // Type
+    store::applyItemRef(bookItem, {store::ItemKind::Book, 0, QString()});
     bookItem->setData(filePath, Qt::UserRole + 2);  // Store path
     QStandardItem* chatsItem = new QStandardItem(QIcon::fromTheme("folder-open"), "Chats");
-    chatsItem->setData("chats_folder", Qt::UserRole + 1);
+    store::applyItemRef(chatsItem, {store::ItemKind::ChatsRoot, 0, QStringLiteral("chats")});
 
     QStandardItem* docsItem = new QStandardItem(QIcon::fromTheme("folder-open"), "Documents");
-    docsItem->setData("docs_folder", Qt::UserRole + 1);
+    store::applyItemRef(docsItem, {store::ItemKind::DocsRoot, 0, QStringLiteral("documents")});
     QStandardItem* notesItem = new QStandardItem(QIcon::fromTheme("folder-open"), "Notes");
-    notesItem->setData("notes_folder", Qt::UserRole + 1);
+    store::applyItemRef(notesItem, {store::ItemKind::NotesRoot, 0, QStringLiteral("notes")});
     QStandardItem* templatesItem = new QStandardItem(QIcon::fromTheme("folder-open"), "Templates");
-    templatesItem->setData("templates_folder", Qt::UserRole + 1);
+    store::applyItemRef(templatesItem, {store::ItemKind::TemplatesRoot, 0, QStringLiteral("templates")});
     QStandardItem* draftsItem = new QStandardItem(QIcon::fromTheme("folder-open"), "Drafts");
-    draftsItem->setData("drafts_folder", Qt::UserRole + 1);
+    store::applyItemRef(draftsItem, {store::ItemKind::DraftsRoot, 0, QStringLiteral("drafts")});
 
     // Populate actual chats from database directly into the tree
     bookItem->appendRow(chatsItem);
@@ -2299,6 +2310,12 @@ void MainWindow::onBookSelected(const QModelIndex& index) {
     bookItem->appendRow(notesItem);
     bookItem->appendRow(templatesItem);
     bookItem->appendRow(draftsItem);
+
+    if (m_unifiedFolderTree) {
+        QStandardItem* unifiedItem = new QStandardItem(QIcon::fromTheme("folder-open"), "Unified");
+        store::applyItemRef(unifiedItem, {store::ItemKind::UnifiedRoot, 0, QStringLiteral("unified")});
+        bookItem->appendRow(unifiedItem);
+    }
 
     openBooksModel->appendRow(bookItem);
 
@@ -2363,8 +2380,7 @@ void MainWindow::populateDraftsFolders(QStandardItem* parentItem, int folderId, 
     auto children = foldersPtr->values(folderId);
     for (const auto& folder : children) {
         QStandardItem* item = new QStandardItem(QIcon::fromTheme("folder-open"), folder.name);
-        item->setData(folder.id, Qt::UserRole);
-        item->setData("drafts_folder", Qt::UserRole + 1);
+        store::applyItemRef(item, {store::ItemKind::Folder, folder.id, QStringLiteral("drafts")});
 
         parentItem->appendRow(item);
         populateDraftsFolders(item, folder.id, underlyingType, db, foldersPtr);
@@ -2376,8 +2392,7 @@ void MainWindow::populateDraftsFolders(QStandardItem* parentItem, int folderId, 
         // DocumentNode targetType now works
         if (doc.targetType == underlyingType || doc.targetType == underlyingType.left(underlyingType.length() - 1)) {
             QStandardItem* docItem = new QStandardItem(QIcon::fromTheme("text-plain"), doc.title);
-            docItem->setData(doc.id, Qt::UserRole);
-            docItem->setData("draft", Qt::UserRole + 1);
+            store::applyItemRef(docItem, {store::ItemKind::Draft, doc.id, QStringLiteral("drafts")});
             parentItem->appendRow(docItem);
         }
     }
@@ -2401,16 +2416,7 @@ void MainWindow::populateDocumentFolders(QStandardItem* parentItem, int folderId
     auto children = foldersPtr->values(folderId);
     for (const auto& folder : children) {
         QStandardItem* item = new QStandardItem(QIcon::fromTheme("folder-open"), folder.name);
-        item->setData(folder.id, Qt::UserRole);
-        QString folderTypeSuffix = "_folder";
-        if (type == "documents")
-            item->setData("docs_folder", Qt::UserRole + 1);
-        else if (type == "templates")
-            item->setData("templates_folder", Qt::UserRole + 1);
-        else if (type == "drafts")
-            item->setData("drafts_folder", Qt::UserRole + 1);
-        else if (type == "notes")
-            item->setData("notes_folder", Qt::UserRole + 1);
+        store::applyItemRef(item, {store::ItemKind::Folder, folder.id, store::normalizeFolderRootType(type)});
 
         parentItem->appendRow(item);
         populateDocumentFolders(item, folder.id, type, db, foldersPtr);
@@ -2436,15 +2442,16 @@ void MainWindow::populateDocumentFolders(QStandardItem* parentItem, int folderId
 
         for (const auto& doc : docs) {
             QString itemType = (type == "documents") ? "document" : ((type == "templates") ? "template" : "draft");
+            store::ItemKind itemKind =
+                (type == "documents") ? store::ItemKind::Document
+                                      : ((type == "templates") ? store::ItemKind::Template : store::ItemKind::Draft);
             QStandardItem* item = new QStandardItem(QIcon::fromTheme("text-x-generic"), doc.title);
-            item->setData(doc.id, Qt::UserRole);
-            item->setData(itemType, Qt::UserRole + 1);
+            store::applyItemRef(item, {itemKind, doc.id, store::normalizeFolderRootType(type)});
             if (itemType != "draft") {
                 for (const auto& d : allDrafts) {
                     if (d.parentId == doc.id && (d.targetType == itemType || d.targetType == type)) {
                         QStandardItem* draftItem = new QStandardItem(QIcon::fromTheme("text-plain"), d.title);
-                        draftItem->setData(d.id, Qt::UserRole);
-                        draftItem->setData("draft", Qt::UserRole + 1);
+                        store::applyItemRef(draftItem, {store::ItemKind::Draft, d.id, QStringLiteral("drafts")});
                         item->appendRow(draftItem);
                     }
                 }
@@ -2455,18 +2462,63 @@ void MainWindow::populateDocumentFolders(QStandardItem* parentItem, int folderId
         QList<NoteNode> notes = db->getNotes(folderId);
         for (const auto& note : notes) {
             QStandardItem* item = new QStandardItem(QIcon::fromTheme("text-x-generic"), note.title);
-            item->setData(note.id, Qt::UserRole);
-            item->setData("note", Qt::UserRole + 1);
+            store::applyItemRef(item, {store::ItemKind::Note, note.id, QStringLiteral("notes")});
             for (const auto& d : allDrafts) {
                 if (d.parentId == note.id && (d.targetType == "note" || d.targetType == "notes")) {
                     QStandardItem* draftItem = new QStandardItem(QIcon::fromTheme("text-plain"), d.title);
-                    draftItem->setData(d.id, Qt::UserRole);
-                    draftItem->setData("draft", Qt::UserRole + 1);
+                    store::applyItemRef(draftItem, {store::ItemKind::Draft, d.id, QStringLiteral("drafts")});
                     item->appendRow(draftItem);
                 }
             }
             parentItem->appendRow(item);
         }
+    }
+}
+
+void MainWindow::populateUnifiedFolders(QStandardItem* parentItem, int folderId, BookDatabase* db,
+                                        const QMultiMap<int, FolderNode>* preloadedFolders) {
+    if (!db) return;
+
+    QMultiMap<int, FolderNode> fetchedFolders;
+    const QMultiMap<int, FolderNode>* foldersPtr = preloadedFolders;
+    if (!foldersPtr) {
+        QList<FolderNode> flatFolders = db->getFolders("unified");
+        for (const auto& f : flatFolders) {
+            fetchedFolders.insert(f.parentId, f);
+        }
+        foldersPtr = &fetchedFolders;
+    }
+
+    auto children = foldersPtr->values(folderId);
+    for (const auto& folder : children) {
+        QStandardItem* item = new QStandardItem(QIcon::fromTheme("folder-open"), folder.name);
+        store::applyItemRef(item, {store::ItemKind::Folder, folder.id, QStringLiteral("unified")});
+        parentItem->appendRow(item);
+        populateUnifiedFolders(item, folder.id, db, foldersPtr);
+        if (folder.isExpanded) {
+            openBooksTree->setExpanded(item->index(), true);
+        }
+    }
+
+    for (const auto& doc : db->getDocuments(folderId)) {
+        QStandardItem* item = new QStandardItem(QIcon::fromTheme("text-x-generic"), doc.title);
+        store::applyItemRef(item, {store::ItemKind::Document, doc.id, QStringLiteral("documents")});
+        parentItem->appendRow(item);
+    }
+    for (const auto& note : db->getNotes(folderId)) {
+        QStandardItem* item = new QStandardItem(QIcon::fromTheme("text-x-generic"), note.title);
+        store::applyItemRef(item, {store::ItemKind::Note, note.id, QStringLiteral("notes")});
+        parentItem->appendRow(item);
+    }
+    for (const auto& tpl : db->getTemplates(folderId)) {
+        QStandardItem* item = new QStandardItem(QIcon::fromTheme("text-x-generic"), tpl.title);
+        store::applyItemRef(item, {store::ItemKind::Template, tpl.id, QStringLiteral("templates")});
+        parentItem->appendRow(item);
+    }
+    for (const auto& draft : db->getDrafts(folderId)) {
+        QStandardItem* item = new QStandardItem(QIcon::fromTheme("text-plain"), draft.title);
+        store::applyItemRef(item, {store::ItemKind::Draft, draft.id, QStringLiteral("drafts")});
+        parentItem->appendRow(item);
     }
 }
 
@@ -4041,8 +4093,7 @@ void MainWindow::refreshVfsExplorer() {
     for (int i = 0; i < item->rowCount(); ++i) {
         QStandardItem* childTreeItem = item->child(i);
         QStandardItem* childItem = new QStandardItem(childTreeItem->icon(), childTreeItem->text());
-        childItem->setData(childTreeItem->data(Qt::UserRole), Qt::UserRole);
-        childItem->setData(childTreeItem->data(Qt::UserRole + 1), Qt::UserRole + 1);
+        store::applyItemRef(childItem, store::itemRefFromStandardItem(childTreeItem));
         vfsModel->appendRow(childItem);
     }
 }
@@ -4171,7 +4222,7 @@ void MainWindow::onOpenBooksSelectionChanged(const QItemSelection& selected, con
 
     QString type = item->data(Qt::UserRole + 1).toString();
     if (type == "book" || type == "chats_folder" || type == "docs_folder" || type == "notes_folder" ||
-        type == "templates_folder" || type == "drafts_folder") {
+        type == "templates_folder" || type == "drafts_folder" || type == "unified_folder") {
         refreshVfsExplorer();
 
         mainContentStack->setCurrentWidget(vfsExplorer);
@@ -4266,6 +4317,7 @@ void MainWindow::loadDocumentsAndNotes() {
         QStandardItem* draftsFolder = nullptr;
         QStandardItem* notesFolder = nullptr;
         QStandardItem* chatsFolder = nullptr;
+        QStandardItem* unifiedFolder = nullptr;
 
         for (int j = 0; j < bookItem->rowCount(); ++j) {
             QString type = bookItem->child(j)->data(Qt::UserRole + 1).toString();
@@ -4279,6 +4331,17 @@ void MainWindow::loadDocumentsAndNotes() {
                 notesFolder = bookItem->child(j);
             else if (type == "chats_folder")
                 chatsFolder = bookItem->child(j);
+            else if (type == "unified_folder")
+                unifiedFolder = bookItem->child(j);
+        }
+
+        if (m_unifiedFolderTree && !unifiedFolder) {
+            unifiedFolder = new QStandardItem(QIcon::fromTheme("folder-open"), "Unified");
+            store::applyItemRef(unifiedFolder, {store::ItemKind::UnifiedRoot, 0, QStringLiteral("unified")});
+            bookItem->appendRow(unifiedFolder);
+        } else if (!m_unifiedFolderTree && unifiedFolder) {
+            bookItem->removeRow(unifiedFolder->row());
+            unifiedFolder = nullptr;
         }
 
         if (docsFolder) {
@@ -4296,6 +4359,10 @@ void MainWindow::loadDocumentsAndNotes() {
         if (notesFolder) {
             notesFolder->removeRows(0, notesFolder->rowCount());
             populateDocumentFolders(notesFolder, 0, "notes", db.get());
+        }
+        if (unifiedFolder) {
+            unifiedFolder->removeRows(0, unifiedFolder->rowCount());
+            populateUnifiedFolders(unifiedFolder, 0, db.get());
         }
         if (chatsFolder) {
             chatsFolder->removeRows(0, chatsFolder->rowCount());
@@ -5267,17 +5334,19 @@ bool MainWindow::moveItemToFolder(QStandardItem* draggedItem, QStandardItem* tar
         }
         return false;
     }
+    store::ItemRef draggedRef = store::itemRefFromStandardItem(draggedItem);
+    store::ItemRef targetRef = store::itemRefFromStandardItem(targetItem);
     bool compatible = false;
-    QString table;
-    int dbItemId = itemId;
-    if ((itemType == "chat_session" || itemType == "chat_node") && targetType == "chats_folder") {
-        if (itemType == "chat_node") {
+
+    if ((draggedRef.kind == store::ItemKind::ChatSession || draggedRef.kind == store::ItemKind::ChatNode) &&
+        (targetRef.rootType == "chats" || targetRef.rootType == "unified")) {
+        if (draggedRef.kind == store::ItemKind::ChatNode) {
             if (draggedItem->parent() && draggedItem->parent()->data(Qt::UserRole + 1).toString() == "chats_folder") {
                 QList<MessageNode> msgs = db->getMessages();
                 QList<MessageNode> path;
                 getPathToRoot(itemId, msgs, path);
                 if (!path.isEmpty()) {
-                    dbItemId = path.first().id;
+                    draggedRef.id = path.first().id;
                 } else {
                     return false;
                 }
@@ -5285,28 +5354,28 @@ bool MainWindow::moveItemToFolder(QStandardItem* draggedItem, QStandardItem* tar
                 return false;
             }
         }
-        table = "messages";
         compatible = true;
-    } else if (itemType == "document" && targetType == "docs_folder") {
-        table = "documents";
+    } else if (draggedRef.kind == store::ItemKind::Document &&
+               (targetRef.rootType == "documents" || targetRef.rootType == "unified")) {
         compatible = true;
-    } else if (itemType == "template" && targetType == "templates_folder") {
-        table = "templates";
+    } else if (draggedRef.kind == store::ItemKind::Template &&
+               (targetRef.rootType == "templates" || targetRef.rootType == "unified")) {
         compatible = true;
-    } else if (itemType == "draft" && targetType == "drafts_folder") {
-        table = "drafts";
+    } else if (draggedRef.kind == store::ItemKind::Draft &&
+               (targetRef.rootType == "drafts" || targetRef.rootType == "unified")) {
         compatible = true;
-    } else if (itemType == "note" && targetType == "notes_folder") {
-        table = "notes";
+    } else if (draggedRef.kind == store::ItemKind::Note &&
+               (targetRef.rootType == "notes" || targetRef.rootType == "unified")) {
         compatible = true;
-    } else if (itemType.endsWith("_folder") && targetType == itemType) {
+    } else if (draggedRef.kind == store::ItemKind::Folder &&
+               (targetRef.rootType == draggedRef.rootType || targetRef.rootType == "unified")) {
         if (db->moveFolder(itemId, targetFolderId)) {
             QTimer::singleShot(0, this, [this]() { loadDocumentsAndNotes(); });
             return true;
         }
     }
 
-    if (compatible && db->moveItem(table, dbItemId, targetFolderId)) {
+    if (compatible && db->moveItem(draggedRef, targetFolderId)) {
         QTimer::singleShot(0, this, [this]() { loadDocumentsAndNotes(); });
         return true;
     }
