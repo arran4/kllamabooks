@@ -968,6 +968,37 @@ MigrationRunner MigrationFactory::createRunner() {
              return true;
          }});
 
+    runner.addMigration(
+        {25, 26, "Create quarantined_records table for orphaned and recovered data", [](Database& db) {
+             if (!db.execute("CREATE TABLE quarantined_records ("
+                             "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                             "source_table TEXT NOT NULL, "
+                             "legacy_id INTEGER, "
+                             "target_type TEXT NOT NULL DEFAULT '', "
+                             "parent_reference INTEGER, "
+                             "title TEXT, "
+                             "content TEXT, "
+                             "raw_payload_json TEXT NOT NULL, "
+                             "reason TEXT NOT NULL, "
+                             "status TEXT NOT NULL DEFAULT 'quarantined' "
+                             "CHECK(status IN ('quarantined', 'reimported', 'reassigned', 'deleted')), "
+                             "resolved_target_kind TEXT, "
+                             "resolved_target_id INTEGER, "
+                             "created_at DATETIME DEFAULT CURRENT_TIMESTAMP, "
+                             "resolved_at DATETIME"
+                             ");")) {
+                 return false;
+             }
+             if (!db.execute("CREATE INDEX idx_quarantined_records_status ON quarantined_records(status);")) {
+                 return false;
+             }
+             if (!db.execute(
+                     "CREATE INDEX idx_quarantined_records_source ON quarantined_records(source_table, legacy_id);")) {
+                 return false;
+             }
+             return true;
+         }});
+
     return runner;
 }
 
