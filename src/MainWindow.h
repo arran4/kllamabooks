@@ -145,6 +145,8 @@ class MainWindow : public KXmlGuiWindow {
     void onProcessingFinished(std::shared_ptr<BookDatabase> db, int messageId, bool success, const QString& targetType);
     void onCancelActiveGeneration();
     void updateGenerationUI();
+    void onOpenRecoveryBrowser();
+    void reportError(const QString& context, const QString& message, bool blocking = false);
 
    protected:
     void closeEvent(QCloseEvent* event) override;
